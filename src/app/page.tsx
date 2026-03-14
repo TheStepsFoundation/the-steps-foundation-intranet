@@ -17,12 +17,12 @@ import {
 
 // Team members from Steps Foundation
 const TEAM_MEMBERS = [
-  { id: 1, name: "God'sFavour Oluwanusin", role: 'Co-founder', avatar: 'Favour' },
-  { id: 2, name: 'Jin Samson', role: 'Co-founder', avatar: 'Jin' },
-  { id: 3, name: 'Daniyaal Anawar', role: 'Co-founder', avatar: 'Dany' },
-  { id: 4, name: 'Sam Ellis', role: 'Core Team', avatar: 'Sam' },
-  { id: 5, name: 'Earl Xavier', role: 'Core Team', avatar: 'Earl' },
-  { id: 6, name: 'Aditya Muthukumar', role: 'Core Team', avatar: 'Adi' },
+  { id: 1, name: "God'sFavour Oluwanusin", role: 'Co-founder', avatar: 'GO' },
+  { id: 2, name: 'Jin Samson', role: 'Co-founder', avatar: 'JS' },
+  { id: 3, name: 'Daniyaal Anawar', role: 'Co-founder', avatar: 'DA' },
+  { id: 4, name: 'Sam Ellis', role: 'Core Team', avatar: 'SE' },
+  { id: 5, name: 'Earl Xavier', role: 'Core Team', avatar: 'EX' },
+  { id: 6, name: 'Aditya Muthukumar', role: 'Core Team', avatar: 'AM' },
 ]
 
 // Workflows / Categories
@@ -1364,11 +1364,11 @@ Example:
                               <p className="text-xs text-gray-500 mt-1 line-clamp-2">{task.description}</p>
                               <div className="flex items-center gap-2 mt-2 flex-wrap">
                                 {member ? (
-                                  <span className="inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                                    {member.avatar} {member.name.split(' ')[0]}
+                                  <span className="inline-flex items-center text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-medium">
+                                    {member.avatar}
                                   </span>
                                 ) : (
-                                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Unassigned</span>
+                                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">—</span>
                                 )}
                                 <span className={`text-xs px-2 py-0.5 rounded ${priorityColors[task.priority]}`}>
                                   {task.priority}
