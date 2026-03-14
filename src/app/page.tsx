@@ -1846,6 +1846,9 @@ export default function Home() {
   const [weekCapacities, setWeekCapacities] = useState<Record<string, Record<number, number>>>({})
   // weekCapacities format: { "2026-03-16": { 1: 8, 2: 6, 3: 10 } } (weekStart -> memberId -> hours)
   
+  const [weekNotes, setWeekNotes] = useState<Record<string, Record<number, string>>>({})
+  // weekNotes format: { "2026-03-16": { 1: "Exams until Friday", 2: "Swimming comp" } }
+  
   // Global workflow filter (applies to all views)
   const [globalWorkflow, setGlobalWorkflow] = useState<string>('all')
   
@@ -1955,6 +1958,21 @@ export default function Home() {
       [weekStart]: {
         ...prev[weekStart],
         [memberId]: Math.max(0, Math.min(40, hours)) // Clamp 0-40h
+      }
+    }))
+  }
+  
+  // Get/set availability note for a member for a specific week
+  const getMemberNote = (memberId: number, weekStart: string): string => {
+    return weekNotes[weekStart]?.[memberId] ?? ''
+  }
+  
+  const setMemberNote = (memberId: number, weekStart: string, note: string) => {
+    setWeekNotes(prev => ({
+      ...prev,
+      [weekStart]: {
+        ...prev[weekStart],
+        [memberId]: note
       }
     }))
   }
@@ -2435,6 +2453,11 @@ export default function Home() {
                     <div className="flex-1">
                       <h3 className="font-semibold text-gray-900">{member.name}</h3>
                       <p className="text-sm text-gray-500">{member.role}</p>
+                      {getMemberNote(member.id, selectedWeek) && (
+                        <p className="text-xs text-amber-600 mt-0.5 italic">
+                          📌 {getMemberNote(member.id, selectedWeek)}
+                        </p>
+                      )}
                     </div>
                     {isOverCapacity && (
                       <div className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium flex items-center gap-1">
@@ -2483,6 +2506,17 @@ export default function Home() {
                       <span>20h</span>
                       <span>40h</span>
                     </div>
+                  </div>
+                  
+                  {/* Availability note */}
+                  <div className="mb-3">
+                    <input
+                      type="text"
+                      value={getMemberNote(member.id, selectedWeek)}
+                      onChange={e => setMemberNote(member.id, selectedWeek, e.target.value)}
+                      placeholder="Note: exams, holiday, busy..."
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-transparent outline-none"
+                    />
                   </div>
                   
                   {/* Breakdown by intensity with time estimates */}
