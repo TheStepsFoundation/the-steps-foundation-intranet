@@ -4,20 +4,16 @@ import { useState } from 'react'
 import {
   DndContext,
   DragOverlay,
-  closestCorners,
-  KeyboardSensor,
+  closestCenter,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragStartEvent,
   DragEndEvent,
+  useDroppable,
 } from '@dnd-kit/core'
-import {
-  useSortable,
-  SortableContext,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import { useDraggable } from '@dnd-kit/core'
 
 // Team members from Steps Foundation
 const TEAM_MEMBERS = [
@@ -145,29 +141,45 @@ const statusLabels: Record<Status, string> = {
   'done': 'Done',
 }
 
-// Sortable Task Card
-function SortableTaskCard({ 
+// Droppable Column
+function DroppableColumn({ 
+  id, 
+  children, 
+  className = '' 
+}: { 
+  id: string
+  children: React.ReactNode
+  className?: string 
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+  
+  return (
+    <div 
+      ref={setNodeRef}
+      className={`${className} ${isOver ? 'ring-2 ring-purple-400 ring-inset bg-purple-50' : ''}`}
+    >
+      {children}
+    </div>
+  )
+}
+
+// Draggable Task Card
+function DraggableTaskCard({ 
   task, 
-  onClick, 
+  onDoubleClick,
   showStatus = false 
 }: { 
   task: Task
-  onClick: () => void
+  onDoubleClick: () => void
   showStatus?: boolean 
 }) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id })
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: task.id,
+  })
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
+  const style = transform ? {
+    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+  } : undefined
 
   const member = TEAM_MEMBERS.find(m => m.id === task.assignee)
 
@@ -175,21 +187,14 @@ function SortableTaskCard({
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-white rounded-lg p-4 shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer ${
-        isDragging ? 'opacity-50 shadow-lg' : ''
+      {...listeners}
+      {...attributes}
+      onDoubleClick={onDoubleClick}
+      className={`bg-white rounded-lg p-4 shadow-sm border border-gray-100 hover:shadow-md transition select-none ${
+        isDragging ? 'opacity-50 shadow-lg cursor-grabbing z-50' : 'cursor-grab'
       }`}
-      onClick={onClick}
     >
-      <div 
-        className="absolute top-2 right-2 p-1 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600"
-        {...attributes}
-        {...listeners}
-      >
-        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M7 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM7 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 8a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM13 14a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>
-        </svg>
-      </div>
-      <h3 className="font-medium text-gray-900 mb-2 pr-6">{task.title}</h3>
+      <h3 className="font-medium text-gray-900 mb-2">{task.title}</h3>
       <p className="text-sm text-gray-500 mb-3 line-clamp-2">{task.description}</p>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -245,7 +250,7 @@ function TaskModal({
   const [editedTask, setEditedTask] = useState<Task>({ ...task })
 
   const toggleCollaborator = (memberId: number) => {
-    if (memberId === editedTask.assignee) return // Can't be both assignee and collaborator
+    if (memberId === editedTask.assignee) return
     setEditedTask(prev => ({
       ...prev,
       collaborators: prev.collaborators.includes(memberId)
@@ -265,19 +270,16 @@ function TaskModal({
         className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-xl font-semibold text-gray-900">Edit Task</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-6 space-y-6">
-          {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
             <input
@@ -288,7 +290,6 @@ function TaskModal({
             />
           </div>
 
-          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
             <textarea
@@ -299,7 +300,6 @@ function TaskModal({
             />
           </div>
 
-          {/* Status & Priority Row */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
@@ -329,7 +329,6 @@ function TaskModal({
             </div>
           </div>
 
-          {/* Due Date */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Due Date</label>
             <input
@@ -340,13 +339,13 @@ function TaskModal({
             />
           </div>
 
-          {/* Assignee */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Assigned To</label>
             <div className="grid grid-cols-3 gap-2">
               {TEAM_MEMBERS.map(member => (
                 <button
                   key={member.id}
+                  type="button"
                   onClick={() => setEditedTask({ 
                     ...editedTask, 
                     assignee: member.id,
@@ -367,13 +366,13 @@ function TaskModal({
             </div>
           </div>
 
-          {/* Collaborators */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Collaborators (helping with this task)</label>
             <div className="grid grid-cols-3 gap-2">
               {TEAM_MEMBERS.filter(m => m.id !== editedTask.assignee).map(member => (
                 <button
                   key={member.id}
+                  type="button"
                   onClick={() => toggleCollaborator(member.id)}
                   className={`flex items-center gap-2 p-3 rounded-lg border-2 transition ${
                     editedTask.collaborators.includes(member.id)
@@ -390,7 +389,7 @@ function TaskModal({
                   </div>
                   <span className="text-sm font-medium text-gray-700 truncate">{member.name.split(' ')[0]}</span>
                   {editedTask.collaborators.includes(member.id) && (
-                    <svg className="w-4 h-4 text-blue-500 ml-auto" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="w-4 h-4 text-blue-500 ml-auto flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
                   )}
@@ -400,15 +399,16 @@ function TaskModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
           <button
+            type="button"
             onClick={onClose}
             className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSave}
             className="px-5 py-2.5 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition"
           >
@@ -429,10 +429,16 @@ export default function Home() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8,
+        delay: 150,
+        tolerance: 5,
       },
     }),
-    useSensor(KeyboardSensor)
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 200,
+        tolerance: 5,
+      },
+    })
   )
 
   const getTasksByStatus = (status: Status) => tasks.filter(t => t.status === status)
@@ -461,20 +467,40 @@ export default function Home() {
 
     const taskId = active.id as number
     const overId = over.id as string
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
 
-    // Check if dropped on a status column
+    // Dropped on a status column (board view)
     if (['todo', 'in-progress', 'review', 'done'].includes(overId)) {
-      setTasks(prev => prev.map(task =>
-        task.id === taskId ? { ...task, status: overId as Status } : task
+      setTasks(prev => prev.map(t =>
+        t.id === taskId ? { ...t, status: overId as Status } : t
       ))
     }
     
-    // Check if dropped on a team member column
+    // Dropped on a team member column (team view)
+    // Old assignee becomes collaborator, new person becomes assignee
     if (overId.startsWith('member-')) {
-      const memberId = parseInt(overId.replace('member-', ''))
-      setTasks(prev => prev.map(task =>
-        task.id === taskId ? { ...task, assignee: memberId } : task
-      ))
+      const newAssigneeId = parseInt(overId.replace('member-', ''))
+      const oldAssigneeId = task.assignee
+      
+      if (newAssigneeId !== oldAssigneeId) {
+        setTasks(prev => prev.map(t => {
+          if (t.id === taskId) {
+            // Remove new assignee from collaborators if they were one
+            const newCollaborators = t.collaborators.filter(id => id !== newAssigneeId)
+            // Add old assignee as collaborator (if not already)
+            if (!newCollaborators.includes(oldAssigneeId)) {
+              newCollaborators.push(oldAssigneeId)
+            }
+            return {
+              ...t,
+              assignee: newAssigneeId,
+              collaborators: newCollaborators,
+            }
+          }
+          return t
+        }))
+      }
     }
   }
 
@@ -492,7 +518,7 @@ export default function Home() {
           <h1 className="text-3xl font-bold text-gray-900">Steps Task Tracker</h1>
           <p className="text-gray-500">Event #4: The Great Lock-In — March 21, 2026</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {(['board', 'team', 'list', 'workload'] as const).map((v) => (
             <button
               key={v}
@@ -509,7 +535,7 @@ export default function Home() {
 
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={closestCenter}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
@@ -517,10 +543,10 @@ export default function Home() {
         {view === 'board' && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {(['todo', 'in-progress', 'review', 'done'] as Status[]).map(status => (
-              <div
+              <DroppableColumn
                 key={status}
                 id={status}
-                className="bg-gray-50 rounded-xl p-4 min-h-[400px]"
+                className="bg-gray-50 rounded-xl p-4 min-h-[400px] transition-colors"
               >
                 <div className="flex items-center gap-2 mb-4">
                   <div className={`w-3 h-3 rounded-full ${statusColors[status]}`} />
@@ -530,21 +556,16 @@ export default function Home() {
                   </span>
                 </div>
                 
-                <SortableContext
-                  items={getTasksByStatus(status).map(t => t.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  <div className="space-y-3">
-                    {getTasksByStatus(status).map(task => (
-                      <SortableTaskCard
-                        key={task.id}
-                        task={task}
-                        onClick={() => setEditingTask(task)}
-                      />
-                    ))}
-                  </div>
-                </SortableContext>
-              </div>
+                <div className="space-y-3">
+                  {getTasksByStatus(status).map(task => (
+                    <DraggableTaskCard
+                      key={task.id}
+                      task={task}
+                      onDoubleClick={() => setEditingTask(task)}
+                    />
+                  ))}
+                </div>
+              </DroppableColumn>
             ))}
           </div>
         )}
@@ -557,10 +578,10 @@ export default function Home() {
               const archivedTasks = getArchivedTasksByMember(member.id)
               
               return (
-                <div
+                <DroppableColumn
                   key={member.id}
                   id={`member-${member.id}`}
-                  className="bg-gray-50 rounded-xl p-4 min-h-[400px]"
+                  className="bg-gray-50 rounded-xl p-4 min-h-[400px] transition-colors"
                 >
                   <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-200">
                     <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-sm">
@@ -572,24 +593,19 @@ export default function Home() {
                     </div>
                   </div>
                   
-                  <SortableContext
-                    items={activeTasks.map(t => t.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-3 mb-4">
-                      {activeTasks.map(task => (
-                        <SortableTaskCard
-                          key={task.id}
-                          task={task}
-                          onClick={() => setEditingTask(task)}
-                          showStatus
-                        />
-                      ))}
-                      {activeTasks.length === 0 && (
-                        <p className="text-sm text-gray-400 text-center py-4">No active tasks</p>
-                      )}
-                    </div>
-                  </SortableContext>
+                  <div className="space-y-3 mb-4">
+                    {activeTasks.map(task => (
+                      <DraggableTaskCard
+                        key={task.id}
+                        task={task}
+                        onDoubleClick={() => setEditingTask(task)}
+                        showStatus
+                      />
+                    ))}
+                    {activeTasks.length === 0 && (
+                      <p className="text-sm text-gray-400 text-center py-4">No active tasks</p>
+                    )}
+                  </div>
 
                   {archivedTasks.length > 0 && (
                     <div className="border-t border-gray-200 pt-3">
@@ -598,8 +614,8 @@ export default function Home() {
                         {archivedTasks.slice(0, 3).map(task => (
                           <div 
                             key={task.id} 
-                            className="bg-white rounded-lg p-3 text-sm cursor-pointer hover:opacity-100"
-                            onClick={() => setEditingTask(task)}
+                            className="bg-white rounded-lg p-3 text-sm cursor-pointer hover:opacity-100 transition"
+                            onDoubleClick={() => setEditingTask(task)}
                           >
                             <p className="text-gray-600 line-clamp-1">{task.title}</p>
                           </div>
@@ -607,7 +623,7 @@ export default function Home() {
                       </div>
                     </div>
                   )}
-                </div>
+                </DroppableColumn>
               )
             })}
           </div>
@@ -615,7 +631,7 @@ export default function Home() {
 
         <DragOverlay>
           {activeTask && (
-            <div className="bg-white rounded-lg p-4 shadow-xl border border-purple-200 rotate-3 w-64">
+            <div className="bg-white rounded-lg p-4 shadow-2xl border-2 border-purple-300 w-64 rotate-2">
               <h3 className="font-medium text-gray-900 mb-2">{activeTask.title}</h3>
               <p className="text-sm text-gray-500 line-clamp-2">{activeTask.description}</p>
             </div>
@@ -696,7 +712,7 @@ export default function Home() {
                   <tr 
                     key={task.id} 
                     className="border-b hover:bg-gray-50 cursor-pointer"
-                    onClick={() => setEditingTask(task)}
+                    onDoubleClick={() => setEditingTask(task)}
                   >
                     <td className="p-4">
                       <div className="font-medium text-gray-900">{task.title}</div>
@@ -735,6 +751,13 @@ export default function Home() {
         </div>
       )}
 
+      {/* Drag hint */}
+      {activeTask && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-full text-sm shadow-lg z-40">
+          Drop on a column to move
+        </div>
+      )}
+
       {/* Task Edit Modal */}
       {editingTask && (
         <TaskModal
@@ -743,6 +766,11 @@ export default function Home() {
           onSave={handleSaveTask}
         />
       )}
+
+      {/* Instructions */}
+      <div className="mt-8 text-center text-sm text-gray-400">
+        <p>Hold and drag cards to move them • Double-click to edit</p>
+      </div>
     </main>
   )
 }
