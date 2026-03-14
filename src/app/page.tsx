@@ -845,10 +845,10 @@ function MeetingNotesModal({
       return 0 // Unassigned
     }
     
-    // Parse date from text like "by Thu 12 Mar 2026" or "Fri 13 Mar 2026"
+    // Parse date from text like "by Thu 12 Mar 2026" or "Fri 13 Mar 2026" or "~Sun 22 Mar 2026"
     const parseDate = (text: string): string | null => {
-      // Match patterns like "by Thu 12 Mar 2026", "Fri 13 Mar 2026", "by Sun 22 Mar 2026"
-      const dateMatch = text.match(/(?:by\s+)?(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i)
+      // Match patterns like "by Thu 12 Mar 2026", "Fri 13 Mar 2026", "~Sun 22 Mar 2026"
+      const dateMatch = text.match(/(?:by\s+|~\s*)?(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i)
       if (dateMatch) {
         const months: Record<string, string> = {
           jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
@@ -899,7 +899,8 @@ function MeetingNotesModal({
     const extractTitle = (text: string): string => {
       let title = text
         .replace(/^[-•*]\s*/, '') // Remove bullet points
-        .replace(/\s*[–-]\s*(?:by\s+)?(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun).*$/i, '') // Remove date suffix
+        .replace(/\s*[–-]\s*(?:by\s+|~\s*)?(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun).*$/i, '') // Remove date suffix
+        .replace(/\s*;\s*(?:event day\s+)?~?(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun).*$/i, '') // Remove secondary date
         .replace(/\s*[–-]\s*(?:ongoing|from\s+).*$/i, '') // Remove ongoing suffix
         .replace(/\s*[–-]\s*(?:between|per\s+).*$/i, '') // Remove date ranges
         .trim()
