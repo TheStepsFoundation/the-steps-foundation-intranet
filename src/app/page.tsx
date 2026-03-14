@@ -17,12 +17,12 @@ import {
 
 // Team members from Steps Foundation
 const TEAM_MEMBERS = [
-  { id: 1, name: "God'sFavour Oluwanusin", role: 'Co-founder', avatar: 'GF' },
-  { id: 2, name: 'Jin Samson', role: 'Co-founder', avatar: 'JS' },
-  { id: 3, name: 'Daniyaal Anawar', role: 'Co-founder', avatar: 'DA' },
-  { id: 4, name: 'Sam Ellis', role: 'Core Team', avatar: 'SE' },
-  { id: 5, name: 'Earl Xavier', role: 'Core Team', avatar: 'EX' },
-  { id: 6, name: 'Aditya Muthukumar', role: 'Core Team', avatar: 'AM' },
+  { id: 1, name: "God'sFavour Oluwanusin", role: 'Co-founder', avatar: 'Favour' },
+  { id: 2, name: 'Jin Samson', role: 'Co-founder', avatar: 'Jin' },
+  { id: 3, name: 'Daniyaal Anawar', role: 'Co-founder', avatar: 'Dany' },
+  { id: 4, name: 'Sam Ellis', role: 'Core Team', avatar: 'Sam' },
+  { id: 5, name: 'Earl Xavier', role: 'Core Team', avatar: 'Earl' },
+  { id: 6, name: 'Aditya Muthukumar', role: 'Core Team', avatar: 'Adi' },
 ]
 
 // Workflows / Categories
@@ -918,9 +918,9 @@ function MeetingNotesModal({
         .replace(/\s+once the\s+.*$/i, '')
         .trim()
       
-      // Truncate if still too long (cut at word boundary)
+      // Truncate if still too long (cut at word boundary, no ellipsis)
       if (title.length > 55) {
-        title = title.slice(0, 52).replace(/\s+\S*$/, '') + '...'
+        title = title.slice(0, 55).replace(/\s+\S*$/, '').replace(/[,;:\-–]$/, '')
       }
       
       // Words that should stay lowercase (unless first word)
@@ -1261,17 +1261,31 @@ Example:
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <p className="text-sm text-gray-600">
-                  Found <span className="font-semibold">{suggestedTasks.length}</span> potential tasks. 
-                  Select and edit before adding.
+                  Found <span className="font-semibold">{suggestedTasks.length}</span> potential tasks.
                 </p>
-                <button
-                  onClick={() => setSuggestedTasks([])}
-                  className="text-sm text-purple-600 hover:text-purple-700 font-medium"
-                >
-                  ← Back to notes
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setSuggestedTasks(prev => prev.map(t => ({ ...t, selected: true })))}
+                    className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setSuggestedTasks(prev => prev.map(t => ({ ...t, selected: false })))}
+                    className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                  >
+                    Deselect All
+                  </button>
+                  <span className="text-gray-300">|</span>
+                  <button
+                    onClick={() => setSuggestedTasks([])}
+                    className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+                  >
+                    ← Back
+                  </button>
+                </div>
               </div>
               
               <div className="space-y-3">
