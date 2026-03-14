@@ -379,12 +379,44 @@ function TaskModal({
 
   const toggleCollaborator = (memberId: number) => {
     if (memberId === editedTask.assignee) return
-    setEditedTask(prev => ({
-      ...prev,
-      collaborators: prev.collaborators.includes(memberId)
-        ? prev.collaborators.filter(id => id !== memberId)
-        : [...prev.collaborators, memberId]
-    }))
+    
+    const isRemoving = editedTask.collaborators.includes(memberId)
+    
+    if (isRemoving) {
+      // Removing collaborator: set their subtasks to unassigned (don't delete)
+      setEditedTask(prev => ({
+        ...prev,
+        collaborators: prev.collaborators.filter(id => id !== memberId),
+        subtasks: prev.subtasks.map(st => 
+          st.personId === memberId ? { ...st, personId: 0 } : st
+        )
+      }))
+    } else {
+      // Adding collaborator: assign to unassigned subtask or create new one
+      const unassignedSubtaskIndex = editedTask.subtasks.findIndex(st => st.personId === 0)
+      
+      let newSubtasks = [...editedTask.subtasks]
+      if (unassignedSubtaskIndex !== -1) {
+        // Assign to existing unassigned subtask
+        newSubtasks[unassignedSubtaskIndex] = {
+          ...newSubtasks[unassignedSubtaskIndex],
+          personId: memberId
+        }
+      } else {
+        // Create new subtask for them
+        newSubtasks.push({
+          id: Date.now(),
+          personId: memberId,
+          description: ''
+        })
+      }
+      
+      setEditedTask(prev => ({
+        ...prev,
+        collaborators: [...prev.collaborators, memberId],
+        subtasks: newSubtasks
+      }))
+    }
   }
 
   const handleSave = () => {
