@@ -75,6 +75,7 @@ interface Task {
   description: string
   assignee: number
   collaborators: number[]
+  subtasks: Subtask[]
   priority: Priority
   status: Status
   dueDate: string
@@ -90,6 +91,10 @@ const INITIAL_TASKS: Task[] = [
     description: 'Edit and post the filmed TikTok ad for Event #4',
     assignee: 1,
     collaborators: [3],
+    subtasks: [
+      { id: 1, personId: 1, description: 'Edit video and add captions' },
+      { id: 2, personId: 3, description: 'Review and approve final cut' },
+    ],
     priority: 'high',
     status: 'in-progress',
     dueDate: '2026-03-16',
@@ -103,6 +108,7 @@ const INITIAL_TASKS: Task[] = [
     description: 'Send event #4 invite to all previous event attendees',
     assignee: 2,
     collaborators: [],
+    subtasks: [],
     priority: 'high',
     status: 'todo',
     dueDate: '2026-03-17',
@@ -116,6 +122,11 @@ const INITIAL_TASKS: Task[] = [
     description: 'Follow up with all confirmed speakers and get final confirmations',
     assignee: 3,
     collaborators: [1, 2],
+    subtasks: [
+      { id: 3, personId: 3, description: 'Send follow-up emails to all speakers' },
+      { id: 4, personId: 1, description: 'Coordinate travel arrangements' },
+      { id: 5, personId: 2, description: 'Prepare speaker briefing packs' },
+    ],
     priority: 'urgent',
     status: 'in-progress',
     dueDate: '2026-03-15',
@@ -129,6 +140,7 @@ const INITIAL_TASKS: Task[] = [
     description: 'Create detailed minute-by-minute schedule for March 21',
     assignee: 4,
     collaborators: [],
+    subtasks: [],
     priority: 'medium',
     status: 'todo',
     dueDate: '2026-03-18',
@@ -142,6 +154,7 @@ const INITIAL_TASKS: Task[] = [
     description: 'Confirm lunch and refreshments for 250 attendees',
     assignee: 5,
     collaborators: [4],
+    subtasks: [],
     priority: 'high',
     status: 'review',
     dueDate: '2026-03-16',
@@ -155,6 +168,7 @@ const INITIAL_TASKS: Task[] = [
     description: 'Design and print name badges for all confirmed attendees',
     assignee: 6,
     collaborators: [],
+    subtasks: [],
     priority: 'low',
     status: 'todo',
     dueDate: '2026-03-20',
@@ -168,6 +182,7 @@ const INITIAL_TASKS: Task[] = [
     description: 'Prepare check-in system and volunteer briefing',
     assignee: 1,
     collaborators: [5, 6],
+    subtasks: [],
     priority: 'medium',
     status: 'done',
     dueDate: '2026-03-20',
@@ -181,6 +196,7 @@ const INITIAL_TASKS: Task[] = [
     description: 'Contact 10 new schools for Steps Scholars program',
     assignee: 3,
     collaborators: [],
+    subtasks: [],
     priority: 'medium',
     status: 'todo',
     dueDate: '2026-03-25',
@@ -560,6 +576,87 @@ function TaskModal({
               ))}
             </div>
           </div>
+
+          {/* Subtasks - what each person is doing */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">What each person is doing</label>
+              <button
+                type="button"
+                onClick={() => {
+                  const newSubtask: Subtask = {
+                    id: Date.now(),
+                    personId: editedTask.assignee || 0,
+                    description: '',
+                  }
+                  setEditedTask({
+                    ...editedTask,
+                    subtasks: [...editedTask.subtasks, newSubtask],
+                  })
+                }}
+                className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+              >
+                + Add subtask
+              </button>
+            </div>
+            
+            {editedTask.subtasks.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center border border-dashed border-gray-200 rounded-lg">
+                No subtasks yet. Add one to specify what each person is responsible for.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {editedTask.subtasks.map((subtask, index) => {
+                  const person = TEAM_MEMBERS.find(m => m.id === subtask.personId)
+                  return (
+                    <div key={subtask.id} className="flex gap-3 items-start p-3 bg-gray-50 rounded-lg">
+                      <select
+                        value={subtask.personId}
+                        onChange={e => {
+                          const newSubtasks = [...editedTask.subtasks]
+                          newSubtasks[index] = { ...subtask, personId: parseInt(e.target.value) }
+                          setEditedTask({ ...editedTask, subtasks: newSubtasks })
+                        }}
+                        className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none min-w-[140px]"
+                      >
+                        <option value={0}>Unassigned</option>
+                        {TEAM_MEMBERS.map(m => (
+                          <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>
+                        ))}
+                      </select>
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={subtask.description}
+                          onChange={e => {
+                            const newSubtasks = [...editedTask.subtasks]
+                            newSubtasks[index] = { ...subtask, description: e.target.value }
+                            setEditedTask({ ...editedTask, subtasks: newSubtasks })
+                          }}
+                          placeholder="What are they doing?"
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditedTask({
+                            ...editedTask,
+                            subtasks: editedTask.subtasks.filter((_, i) => i !== index),
+                          })
+                        }}
+                        className="p-2 text-gray-400 hover:text-red-500 transition"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
@@ -589,6 +686,14 @@ interface Workflow {
   name: string
   short: string
   color: string
+  archived?: boolean
+}
+
+// Subtask type - each person's specific work on a task
+interface Subtask {
+  id: number
+  personId: number
+  description: string
 }
 
 // New Workflow Modal with Template Tasks
@@ -645,6 +750,7 @@ function NewWorkflowModal({
         description: template.description,
         assignee: 0, // Unassigned
         collaborators: [],
+        subtasks: [],
         priority: template.priority,
         status: 'todo' as Status,
         dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -808,11 +914,13 @@ function EditWorkflowModal({
   workflow,
   onClose,
   onSave,
+  onArchive,
   onDelete,
 }: {
   workflow: Workflow
   onClose: () => void
   onSave: (updated: Workflow) => void
+  onArchive: () => void
   onDelete: () => void
 }) {
   const [name, setName] = useState(workflow.name)
@@ -890,13 +998,22 @@ function EditWorkflowModal({
         <div className="flex items-center justify-between gap-3 p-6 border-t bg-gray-50">
           {!showDeleteConfirm ? (
             <>
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="px-4 py-2 text-red-600 font-medium hover:bg-red-50 rounded-lg transition"
-              >
-                Delete
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { onArchive(); onClose(); }}
+                  className="px-4 py-2 text-amber-600 font-medium hover:bg-amber-50 rounded-lg transition"
+                >
+                  Archive
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-4 py-2 text-red-600 font-medium hover:bg-red-50 rounded-lg transition"
+                >
+                  Delete
+                </button>
+              </div>
               <div className="flex gap-3">
                 <button
                   type="button"
@@ -917,7 +1034,7 @@ function EditWorkflowModal({
             </>
           ) : (
             <div className="w-full">
-              <p className="text-sm text-gray-600 mb-3">Delete this workflow? Tasks will keep their workflow tag but it won't appear in the filter.</p>
+              <p className="text-sm text-gray-600 mb-3">Delete this workflow permanently? Consider archiving instead.</p>
               <div className="flex gap-3 justify-end">
                 <button
                   type="button"
@@ -931,7 +1048,7 @@ function EditWorkflowModal({
                   onClick={() => { onDelete(); onClose(); }}
                   className="px-4 py-2 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition"
                 >
-                  Delete Workflow
+                  Delete Permanently
                 </button>
               </div>
             </div>
@@ -1093,12 +1210,30 @@ export default function Home() {
     setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
   }
 
+  const handleArchiveWorkflow = (workflowId: string) => {
+    setWorkflows(prev => prev.map(w => 
+      w.id === workflowId ? { ...w, archived: true } : w
+    ))
+    if (globalWorkflow === workflowId) {
+      setGlobalWorkflow('all')
+    }
+  }
+
+  const handleUnarchiveWorkflow = (workflowId: string) => {
+    setWorkflows(prev => prev.map(w => 
+      w.id === workflowId ? { ...w, archived: false } : w
+    ))
+  }
+
   const handleDeleteWorkflow = (workflowId: string) => {
     setWorkflows(prev => prev.filter(w => w.id !== workflowId))
     if (globalWorkflow === workflowId) {
       setGlobalWorkflow('all')
     }
   }
+
+  const activeWorkflows = workflows.filter(w => !w.archived)
+  const archivedWorkflows = workflows.filter(w => w.archived)
 
   return (
     <main className="min-h-screen p-6">
@@ -1143,9 +1278,18 @@ export default function Home() {
           }`}
         >
           <option value="all">All Workflows</option>
-          {workflows.map(w => (
-            <option key={w.id} value={w.id}>{w.name}</option>
-          ))}
+          <optgroup label="Active">
+            {activeWorkflows.map(w => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </optgroup>
+          {archivedWorkflows.length > 0 && (
+            <optgroup label="Archived">
+              {archivedWorkflows.map(w => (
+                <option key={w.id} value={w.id}>{w.name} (archived)</option>
+              ))}
+            </optgroup>
+          )}
         </select>
         {globalWorkflow !== 'all' && (
           <>
@@ -1578,6 +1722,7 @@ export default function Home() {
           workflow={editingWorkflow}
           onClose={() => setEditingWorkflow(null)}
           onSave={handleUpdateWorkflow}
+          onArchive={() => handleArchiveWorkflow(editingWorkflow.id)}
           onDelete={() => handleDeleteWorkflow(editingWorkflow.id)}
         />
       )}
