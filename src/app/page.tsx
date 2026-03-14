@@ -420,7 +420,7 @@ function TaskModal({
           id: Date.now(),
           personId: memberId,
           description: '',
-          intensity: 'medium'
+          intensity: 'small'
         })
       }
       
@@ -595,11 +595,28 @@ function TaskModal({
                 <button
                   key={member.id}
                   type="button"
-                  onClick={() => setEditedTask({ 
-                    ...editedTask, 
-                    assignee: member.id,
-                    collaborators: editedTask.collaborators.filter(id => id !== member.id)
-                  })}
+                  onClick={() => {
+                    const newAssignee = member.id
+                    const filteredCollabs = editedTask.collaborators.filter(id => id !== member.id)
+                    
+                    // Auto-create subtask for assignee if no subtasks exist
+                    let newSubtasks = editedTask.subtasks
+                    if (editedTask.subtasks.length === 0) {
+                      newSubtasks = [{
+                        id: Date.now(),
+                        personId: newAssignee,
+                        description: '',
+                        intensity: 'small' as Intensity,
+                      }]
+                    }
+                    
+                    setEditedTask({ 
+                      ...editedTask, 
+                      assignee: newAssignee,
+                      collaborators: filteredCollabs,
+                      subtasks: newSubtasks,
+                    })
+                  }}
                   className={`flex items-center gap-2 p-3 rounded-lg border-2 transition ${
                     editedTask.assignee === member.id
                       ? 'border-purple-500 bg-purple-50'
@@ -658,7 +675,7 @@ function TaskModal({
                     id: Date.now(),
                     personId: editedTask.assignee || 0,
                     description: '',
-                    intensity: 'medium',
+                    intensity: 'small',
                   }
                   setEditedTask({
                     ...editedTask,
@@ -762,6 +779,395 @@ function TaskModal({
       </div>
     </div>
     </>
+  )
+}
+
+// Suggested task from meeting notes parser
+interface SuggestedTask {
+  id: number
+  title: string
+  description: string
+  assignee: number
+  collaborators: number[]
+  subtasks: Subtask[]
+  priority: Priority
+  status: Status
+  workflow: string | null
+  selected: boolean
+}
+
+// Meeting Notes Parser Modal
+function MeetingNotesModal({
+  onClose,
+  onAddTasks,
+  workflows,
+}: {
+  onClose: () => void
+  onAddTasks: (tasks: Task[]) => void
+  workflows: Workflow[]
+}) {
+  const [notes, setNotes] = useState('')
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [suggestedTasks, setSuggestedTasks] = useState<SuggestedTask[]>([])
+  const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null)
+  const [editingTask, setEditingTask] = useState<number | null>(null)
+
+  const analyzeNotes = async () => {
+    if (!notes.trim()) return
+    setIsAnalyzing(true)
+    
+    // Parse meeting notes to extract tasks
+    // This uses heuristics - can be upgraded to AI API later
+    const lines = notes.split('\n').filter(l => l.trim())
+    const tasks: SuggestedTask[] = []
+    
+    // Keywords that indicate action items
+    const actionKeywords = ['will', 'should', 'needs to', 'to do', 'action', 'task', 'responsible', 'owns', 'handle', 'create', 'prepare', 'send', 'follow up', 'complete', 'finish', 'draft', 'review', 'coordinate', 'organize', 'contact', 'reach out', 'book', 'schedule', 'confirm', 'finalize']
+    
+    // Try to match team member names
+    const findMember = (text: string): number => {
+      const lower = text.toLowerCase()
+      for (const member of TEAM_MEMBERS) {
+        const firstName = member.name.split(' ')[0].toLowerCase()
+        const fullName = member.name.toLowerCase()
+        if (lower.includes(fullName) || lower.includes(firstName)) {
+          return member.id
+        }
+      }
+      return 0 // unassigned
+    }
+    
+    // Estimate intensity based on keywords
+    const estimateIntensity = (text: string): Intensity => {
+      const lower = text.toLowerCase()
+      if (lower.includes('quick') || lower.includes('simple') || lower.includes('small') || lower.includes('minor')) return 'quick'
+      if (lower.includes('big') || lower.includes('major') || lower.includes('full') || lower.includes('complete') || lower.includes('entire')) return 'huge'
+      if (lower.includes('large') || lower.includes('significant')) return 'large'
+      if (lower.includes('medium') || lower.includes('moderate')) return 'medium'
+      return 'small'
+    }
+    
+    // Estimate priority
+    const estimatePriority = (text: string): Priority => {
+      const lower = text.toLowerCase()
+      if (lower.includes('urgent') || lower.includes('asap') || lower.includes('immediately') || lower.includes('critical')) return 'urgent'
+      if (lower.includes('important') || lower.includes('priority') || lower.includes('soon')) return 'high'
+      if (lower.includes('eventually') || lower.includes('low priority') || lower.includes('when possible')) return 'low'
+      return 'medium'
+    }
+    
+    // Process each line
+    for (const line of lines) {
+      const hasAction = actionKeywords.some(kw => line.toLowerCase().includes(kw))
+      if (hasAction && line.length > 10) {
+        const assignee = findMember(line)
+        const intensity = estimateIntensity(line)
+        const priority = estimatePriority(line)
+        
+        // Find potential collaborators (other names mentioned)
+        const collaborators: number[] = []
+        for (const member of TEAM_MEMBERS) {
+          if (member.id !== assignee) {
+            const firstName = member.name.split(' ')[0].toLowerCase()
+            if (line.toLowerCase().includes(firstName)) {
+              collaborators.push(member.id)
+            }
+          }
+        }
+        
+        // Create task
+        const task: SuggestedTask = {
+          id: Date.now() + tasks.length,
+          title: line.slice(0, 60) + (line.length > 60 ? '...' : ''),
+          description: line,
+          assignee,
+          collaborators,
+          subtasks: assignee ? [{
+            id: Date.now() + tasks.length + 1000,
+            personId: assignee,
+            description: '',
+            intensity,
+          }] : [],
+          priority,
+          status: 'todo',
+          workflow: selectedWorkflow,
+          selected: true,
+        }
+        
+        // Add collaborator subtasks
+        collaborators.forEach((collabId, i) => {
+          task.subtasks.push({
+            id: Date.now() + tasks.length + 2000 + i,
+            personId: collabId,
+            description: '',
+            intensity: 'small',
+          })
+        })
+        
+        tasks.push(task)
+      }
+    }
+    
+    // Simulate brief analysis time
+    await new Promise(r => setTimeout(r, 500))
+    
+    setSuggestedTasks(tasks)
+    setIsAnalyzing(false)
+  }
+
+  const toggleTaskSelection = (taskId: number) => {
+    setSuggestedTasks(prev => prev.map(t => 
+      t.id === taskId ? { ...t, selected: !t.selected } : t
+    ))
+  }
+
+  const updateTask = (taskId: number, updates: Partial<SuggestedTask>) => {
+    setSuggestedTasks(prev => prev.map(t => 
+      t.id === taskId ? { ...t, ...updates } : t
+    ))
+  }
+
+  const addSelectedTasks = () => {
+    const tasksToAdd: Task[] = suggestedTasks
+      .filter(t => t.selected)
+      .map(t => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        assignee: t.assignee,
+        collaborators: t.collaborators,
+        subtasks: t.subtasks,
+        priority: t.priority,
+        status: t.status,
+        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        createdAt: new Date().toISOString().split('T')[0],
+        workflow: selectedWorkflow,
+        subWorkflow: null,
+      }))
+    
+    onAddTasks(tasksToAdd)
+    onClose()
+  }
+
+  const activeWorkflows = workflows.filter(w => !w.archived)
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-6 border-b">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">Parse Meeting Notes</h2>
+            <p className="text-sm text-gray-500 mt-1">Paste your meeting notes to auto-generate tasks</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {suggestedTasks.length === 0 ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Workflow (optional)</label>
+                <select
+                  value={selectedWorkflow || ''}
+                  onChange={e => setSelectedWorkflow(e.target.value || null)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+                >
+                  <option value="">No workflow</option>
+                  {activeWorkflows.map(w => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Meeting Notes / Transcript</label>
+                <textarea
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  rows={12}
+                  placeholder="Paste your meeting notes here...
+
+Example:
+- Favour will create the event poster by Friday
+- Jin needs to confirm speakers ASAP
+- Daniyaal should coordinate with the venue
+- Sam to send email invites to schools"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none font-mono text-sm"
+                />
+              </div>
+              
+              <button
+                onClick={analyzeNotes}
+                disabled={!notes.trim() || isAnalyzing}
+                className="w-full py-3 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    Analyze & Generate Tasks
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  Found <span className="font-semibold">{suggestedTasks.length}</span> potential tasks. 
+                  Select and edit before adding.
+                </p>
+                <button
+                  onClick={() => setSuggestedTasks([])}
+                  className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+                >
+                  ← Back to notes
+                </button>
+              </div>
+              
+              <div className="space-y-3">
+                {suggestedTasks.map(task => {
+                  const member = TEAM_MEMBERS.find(m => m.id === task.assignee)
+                  const isEditing = editingTask === task.id
+                  
+                  return (
+                    <div 
+                      key={task.id} 
+                      className={`border rounded-lg p-4 transition ${
+                        task.selected ? 'border-purple-300 bg-purple-50/50' : 'border-gray-200 bg-gray-50 opacity-60'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={task.selected}
+                          onChange={() => toggleTaskSelection(task.id)}
+                          className="mt-1 w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        
+                        <div className="flex-1 min-w-0">
+                          {isEditing ? (
+                            <div className="space-y-3">
+                              <input
+                                type="text"
+                                value={task.title}
+                                onChange={e => updateTask(task.id, { title: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium"
+                              />
+                              <textarea
+                                value={task.description}
+                                onChange={e => updateTask(task.id, { description: e.target.value })}
+                                rows={2}
+                                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                              />
+                              <div className="flex gap-2 flex-wrap">
+                                <select
+                                  value={task.assignee}
+                                  onChange={e => updateTask(task.id, { assignee: parseInt(e.target.value) })}
+                                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                                >
+                                  <option value={0}>Unassigned</option>
+                                  {TEAM_MEMBERS.map(m => (
+                                    <option key={m.id} value={m.id}>{m.name}</option>
+                                  ))}
+                                </select>
+                                <select
+                                  value={task.priority}
+                                  onChange={e => updateTask(task.id, { priority: e.target.value as Priority })}
+                                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                                >
+                                  <option value="low">Low</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="high">High</option>
+                                  <option value="urgent">Urgent</option>
+                                </select>
+                              </div>
+                              <button
+                                onClick={() => setEditingTask(null)}
+                                className="text-sm text-purple-600 font-medium"
+                              >
+                                Done editing
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <h4 className="font-medium text-gray-900 text-sm">{task.title}</h4>
+                              <p className="text-xs text-gray-500 mt-1 line-clamp-2">{task.description}</p>
+                              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                {member ? (
+                                  <span className="inline-flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                                    {member.avatar} {member.name.split(' ')[0]}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">Unassigned</span>
+                                )}
+                                <span className={`text-xs px-2 py-0.5 rounded ${priorityColors[task.priority]}`}>
+                                  {task.priority}
+                                </span>
+                                {task.collaborators.length > 0 && (
+                                  <span className="text-xs text-gray-500">
+                                    +{task.collaborators.length} collaborator{task.collaborators.length > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => setEditingTask(task.id)}
+                                  className="text-xs text-purple-600 hover:text-purple-700 ml-auto"
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {suggestedTasks.length > 0 && (
+          <div className="flex items-center justify-between gap-3 p-6 border-t bg-gray-50">
+            <p className="text-sm text-gray-600">
+              {suggestedTasks.filter(t => t.selected).length} of {suggestedTasks.length} tasks selected
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={addSelectedTasks}
+                disabled={suggestedTasks.filter(t => t.selected).length === 0}
+                className="px-5 py-2.5 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+              >
+                Add {suggestedTasks.filter(t => t.selected).length} Tasks
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -1181,6 +1587,7 @@ export default function Home() {
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [showNewWorkflowModal, setShowNewWorkflowModal] = useState(false)
+  const [showMeetingNotesModal, setShowMeetingNotesModal] = useState(false)
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null)
   
   // Global workflow filter (applies to all views)
@@ -1358,6 +1765,10 @@ export default function Home() {
     setGlobalWorkflow(newWorkflow.id)
   }
 
+  const handleAddTasksFromMeeting = (newTasks: Task[]) => {
+    setTasks(prev => [...prev, ...newTasks])
+  }
+
   const handleUpdateWorkflow = (updated: Workflow) => {
     setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
   }
@@ -1421,6 +1832,15 @@ export default function Home() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           New Workflow
+        </button>
+        <button
+          onClick={() => setShowMeetingNotesModal(true)}
+          className="px-3 py-2 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 transition flex items-center gap-1"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          Parse Notes
         </button>
         <select
           value={globalWorkflow}
@@ -1886,6 +2306,15 @@ export default function Home() {
         <NewWorkflowModal
           onClose={() => setShowNewWorkflowModal(false)}
           onSave={handleCreateWorkflow}
+        />
+      )}
+
+      {/* Meeting Notes Parser Modal */}
+      {showMeetingNotesModal && (
+        <MeetingNotesModal
+          onClose={() => setShowMeetingNotesModal(false)}
+          onAddTasks={handleAddTasksFromMeeting}
+          workflows={workflows}
         />
       )}
 
