@@ -376,6 +376,18 @@ function TaskModal({
   workflows: Workflow[]
 }) {
   const [editedTask, setEditedTask] = useState<Task>({ ...task })
+  const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false)
+  
+  // Check if there are unsaved changes
+  const hasChanges = JSON.stringify(editedTask) !== JSON.stringify(task)
+  
+  const handleClose = () => {
+    if (hasChanges) {
+      setShowUnsavedPrompt(true)
+    } else {
+      onClose()
+    }
+  }
 
   const toggleCollaborator = (memberId: number) => {
     if (memberId === editedTask.assignee) return
@@ -429,14 +441,39 @@ function TaskModal({
   const currentSubWorkflow = workflows.find(w => w.id === editedTask.subWorkflow)
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <>
+    {/* Unsaved changes prompt */}
+    {showUnsavedPrompt && (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+        <div className="bg-white rounded-xl p-6 max-w-sm shadow-2xl">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Unsaved Changes</h3>
+          <p className="text-gray-600 mb-4">You have unsaved changes. Would you like to save them?</p>
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => { setShowUnsavedPrompt(false); onClose(); }}
+              className="px-4 py-2 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => { handleSave(); }}
+              className="px-4 py-2 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleClose}>
       <div 
         className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-xl font-semibold text-gray-900">Edit Task</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2">
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 p-2">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -709,7 +746,7 @@ function TaskModal({
         <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
           >
             Cancel
@@ -724,6 +761,7 @@ function TaskModal({
         </div>
       </div>
     </div>
+    </>
   )
 }
 
@@ -1627,44 +1665,31 @@ export default function Home() {
                   </div>
                 </div>
                 
-                <div className="flex gap-2 text-xs flex-wrap mb-2">
-                  {workload.urgent > 0 && (
-                    <span className="px-2 py-1 bg-red-100 text-red-700 rounded">
-                      {workload.urgent} urgent
-                    </span>
-                  )}
-                  {workload.high > 0 && (
-                    <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded">
-                      {workload.high} high
-                    </span>
-                  )}
-                </div>
-                
-                {/* Breakdown by intensity */}
+                {/* Breakdown by intensity with time estimates */}
                 <div className="flex gap-1 text-xs flex-wrap">
                   {workload.byIntensity.quick > 0 && (
                     <span className={`px-2 py-0.5 rounded ${intensityColors.quick}`}>
-                      {workload.byIntensity.quick} quick
+                      {workload.byIntensity.quick} quick (~20min)
                     </span>
                   )}
                   {workload.byIntensity.small > 0 && (
                     <span className={`px-2 py-0.5 rounded ${intensityColors.small}`}>
-                      {workload.byIntensity.small} small
+                      {workload.byIntensity.small} small (~1h)
                     </span>
                   )}
                   {workload.byIntensity.medium > 0 && (
                     <span className={`px-2 py-0.5 rounded ${intensityColors.medium}`}>
-                      {workload.byIntensity.medium} med
+                      {workload.byIntensity.medium} medium (~3h)
                     </span>
                   )}
                   {workload.byIntensity.large > 0 && (
                     <span className={`px-2 py-0.5 rounded ${intensityColors.large}`}>
-                      {workload.byIntensity.large} large
+                      {workload.byIntensity.large} large (~6h)
                     </span>
                   )}
                   {workload.byIntensity.huge > 0 && (
                     <span className={`px-2 py-0.5 rounded ${intensityColors.huge}`}>
-                      {workload.byIntensity.huge} huge
+                      {workload.byIntensity.huge} huge (~1 day)
                     </span>
                   )}
                   {workload.unspecified > 0 && (
