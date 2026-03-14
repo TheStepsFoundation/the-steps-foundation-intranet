@@ -25,6 +25,18 @@ const TEAM_MEMBERS = [
   { id: 6, name: 'Aditya Luthukumar', role: 'Core Team', avatar: 'AL' },
 ]
 
+// Workflows / Categories
+const WORKFLOWS = [
+  { id: 'event-4', name: '#4 The Great Lock-In', color: 'bg-purple-500' },
+  { id: 'event-3', name: '#3 Degree Apprenticeship', color: 'bg-blue-500' },
+  { id: 'event-2', name: '#2 Oxbridge Workshop', color: 'bg-indigo-500' },
+  { id: 'event-1', name: '#1 Starting Point', color: 'bg-violet-500' },
+  { id: 'schools', name: 'Schools', color: 'bg-green-500' },
+  { id: 'partnerships', name: 'Partnerships', color: 'bg-amber-500' },
+  { id: 'steps-scholars', name: 'Steps Scholars', color: 'bg-rose-500' },
+  { id: 'student-engagement', name: 'Student Engagement', color: 'bg-cyan-500' },
+]
+
 type Priority = 'low' | 'medium' | 'high' | 'urgent'
 type Status = 'todo' | 'in-progress' | 'review' | 'done'
 
@@ -38,6 +50,8 @@ interface Task {
   status: Status
   dueDate: string
   createdAt: string
+  workflow: string | null
+  subWorkflow: string | null
 }
 
 const INITIAL_TASKS: Task[] = [
@@ -51,6 +65,8 @@ const INITIAL_TASKS: Task[] = [
     status: 'in-progress',
     dueDate: '2026-03-16',
     createdAt: '2026-03-14',
+    workflow: 'event-4',
+    subWorkflow: 'student-engagement',
   },
   {
     id: 2,
@@ -62,6 +78,8 @@ const INITIAL_TASKS: Task[] = [
     status: 'todo',
     dueDate: '2026-03-17',
     createdAt: '2026-03-14',
+    workflow: 'event-4',
+    subWorkflow: null,
   },
   {
     id: 3,
@@ -73,6 +91,8 @@ const INITIAL_TASKS: Task[] = [
     status: 'in-progress',
     dueDate: '2026-03-15',
     createdAt: '2026-03-14',
+    workflow: 'event-4',
+    subWorkflow: 'partnerships',
   },
   {
     id: 4,
@@ -84,6 +104,8 @@ const INITIAL_TASKS: Task[] = [
     status: 'todo',
     dueDate: '2026-03-18',
     createdAt: '2026-03-14',
+    workflow: 'event-4',
+    subWorkflow: null,
   },
   {
     id: 5,
@@ -95,6 +117,8 @@ const INITIAL_TASKS: Task[] = [
     status: 'review',
     dueDate: '2026-03-16',
     createdAt: '2026-03-14',
+    workflow: 'event-4',
+    subWorkflow: null,
   },
   {
     id: 6,
@@ -106,6 +130,8 @@ const INITIAL_TASKS: Task[] = [
     status: 'todo',
     dueDate: '2026-03-20',
     createdAt: '2026-03-14',
+    workflow: 'event-4',
+    subWorkflow: null,
   },
   {
     id: 7,
@@ -117,6 +143,21 @@ const INITIAL_TASKS: Task[] = [
     status: 'done',
     dueDate: '2026-03-20',
     createdAt: '2026-03-10',
+    workflow: 'event-4',
+    subWorkflow: null,
+  },
+  {
+    id: 8,
+    title: 'Reach out to partner schools',
+    description: 'Contact 10 new schools for Steps Scholars program',
+    assignee: 3,
+    collaborators: [],
+    priority: 'medium',
+    status: 'todo',
+    dueDate: '2026-03-25',
+    createdAt: '2026-03-14',
+    workflow: 'steps-scholars',
+    subWorkflow: 'schools',
   },
 ]
 
@@ -128,10 +169,10 @@ const priorityColors: Record<Priority, string> = {
 }
 
 const statusColors: Record<Status, string> = {
-  'todo': 'bg-gray-200',
-  'in-progress': 'bg-yellow-200',
-  'review': 'bg-purple-200',
-  'done': 'bg-green-200',
+  'todo': 'bg-gray-200 text-gray-700',
+  'in-progress': 'bg-yellow-200 text-yellow-800',
+  'review': 'bg-purple-200 text-purple-700',
+  'done': 'bg-green-200 text-green-700',
 }
 
 const statusLabels: Record<Status, string> = {
@@ -183,9 +224,10 @@ function DraggableTaskCard({
   } : undefined
 
   const member = TEAM_MEMBERS.find(m => m.id === task.assignee)
+  const workflow = WORKFLOWS.find(w => w.id === task.workflow)
+  const subWorkflow = WORKFLOWS.find(w => w.id === task.subWorkflow)
 
   const handleCardClick = (e: MouseEvent) => {
-    // Don't trigger if clicking the drag handle
     if ((e.target as HTMLElement).closest('.drag-handle')) {
       return
     }
@@ -213,43 +255,57 @@ function DraggableTaskCard({
         </svg>
       </div>
 
-      <h3 className="font-medium text-gray-900 mb-2 pr-8">{task.title}</h3>
-      <p className="text-sm text-gray-500 mb-3 line-clamp-2">{task.description}</p>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className={`text-xs px-2 py-1 rounded-full border ${priorityColors[task.priority]}`}>
-            {task.priority}
+      {/* Workflow badges */}
+      {workflow && (
+        <div className="flex items-center gap-1.5 mb-2">
+          <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full text-white ${workflow.color}`}>
+            {workflow.name}
           </span>
-          {showStatus && (
-            <span className={`text-xs px-2 py-1 rounded-full ${statusColors[task.status]} text-gray-700`}>
-              {statusLabels[task.status]}
-            </span>
+          {subWorkflow && (
+            <>
+              <span className="text-gray-400 text-xs">→</span>
+              <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full text-white ${subWorkflow.color}`}>
+                {subWorkflow.name}
+              </span>
+            </>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">
-            {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+      )}
+
+      <h3 className="font-medium text-gray-900 mb-2 pr-8">{task.title}</h3>
+      <p className="text-sm text-gray-500 mb-3 line-clamp-2">{task.description}</p>
+      
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`text-xs px-2 py-1 rounded-full border whitespace-nowrap ${priorityColors[task.priority]}`}>
+          {task.priority}
+        </span>
+        {showStatus && (
+          <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${statusColors[task.status]}`}>
+            {statusLabels[task.status]}
           </span>
-          <div className="flex -space-x-2">
-            {member && (
-              <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 text-xs font-medium border-2 border-white" title={member.name}>
-                {member.avatar.charAt(0)}
+        )}
+        <span className="text-xs text-gray-400 whitespace-nowrap">
+          {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+        </span>
+        <div className="flex -space-x-2 ml-auto">
+          {member && (
+            <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 text-xs font-medium border-2 border-white" title={member.name}>
+              {member.avatar.charAt(0)}
+            </div>
+          )}
+          {task.collaborators.slice(0, 2).map(collabId => {
+            const collab = TEAM_MEMBERS.find(m => m.id === collabId)
+            return collab ? (
+              <div key={collabId} className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white" title={collab.name}>
+                {collab.avatar.charAt(0)}
               </div>
-            )}
-            {task.collaborators.slice(0, 2).map(collabId => {
-              const collab = TEAM_MEMBERS.find(m => m.id === collabId)
-              return collab ? (
-                <div key={collabId} className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white" title={collab.name}>
-                  {collab.avatar.charAt(0)}
-                </div>
-              ) : null
-            })}
-            {task.collaborators.length > 2 && (
-              <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white">
-                +{task.collaborators.length - 2}
-              </div>
-            )}
-          </div>
+            ) : null
+          })}
+          {task.collaborators.length > 2 && (
+            <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white">
+              +{task.collaborators.length - 2}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -283,6 +339,9 @@ function TaskModal({
     onClose()
   }
 
+  const currentWorkflow = WORKFLOWS.find(w => w.id === editedTask.workflow)
+  const currentSubWorkflow = WORKFLOWS.find(w => w.id === editedTask.subWorkflow)
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div 
@@ -299,6 +358,54 @@ function TaskModal({
         </div>
 
         <div className="p-6 space-y-6">
+          {/* Workflow Selection - At the top */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Main Workflow</label>
+              <select
+                value={editedTask.workflow || ''}
+                onChange={e => setEditedTask({ 
+                  ...editedTask, 
+                  workflow: e.target.value || null,
+                  subWorkflow: e.target.value === editedTask.subWorkflow ? null : editedTask.subWorkflow
+                })}
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+              >
+                <option value="">None</option>
+                {WORKFLOWS.map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+              {currentWorkflow && (
+                <div className="mt-2">
+                  <span className={`inline-flex items-center text-xs px-2 py-1 rounded-full text-white ${currentWorkflow.color}`}>
+                    {currentWorkflow.name}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Workflow</label>
+              <select
+                value={editedTask.subWorkflow || ''}
+                onChange={e => setEditedTask({ ...editedTask, subWorkflow: e.target.value || null })}
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+              >
+                <option value="">None</option>
+                {WORKFLOWS.filter(w => w.id !== editedTask.workflow).map(w => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+              {currentSubWorkflow && (
+                <div className="mt-2">
+                  <span className={`inline-flex items-center text-xs px-2 py-1 rounded-full text-white ${currentSubWorkflow.color}`}>
+                    {currentSubWorkflow.name}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
             <input
@@ -386,7 +493,7 @@ function TaskModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Collaborators (helping with this task)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Collaborators</label>
             <div className="grid grid-cols-3 gap-2">
               {TEAM_MEMBERS.filter(m => m.id !== editedTask.assignee).map(member => (
                 <button
@@ -488,14 +595,12 @@ export default function Home() {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
 
-    // Dropped on a status column (board view)
     if (['todo', 'in-progress', 'review', 'done'].includes(overId)) {
       setTasks(prev => prev.map(t =>
         t.id === taskId ? { ...t, status: overId as Status } : t
       ))
     }
     
-    // Dropped on a team member column (team view)
     if (overId.startsWith('member-')) {
       const newAssigneeId = parseInt(overId.replace('member-', ''))
       const oldAssigneeId = task.assignee
@@ -531,7 +636,7 @@ export default function Home() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Steps Task Tracker</h1>
-          <p className="text-gray-500">Event #4: The Great Lock-In — March 21, 2026</p>
+          <p className="text-gray-500">Manage all workflows and events</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {(['board', 'team', 'list', 'workload'] as const).map((v) => (
@@ -564,7 +669,7 @@ export default function Home() {
                 className="bg-gray-50 rounded-xl p-4 min-h-[400px] transition-colors"
               >
                 <div className="flex items-center gap-2 mb-4">
-                  <div className={`w-3 h-3 rounded-full ${statusColors[status]}`} />
+                  <div className={`w-3 h-3 rounded-full ${statusColors[status].split(' ')[0]}`} />
                   <h2 className="font-semibold text-gray-700">{statusLabels[status]}</h2>
                   <span className="ml-auto text-sm text-gray-400">
                     {getTasksByStatus(status).length}
@@ -709,11 +814,12 @@ export default function Home() {
 
       {/* List View */}
       {view === 'list' && (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <table className="w-full">
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden overflow-x-auto">
+          <table className="w-full min-w-[800px]">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left p-4 font-medium text-gray-600">Task</th>
+                <th className="text-left p-4 font-medium text-gray-600">Workflow</th>
                 <th className="text-left p-4 font-medium text-gray-600">Assignee</th>
                 <th className="text-left p-4 font-medium text-gray-600">Priority</th>
                 <th className="text-left p-4 font-medium text-gray-600">Status</th>
@@ -723,6 +829,8 @@ export default function Home() {
             <tbody>
               {tasks.map(task => {
                 const member = TEAM_MEMBERS.find(m => m.id === task.assignee)
+                const workflow = WORKFLOWS.find(w => w.id === task.workflow)
+                const subWorkflow = WORKFLOWS.find(w => w.id === task.subWorkflow)
                 return (
                   <tr 
                     key={task.id} 
@@ -731,7 +839,21 @@ export default function Home() {
                   >
                     <td className="p-4">
                       <div className="font-medium text-gray-900">{task.title}</div>
-                      <div className="text-sm text-gray-500">{task.description}</div>
+                      <div className="text-sm text-gray-500 line-clamp-1">{task.description}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-1">
+                        {workflow && (
+                          <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full text-white w-fit ${workflow.color}`}>
+                            {workflow.name}
+                          </span>
+                        )}
+                        {subWorkflow && (
+                          <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-full text-white w-fit ${subWorkflow.color}`}>
+                            ↳ {subWorkflow.name}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4">
                       <div className="flex items-center gap-2">
@@ -746,16 +868,16 @@ export default function Home() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <span className={`text-xs px-2 py-1 rounded-full border ${priorityColors[task.priority]}`}>
+                      <span className={`text-xs px-2 py-1 rounded-full border whitespace-nowrap ${priorityColors[task.priority]}`}>
                         {task.priority}
                       </span>
                     </td>
                     <td className="p-4">
-                      <span className={`text-xs px-2 py-1 rounded-full ${statusColors[task.status]} text-gray-700`}>
+                      <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${statusColors[task.status]}`}>
                         {statusLabels[task.status]}
                       </span>
                     </td>
-                    <td className="p-4 text-gray-600">
+                    <td className="p-4 text-gray-600 whitespace-nowrap">
                       {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                     </td>
                   </tr>
