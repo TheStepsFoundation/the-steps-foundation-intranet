@@ -22,7 +22,7 @@ const TEAM_MEMBERS = [
   { id: 3, name: 'Daniyaal Anawar', role: 'Co-founder', avatar: 'DA' },
   { id: 4, name: 'Sam Ellis', role: 'Core Team', avatar: 'SE' },
   { id: 5, name: 'Earl Xavier', role: 'Core Team', avatar: 'EX' },
-  { id: 6, name: 'Aditya Luthukumar', role: 'Core Team', avatar: 'AL' },
+  { id: 6, name: 'Aditya Muthukumar', role: 'Core Team', avatar: 'AM' },
 ]
 
 // Workflows / Categories
