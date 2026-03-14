@@ -915,31 +915,55 @@ function MeetingNotesModal({
     }
     
     // Check if line is a person header (e.g., "- Adi" or "- You (Favour)")
-    const isPersonHeader = (line: string): number => {
-      // Match "- Name" or "- You (Name)" at start of line
-      const headerMatch = line.match(/^-\s*(.+?)(?:\s*$|\s*\n)/)
-      if (headerMatch) {
-        const headerText = headerMatch[1].trim()
-        // Check if this is a person name (not a task)
-        if (headerText.length < 30 && !headerText.includes('–')) {
-          return findMember(headerText)
-        }
+    // Headers are short lines with JUST a name, no verbs or action words
+    const isPersonHeader = (line: string): { isHeader: boolean; assignee: number } => {
+      // Must start with "- " at the beginning (not indented)
+      if (!line.match(/^-\s+/)) return { isHeader: false, assignee: 0 }
+      
+      const content = line.replace(/^-\s+/, '').trim()
+      
+      // Headers are short (just a name)
+      if (content.length > 35) return { isHeader: false, assignee: 0 }
+      
+      // Headers don't have action verbs or dashes (which indicate due dates)
+      if (content.includes('–') || content.includes(' - ')) return { isHeader: false, assignee: 0 }
+      
+      // Check for "You (Favour)" or similar
+      if (/^you\s*(\(|$)/i.test(content)) {
+        return { isHeader: true, assignee: 1 } // Favour
       }
-      return -1 // Not a header
+      
+      // Check for team headers
+      if (/team|entire|everyone|all/i.test(content)) {
+        return { isHeader: true, assignee: 0 }
+      }
+      
+      // Check if it matches a team member
+      const memberId = findMember(content)
+      if (memberId !== 0) {
+        return { isHeader: true, assignee: memberId }
+      }
+      
+      return { isHeader: false, assignee: 0 }
     }
     
-    // Check if line is a task bullet
-    const isTaskBullet = (line: string): boolean => {
-      return /^\s*-\s+[A-Z]/.test(line) && line.length > 15
+    // Check if line is a task bullet (indented or long)
+    const isTaskLine = (line: string): boolean => {
+      // Indented bullets are tasks
+      if (/^\s+-\s+/.test(line)) return true
+      // Long lines starting with - are tasks
+      if (line.startsWith('-') && line.length > 40) return true
+      return false
     }
     
     // Process structured format
     let currentAssignee = 0
     let isStructuredFormat = false
     
-    // First pass: detect if this is structured format
+    // First pass: detect if this is structured format (has person headers)
     for (const line of lines) {
-      if (isPersonHeader(line) !== -1 && line.match(/^-\s*\w+/)) {
+      const headerCheck = isPersonHeader(line)
+      if (headerCheck.isHeader) {
         isStructuredFormat = true
         break
       }
@@ -950,29 +974,15 @@ function MeetingNotesModal({
       for (const line of lines) {
         if (!line) continue
         
-        // Check for person header
-        const headerAssignee = isPersonHeader(line)
-        if (headerAssignee !== -1 && line.match(/^-\s*[A-Z]/) && !line.includes('–')) {
-          // This looks like a header (short, no dash-date pattern)
-          const possibleHeader = line.replace(/^-\s*/, '').trim()
-          if (possibleHeader.length < 40 && findMember(possibleHeader) !== 0) {
-            currentAssignee = findMember(possibleHeader)
-            continue
-          }
-          // "You" or "You (Favour)" special case
-          if (/^you\s*(\(|$)/i.test(possibleHeader)) {
-            currentAssignee = 1 // Favour
-            continue
-          }
-          // Team headers - unassigned
-          if (/team|entire|everyone|all/i.test(possibleHeader)) {
-            currentAssignee = 0
-            continue
-          }
+        // Check for person header first
+        const headerCheck = isPersonHeader(line)
+        if (headerCheck.isHeader) {
+          currentAssignee = headerCheck.assignee
+          continue
         }
         
-        // Check for task bullet (indented or starts with -)
-        if (isTaskBullet(line) || (line.startsWith('-') && line.length > 20)) {
+        // Check for task line
+        if (isTaskLine(line) || (line.startsWith('-') && line.length > 25)) {
           const taskText = line.replace(/^[-•*]\s*/, '').trim()
           if (taskText.length < 15) continue
           
