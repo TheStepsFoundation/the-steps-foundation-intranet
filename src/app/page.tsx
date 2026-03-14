@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, MouseEvent } from 'react'
+import { useState, useRef, useEffect, MouseEvent } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -69,6 +69,14 @@ const EVENT_TEMPLATE_TASKS = [
 type Priority = 'low' | 'medium' | 'high' | 'urgent'
 type Status = 'todo' | 'in-progress' | 'review' | 'done'
 
+interface Attachment {
+  id: number
+  type: 'image' | 'voice' | 'note'
+  url: string // data URL or blob URL
+  name: string
+  duration?: number // for voice notes in seconds
+}
+
 interface Task {
   id: number
   title: string
@@ -82,6 +90,7 @@ interface Task {
   createdAt: string
   workflow: string | null
   subWorkflow: string | null
+  attachments?: Attachment[]
 }
 
 const INITIAL_TASKS: Task[] = [
@@ -758,6 +767,87 @@ function TaskModal({
               </div>
             )}
           </div>
+
+          {/* Attachments Display */}
+          {editedTask.attachments && editedTask.attachments.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Attachments ({editedTask.attachments.length})
+              </label>
+              <div className="space-y-2">
+                {editedTask.attachments.map(attachment => (
+                  <div 
+                    key={attachment.id}
+                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+                  >
+                    {/* Icon */}
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      attachment.type === 'image' ? 'bg-blue-100' :
+                      attachment.type === 'voice' ? 'bg-green-100' :
+                      'bg-amber-100'
+                    }`}>
+                      {attachment.type === 'image' ? (
+                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      ) : attachment.type === 'voice' ? (
+                        <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                      )}
+                    </div>
+                    
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{attachment.name}</p>
+                      {attachment.type === 'voice' && attachment.duration && (
+                        <p className="text-xs text-gray-500">
+                          {Math.floor(attachment.duration / 60)}:{(attachment.duration % 60).toString().padStart(2, '0')}
+                        </p>
+                      )}
+                      {attachment.type === 'note' && (
+                        <p className="text-xs text-gray-500 truncate">{attachment.url.slice(0, 60)}...</p>
+                      )}
+                    </div>
+                    
+                    {/* Image preview */}
+                    {attachment.type === 'image' && (
+                      <img 
+                        src={attachment.url} 
+                        alt={attachment.name}
+                        className="w-12 h-12 object-cover rounded"
+                      />
+                    )}
+                    
+                    {/* Audio playback */}
+                    {attachment.type === 'voice' && (
+                      <audio src={attachment.url} controls className="h-8 w-32" />
+                    )}
+                    
+                    {/* Remove button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditedTask({
+                          ...editedTask,
+                          attachments: editedTask.attachments?.filter(a => a.id !== attachment.id)
+                        })
+                      }}
+                      className="p-1.5 text-gray-400 hover:text-red-500 transition"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-3 p-6 border-t bg-gray-50">
@@ -1838,6 +1928,559 @@ function EditWorkflowModal({
   )
 }
 
+// Add Task Modal with integrated input options
+function AddTaskModal({
+  onClose,
+  onSave,
+  workflows,
+  defaultWorkflow,
+}: {
+  onClose: () => void
+  onSave: (task: Task) => void
+  workflows: Workflow[]
+  defaultWorkflow: string | null
+}) {
+  const [title, setTitle] = useState('')
+  const [description, setDescription] = useState('')
+  const [workflow, setWorkflow] = useState<string | null>(defaultWorkflow)
+  const [priority, setPriority] = useState<Priority>('medium')
+  const [assignee, setAssignee] = useState<number>(0)
+  const [dueDate, setDueDate] = useState(
+    new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  )
+  const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [meetingNotes, setMeetingNotes] = useState('')
+  const [activeTab, setActiveTab] = useState<'basic' | 'attachments'>('basic')
+  
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Image upload ref
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  
+  const activeWorkflows = workflows.filter(w => !w.archived)
+
+  // Start voice recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+      
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data)
+      }
+      
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const audioUrl = URL.createObjectURL(audioBlob)
+        const newAttachment: Attachment = {
+          id: Date.now(),
+          type: 'voice',
+          url: audioUrl,
+          name: `Voice Note ${attachments.filter(a => a.type === 'voice').length + 1}`,
+          duration: recordingTime,
+        }
+        setAttachments(prev => [...prev, newAttachment])
+        setRecordingTime(0)
+        stream.getTracks().forEach(track => track.stop())
+      }
+      
+      mediaRecorder.start()
+      setIsRecording(true)
+      
+      // Start timer
+      timerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1)
+      }, 1000)
+    } catch (err) {
+      console.error('Could not start recording:', err)
+      alert('Could not access microphone. Please check your permissions.')
+    }
+  }
+  
+  // Stop voice recording
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+    }
+  }
+  
+  // Handle image upload
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    
+    Array.from(files).forEach(file => {
+      if (!file.type.startsWith('image/')) return
+      
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const newAttachment: Attachment = {
+          id: Date.now() + Math.random(),
+          type: 'image',
+          url: event.target?.result as string,
+          name: file.name,
+        }
+        setAttachments(prev => [...prev, newAttachment])
+      }
+      reader.readAsDataURL(file)
+    })
+    
+    // Reset input
+    if (imageInputRef.current) {
+      imageInputRef.current.value = ''
+    }
+  }
+  
+  // Remove attachment
+  const removeAttachment = (id: number) => {
+    setAttachments(prev => prev.filter(a => a.id !== id))
+  }
+  
+  // Format time for display
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+  
+  // Save meeting notes as attachment
+  const saveMeetingNotes = () => {
+    if (!meetingNotes.trim()) return
+    
+    const newAttachment: Attachment = {
+      id: Date.now(),
+      type: 'note',
+      url: meetingNotes,
+      name: `Meeting Notes ${attachments.filter(a => a.type === 'note').length + 1}`,
+    }
+    setAttachments(prev => [...prev, newAttachment])
+    setMeetingNotes('')
+  }
+  
+  // Handle save
+  const handleSave = () => {
+    if (!title.trim()) {
+      alert('Please enter a task title')
+      return
+    }
+    
+    // If there are meeting notes not yet saved, add them
+    let finalAttachments = [...attachments]
+    if (meetingNotes.trim()) {
+      finalAttachments.push({
+        id: Date.now(),
+        type: 'note',
+        url: meetingNotes,
+        name: `Meeting Notes ${attachments.filter(a => a.type === 'note').length + 1}`,
+      })
+    }
+    
+    const newTask: Task = {
+      id: Date.now(),
+      title: title.trim(),
+      description: description.trim(),
+      assignee,
+      collaborators: [],
+      subtasks: assignee ? [{
+        id: Date.now(),
+        personId: assignee,
+        description: '',
+        intensity: 'small' as Intensity,
+      }] : [],
+      priority,
+      status: 'todo',
+      dueDate,
+      createdAt: new Date().toISOString().split('T')[0],
+      workflow,
+      subWorkflow: null,
+      attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
+    }
+    
+    onSave(newTask)
+    onClose()
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stop()
+      }
+    }
+  }, [isRecording])
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div 
+        className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-6 border-b">
+          <h2 className="text-xl font-semibold text-gray-900">Add New Task</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b">
+          <button
+            onClick={() => setActiveTab('basic')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition ${
+              activeTab === 'basic'
+                ? 'text-purple-600 border-b-2 border-purple-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Task Details
+          </button>
+          <button
+            onClick={() => setActiveTab('attachments')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition flex items-center justify-center gap-2 ${
+              activeTab === 'attachments'
+                ? 'text-purple-600 border-b-2 border-purple-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Attachments
+            {attachments.length > 0 && (
+              <span className="bg-purple-100 text-purple-600 text-xs px-2 py-0.5 rounded-full">
+                {attachments.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          {activeTab === 'basic' ? (
+            <div className="space-y-4">
+              {/* Title */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Task Title *</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  placeholder="What needs to be done?"
+                  autoFocus
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <textarea
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  placeholder="Add more details..."
+                  rows={2}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none"
+                />
+              </div>
+
+              {/* Workflow & Priority */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Workflow</label>
+                  <select
+                    value={workflow || ''}
+                    onChange={e => setWorkflow(e.target.value || null)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+                  >
+                    <option value="">No workflow</option>
+                    {activeWorkflows.map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                  <select
+                    value={priority}
+                    onChange={e => setPriority(e.target.value as Priority)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Due Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Due Date</label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={e => setDueDate(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+                />
+              </div>
+
+              {/* Assignee */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Assign To</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignee(0)}
+                    className={`flex items-center gap-2 p-3 rounded-lg border-2 transition ${
+                      assignee === 0
+                        ? 'border-gray-400 bg-gray-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-sm">
+                      ?
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 truncate">Unassigned</span>
+                  </button>
+                  {TEAM_MEMBERS.map(member => (
+                    <button
+                      key={member.id}
+                      type="button"
+                      onClick={() => setAssignee(member.id)}
+                      className={`flex items-center gap-2 p-3 rounded-lg border-2 transition ${
+                        assignee === member.id
+                          ? 'border-purple-500 bg-purple-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 text-sm font-medium">
+                        {member.avatar}
+                      </div>
+                      <span className="text-sm font-medium text-gray-700 truncate">{member.name.split(' ')[0]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Upload Options */}
+              <div className="grid grid-cols-3 gap-3">
+                {/* Image Upload */}
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="flex flex-col items-center gap-2 p-4 border-2 border-dashed border-gray-300 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition"
+                >
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">Upload Image</span>
+                </button>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+
+                {/* Voice Note */}
+                <button
+                  type="button"
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={`flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl transition ${
+                    isRecording 
+                      ? 'border-red-400 bg-red-50' 
+                      : 'border-gray-300 hover:border-purple-400 hover:bg-purple-50'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                    isRecording ? 'bg-red-100 animate-pulse' : 'bg-green-100'
+                  }`}>
+                    {isRecording ? (
+                      <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 24 24">
+                        <rect x="6" y="6" width="12" height="12" rx="2" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                      </svg>
+                    )}
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {isRecording ? `Recording ${formatTime(recordingTime)}` : 'Voice Note'}
+                  </span>
+                </button>
+
+                {/* Meeting Notes Toggle */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const textarea = document.getElementById('meeting-notes-textarea')
+                    if (textarea) textarea.focus()
+                  }}
+                  className="flex flex-col items-center gap-2 p-4 border-2 border-dashed border-gray-300 rounded-xl hover:border-purple-400 hover:bg-purple-50 transition"
+                >
+                  <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">Meeting Notes</span>
+                </button>
+              </div>
+
+              {/* Meeting Notes Input */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Meeting Notes</label>
+                <textarea
+                  id="meeting-notes-textarea"
+                  value={meetingNotes}
+                  onChange={e => setMeetingNotes(e.target.value)}
+                  placeholder="Paste or type meeting notes, transcript, or context..."
+                  rows={4}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none resize-none font-mono text-sm"
+                />
+                {meetingNotes.trim() && (
+                  <button
+                    type="button"
+                    onClick={saveMeetingNotes}
+                    className="mt-2 text-sm text-purple-600 hover:text-purple-700 font-medium"
+                  >
+                    + Save as separate note
+                  </button>
+                )}
+              </div>
+
+              {/* Attachments List */}
+              {attachments.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Attached ({attachments.length})
+                  </label>
+                  <div className="space-y-2">
+                    {attachments.map(attachment => (
+                      <div 
+                        key={attachment.id}
+                        className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+                      >
+                        {/* Icon */}
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          attachment.type === 'image' ? 'bg-blue-100' :
+                          attachment.type === 'voice' ? 'bg-green-100' :
+                          'bg-amber-100'
+                        }`}>
+                          {attachment.type === 'image' ? (
+                            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                          ) : attachment.type === 'voice' ? (
+                            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                          )}
+                        </div>
+                        
+                        {/* Preview */}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{attachment.name}</p>
+                          {attachment.type === 'voice' && attachment.duration && (
+                            <p className="text-xs text-gray-500">{formatTime(attachment.duration)}</p>
+                          )}
+                          {attachment.type === 'note' && (
+                            <p className="text-xs text-gray-500 truncate">{attachment.url.slice(0, 50)}...</p>
+                          )}
+                        </div>
+                        
+                        {/* Image preview */}
+                        {attachment.type === 'image' && (
+                          <img 
+                            src={attachment.url} 
+                            alt={attachment.name}
+                            className="w-12 h-12 object-cover rounded"
+                          />
+                        )}
+                        
+                        {/* Audio playback */}
+                        {attachment.type === 'voice' && (
+                          <audio src={attachment.url} controls className="h-8 w-32" />
+                        )}
+                        
+                        {/* Remove button */}
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(attachment.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 transition"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 p-6 border-t bg-gray-50">
+          <div className="flex items-center gap-2 text-sm text-gray-500">
+            {attachments.length > 0 && (
+              <span className="flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                {attachments.length} attachment{attachments.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!title.trim()}
+              className="px-5 py-2.5 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Create Task
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS)
   const [workflows, setWorkflows] = useState<Workflow[]>(INITIAL_WORKFLOWS)
@@ -1846,6 +2489,7 @@ export default function Home() {
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [showNewWorkflowModal, setShowNewWorkflowModal] = useState(false)
   const [showMeetingNotesModal, setShowMeetingNotesModal] = useState(false)
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false)
   const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null)
   
   // Workload week view state
@@ -2158,24 +2802,7 @@ export default function Home() {
       <div className="mb-6 flex items-center gap-3 flex-wrap">
         {/* Left side - Add Task */}
         <button
-          onClick={() => {
-            const newTask: Task = {
-              id: Date.now(),
-              title: '',
-              description: '',
-              assignee: 0,
-              collaborators: [],
-              subtasks: [],
-              priority: 'medium',
-              status: 'todo',
-              dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-              createdAt: new Date().toISOString().split('T')[0],
-              workflow: globalWorkflow !== 'all' ? globalWorkflow : null,
-              subWorkflow: null,
-            }
-            setTasks(prev => [...prev, newTask])
-            setEditingTask(newTask)
-          }}
+          onClick={() => setShowAddTaskModal(true)}
           className="px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition flex items-center gap-1"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2781,6 +3408,16 @@ export default function Home() {
             : handleArchiveWorkflow(editingWorkflow.id)
           }
           onDelete={() => handleDeleteWorkflow(editingWorkflow.id)}
+        />
+      )}
+
+      {/* Add Task Modal */}
+      {showAddTaskModal && (
+        <AddTaskModal
+          onClose={() => setShowAddTaskModal(false)}
+          onSave={(newTask) => setTasks(prev => [...prev, newTask])}
+          workflows={workflows}
+          defaultWorkflow={globalWorkflow !== 'all' ? globalWorkflow : null}
         />
       )}
 
