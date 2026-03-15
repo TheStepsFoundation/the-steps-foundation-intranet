@@ -14,28 +14,7 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core'
-
-// Team members from Steps Foundation
-const TEAM_MEMBERS = [
-  { id: 1, name: "God'sFavour Oluwanusin", role: 'Co-founder', avatar: 'GO' },
-  { id: 2, name: 'Jin Samson', role: 'Co-founder', avatar: 'JS' },
-  { id: 3, name: 'Daniyaal Anawar', role: 'Co-founder', avatar: 'DA' },
-  { id: 4, name: 'Sam Ellis', role: 'Core Team', avatar: 'SE' },
-  { id: 5, name: 'Earl Xavier', role: 'Core Team', avatar: 'EX' },
-  { id: 6, name: 'Aditya Muthukumar', role: 'Core Team', avatar: 'AM' },
-]
-
-// Workflows / Categories
-const INITIAL_WORKFLOWS = [
-  { id: 'event-4', name: '#4 The Great Lock-In', short: '#4', color: 'bg-purple-500' },
-  { id: 'event-3', name: '#3 Degree Apprenticeship', short: '#3', color: 'bg-blue-500' },
-  { id: 'event-2', name: '#2 Oxbridge Workshop', short: '#2', color: 'bg-indigo-500' },
-  { id: 'event-1', name: '#1 Starting Point', short: '#1', color: 'bg-violet-500' },
-  { id: 'schools', name: 'Schools', short: 'SCH', color: 'bg-green-500' },
-  { id: 'partnerships', name: 'Partnerships', short: 'PTN', color: 'bg-amber-500' },
-  { id: 'steps-scholars', name: 'Steps Scholars', short: 'SS', color: 'bg-rose-500' },
-  { id: 'student-engagement', name: 'Student Engagement', short: 'ENG', color: 'bg-cyan-500' },
-]
+import { useData, TEAM_MEMBERS } from '@/lib/data-provider'
 
 // Workflow color options
 const WORKFLOW_COLORS = [
@@ -92,128 +71,6 @@ interface Task {
   subWorkflow: string | null
   attachments?: Attachment[]
 }
-
-const INITIAL_TASKS: Task[] = [
-  {
-    id: 1,
-    title: 'Finalise TikTok ad video',
-    description: 'Edit and post the filmed TikTok ad for Event #4',
-    assignee: 1,
-    collaborators: [3],
-    subtasks: [
-      { id: 1, personId: 1, description: 'Edit video and add captions', intensity: 'medium' },
-      { id: 2, personId: 3, description: 'Review and approve final cut', intensity: 'quick' },
-    ],
-    priority: 'high',
-    status: 'in-progress',
-    dueDate: '2026-03-16',
-    createdAt: '2026-03-14',
-    workflow: 'event-4',
-    subWorkflow: 'student-engagement',
-  },
-  {
-    id: 2,
-    title: 'Email blast to past attendees',
-    description: 'Send event #4 invite to all previous event attendees',
-    assignee: 2,
-    collaborators: [],
-    subtasks: [],
-    priority: 'high',
-    status: 'todo',
-    dueDate: '2026-03-17',
-    createdAt: '2026-03-14',
-    workflow: 'event-4',
-    subWorkflow: null,
-  },
-  {
-    id: 3,
-    title: 'Confirm speakers for Lock-In',
-    description: 'Follow up with all confirmed speakers and get final confirmations',
-    assignee: 3,
-    collaborators: [1, 2],
-    subtasks: [
-      { id: 3, personId: 3, description: 'Send follow-up emails to all speakers', intensity: 'small' },
-      { id: 4, personId: 1, description: 'Coordinate travel arrangements', intensity: 'medium' },
-      { id: 5, personId: 2, description: 'Prepare speaker briefing packs', intensity: 'large' },
-    ],
-    priority: 'urgent',
-    status: 'in-progress',
-    dueDate: '2026-03-15',
-    createdAt: '2026-03-14',
-    workflow: 'event-4',
-    subWorkflow: 'partnerships',
-  },
-  {
-    id: 4,
-    title: 'Design event day schedule',
-    description: 'Create detailed minute-by-minute schedule for March 21',
-    assignee: 4,
-    collaborators: [],
-    subtasks: [],
-    priority: 'medium',
-    status: 'todo',
-    dueDate: '2026-03-18',
-    createdAt: '2026-03-14',
-    workflow: 'event-4',
-    subWorkflow: null,
-  },
-  {
-    id: 5,
-    title: 'Book catering for event',
-    description: 'Confirm lunch and refreshments for 250 attendees',
-    assignee: 5,
-    collaborators: [4],
-    subtasks: [],
-    priority: 'high',
-    status: 'review',
-    dueDate: '2026-03-16',
-    createdAt: '2026-03-14',
-    workflow: 'event-4',
-    subWorkflow: null,
-  },
-  {
-    id: 6,
-    title: 'Print name badges',
-    description: 'Design and print name badges for all confirmed attendees',
-    assignee: 6,
-    collaborators: [],
-    subtasks: [],
-    priority: 'low',
-    status: 'todo',
-    dueDate: '2026-03-20',
-    createdAt: '2026-03-14',
-    workflow: 'event-4',
-    subWorkflow: null,
-  },
-  {
-    id: 7,
-    title: 'Set up registration desk plan',
-    description: 'Prepare check-in system and volunteer briefing',
-    assignee: 1,
-    collaborators: [5, 6],
-    subtasks: [],
-    priority: 'medium',
-    status: 'done',
-    dueDate: '2026-03-20',
-    createdAt: '2026-03-10',
-    workflow: 'event-4',
-    subWorkflow: null,
-  },
-  {
-    id: 8,
-    title: 'Reach out to partner schools',
-    description: 'Contact 10 new schools for Steps Scholars program',
-    assignee: 3,
-    collaborators: [],
-    subtasks: [],
-    priority: 'medium',
-    status: 'todo',
-    dueDate: '2026-03-25',
-    createdAt: '2026-03-14',
-    workflow: 'steps-scholars',
-    subWorkflow: 'schools',
-  },
-]
 
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700 border-gray-200',
@@ -2482,8 +2339,25 @@ function AddTaskModal({
 }
 
 export default function Home() {
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS)
-  const [workflows, setWorkflows] = useState<Workflow[]>(INITIAL_WORKFLOWS)
+  // Data from Supabase (or demo mode)
+  const {
+    tasks,
+    workflows,
+    loading,
+    isDemo,
+    createTask,
+    updateTask: updateTaskInDb,
+    setTasks,
+    createWorkflow,
+    updateWorkflow: updateWorkflowInDb,
+    deleteWorkflow: deleteWorkflowFromDb,
+    setWorkflows,
+    weekCapacities,
+    weekNotes,
+    setWeekCapacity,
+    setWeekNote,
+  } = useData()
+
   const [view, setView] = useState<'board' | 'team' | 'list' | 'workload'>('board')
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
@@ -2501,11 +2375,6 @@ export default function Home() {
     const monday = new Date(today.setDate(diff))
     return monday.toISOString().split('T')[0]
   })
-  const [weekCapacities, setWeekCapacities] = useState<Record<string, Record<number, number>>>({})
-  // weekCapacities format: { "2026-03-16": { 1: 8, 2: 6, 3: 10 } } (weekStart -> memberId -> hours)
-  
-  const [weekNotes, setWeekNotes] = useState<Record<string, Record<number, string>>>({})
-  // weekNotes format: { "2026-03-16": { 1: "Exams until Friday", 2: "Swimming comp" } }
   
   // Global workflow filter (applies to all views)
   const [globalWorkflow, setGlobalWorkflow] = useState<string>('all')
@@ -2610,14 +2479,9 @@ export default function Home() {
   }
   
   // Set capacity for a member for a specific week
-  const setMemberCapacity = (memberId: number, weekStart: string, hours: number) => {
-    setWeekCapacities(prev => ({
-      ...prev,
-      [weekStart]: {
-        ...prev[weekStart],
-        [memberId]: Math.max(0, Math.min(40, hours)) // Clamp 0-40h
-      }
-    }))
+  const handleSetMemberCapacity = (memberId: number, weekStart: string, hours: number) => {
+    const clampedHours = Math.max(0, Math.min(40, hours))
+    setWeekCapacity(memberId, weekStart, clampedHours)
   }
   
   // Get/set availability note for a member for a specific week
@@ -2625,14 +2489,8 @@ export default function Home() {
     return weekNotes[weekStart]?.[memberId] ?? ''
   }
   
-  const setMemberNote = (memberId: number, weekStart: string, note: string) => {
-    setWeekNotes(prev => ({
-      ...prev,
-      [weekStart]: {
-        ...prev[weekStart],
-        [memberId]: note
-      }
-    }))
+  const handleSetMemberNote = (memberId: number, weekStart: string, note: string) => {
+    setWeekNote(memberId, weekStart, note)
   }
   
   // Get week navigation helpers
@@ -2689,7 +2547,7 @@ export default function Home() {
     if (task) setActiveTask(task)
   }
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event
     setActiveTask(null)
     
@@ -2700,73 +2558,74 @@ export default function Home() {
     const task = tasks.find(t => t.id === taskId)
     if (!task) return
 
+    // Dragged to status column
     if (['todo', 'in-progress', 'review', 'done'].includes(overId)) {
-      setTasks(prev => prev.map(t =>
-        t.id === taskId ? { ...t, status: overId as Status } : t
-      ))
+      const updatedTask = { ...task, status: overId as Status }
+      await updateTaskInDb(updatedTask)
     }
     
+    // Dragged to team member
     if (overId.startsWith('member-')) {
       const newAssigneeId = parseInt(overId.replace('member-', ''))
       const oldAssigneeId = task.assignee
       
       if (newAssigneeId !== oldAssigneeId) {
-        setTasks(prev => prev.map(t => {
-          if (t.id === taskId) {
-            const newCollaborators = t.collaborators.filter(id => id !== newAssigneeId)
-            // Only add old assignee as collaborator if they were assigned (not 0/unassigned)
-            if (oldAssigneeId && !newCollaborators.includes(oldAssigneeId)) {
-              newCollaborators.push(oldAssigneeId)
-            }
-            return {
-              ...t,
-              assignee: newAssigneeId,
-              collaborators: newAssigneeId === 0 ? [] : newCollaborators,
-            }
-          }
-          return t
-        }))
+        const newCollaborators = task.collaborators.filter(id => id !== newAssigneeId)
+        // Only add old assignee as collaborator if they were assigned (not 0/unassigned)
+        if (oldAssigneeId && !newCollaborators.includes(oldAssigneeId)) {
+          newCollaborators.push(oldAssigneeId)
+        }
+        const updatedTask = {
+          ...task,
+          assignee: newAssigneeId,
+          collaborators: newAssigneeId === 0 ? [] : newCollaborators,
+        }
+        await updateTaskInDb(updatedTask)
       }
     }
   }
 
-  const handleSaveTask = (updatedTask: Task) => {
-    setTasks(prev => prev.map(task =>
-      task.id === updatedTask.id ? updatedTask : task
-    ))
+  const handleSaveTask = async (updatedTask: Task) => {
+    await updateTaskInDb(updatedTask)
   }
 
-  const handleCreateWorkflow = (newWorkflow: Workflow, newTasks: Task[]) => {
-    setWorkflows(prev => [...prev, newWorkflow])
-    setTasks(prev => [...prev, ...newTasks])
+  const handleCreateWorkflow = async (newWorkflow: Workflow, newTasks: Task[]) => {
+    await createWorkflow(newWorkflow)
+    for (const task of newTasks) {
+      await createTask(task)
+    }
     setGlobalWorkflow(newWorkflow.id)
   }
 
-  const handleAddTasksFromMeeting = (newTasks: Task[]) => {
-    setTasks(prev => [...prev, ...newTasks])
+  const handleAddTasksFromMeeting = async (newTasks: Task[]) => {
+    for (const task of newTasks) {
+      await createTask(task)
+    }
   }
 
-  const handleUpdateWorkflow = (updated: Workflow) => {
-    setWorkflows(prev => prev.map(w => w.id === updated.id ? updated : w))
+  const handleUpdateWorkflow = async (updated: Workflow) => {
+    await updateWorkflowInDb(updated)
   }
 
-  const handleArchiveWorkflow = (workflowId: string) => {
-    setWorkflows(prev => prev.map(w => 
-      w.id === workflowId ? { ...w, archived: true } : w
-    ))
+  const handleArchiveWorkflow = async (workflowId: string) => {
+    const workflow = workflows.find(w => w.id === workflowId)
+    if (workflow) {
+      await updateWorkflowInDb({ ...workflow, archived: true })
+    }
     if (globalWorkflow === workflowId) {
       setGlobalWorkflow('all')
     }
   }
 
-  const handleUnarchiveWorkflow = (workflowId: string) => {
-    setWorkflows(prev => prev.map(w => 
-      w.id === workflowId ? { ...w, archived: false } : w
-    ))
+  const handleUnarchiveWorkflow = async (workflowId: string) => {
+    const workflow = workflows.find(w => w.id === workflowId)
+    if (workflow) {
+      await updateWorkflowInDb({ ...workflow, archived: false })
+    }
   }
 
-  const handleDeleteWorkflow = (workflowId: string) => {
-    setWorkflows(prev => prev.filter(w => w.id !== workflowId))
+  const handleDeleteWorkflow = async (workflowId: string) => {
+    await deleteWorkflowFromDb(workflowId)
     if (globalWorkflow === workflowId) {
       setGlobalWorkflow('all')
     }
@@ -2775,8 +2634,30 @@ export default function Home() {
   const activeWorkflows = workflows.filter(w => !w.archived)
   const archivedWorkflows = workflows.filter(w => w.archived)
 
+  // Loading state
+  if (loading) {
+    return (
+      <main className="min-h-screen p-6 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+          <p className="text-gray-500">Loading tasks...</p>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen p-6">
+      {/* Demo mode banner */}
+      {isDemo && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-sm">
+          <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          <span><strong>Demo Mode:</strong> Changes will not persist. Connect Supabase to save your data.</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
         <div>
@@ -3139,7 +3020,7 @@ export default function Home() {
                       max="40"
                       step="1"
                       value={capacity}
-                      onChange={e => setMemberCapacity(member.id, selectedWeek, parseInt(e.target.value))}
+                      onChange={e => handleSetMemberCapacity(member.id, selectedWeek, parseInt(e.target.value))}
                       className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
                     />
                     <div className="flex justify-between text-xs text-gray-400 mt-1">
@@ -3154,7 +3035,7 @@ export default function Home() {
                     <input
                       type="text"
                       value={getMemberNote(member.id, selectedWeek)}
-                      onChange={e => setMemberNote(member.id, selectedWeek, e.target.value)}
+                      onChange={e => handleSetMemberNote(member.id, selectedWeek, e.target.value)}
                       placeholder="Note: exams, holiday, busy..."
                       className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-transparent outline-none"
                     />
@@ -3415,7 +3296,7 @@ export default function Home() {
       {showAddTaskModal && (
         <AddTaskModal
           onClose={() => setShowAddTaskModal(false)}
-          onSave={(newTask) => setTasks(prev => [...prev, newTask])}
+          onSave={async (newTask) => await createTask(newTask)}
           workflows={workflows}
           defaultWorkflow={globalWorkflow !== 'all' ? globalWorkflow : null}
         />
