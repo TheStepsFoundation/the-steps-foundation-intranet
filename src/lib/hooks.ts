@@ -2,7 +2,75 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from './supabase'
-import type { Task, Workflow, TeamMember, Subtask, Attachment } from './database.types'
+import type { Task, Workflow, TeamMember } from './database.types'
+
+// Database row types (what Supabase returns)
+interface TaskRow {
+  id: number
+  title: string
+  description: string | null
+  assignee: number | null
+  priority: string
+  status: string
+  due_date: string | null
+  workflow_id: string | null
+  sub_workflow_id: string | null
+  created_at: string
+}
+
+interface CollaboratorRow {
+  id: number
+  task_id: number
+  member_id: number
+}
+
+interface SubtaskRow {
+  id: number
+  task_id: number
+  person_id: number | null
+  description: string | null
+  intensity: string
+}
+
+interface AttachmentRow {
+  id: number
+  task_id: number
+  type: string
+  url: string
+  name: string
+  duration: number | null
+  created_at: string
+}
+
+interface WorkflowRow {
+  id: string
+  name: string
+  short: string
+  color: string
+  archived: boolean | null
+  created_at: string
+}
+
+interface TeamMemberRow {
+  id: number
+  name: string
+  role: string
+  avatar: string
+}
+
+interface WeekCapacityRow {
+  id: number
+  week_start: string
+  member_id: number
+  hours: number
+}
+
+interface WeekNoteRow {
+  id: number
+  week_start: string
+  member_id: number
+  note: string
+}
 
 // Fetch all tasks with their collaborators, subtasks, and attachments
 export function useTasks() {
@@ -41,34 +109,40 @@ export function useTasks() {
 
       if (attachmentsError) throw attachmentsError
 
+      // Cast to our row types
+      const taskRows = (tasksData || []) as TaskRow[]
+      const collabRows = (collabData || []) as CollaboratorRow[]
+      const subtaskRows = (subtasksData || []) as SubtaskRow[]
+      const attachmentRows = (attachmentsData || []) as AttachmentRow[]
+
       // Map to frontend Task format
-      const mappedTasks: Task[] = (tasksData || []).map(t => ({
+      const mappedTasks: Task[] = taskRows.map(t => ({
         id: t.id,
         title: t.title,
         description: t.description || '',
         assignee: t.assignee || 0,
-        collaborators: (collabData || [])
+        collaborators: collabRows
           .filter(c => c.task_id === t.id)
           .map(c => c.member_id),
-        subtasks: (subtasksData || [])
+        subtasks: subtaskRows
           .filter(s => s.task_id === t.id)
           .map(s => ({
             id: s.id,
             personId: s.person_id || 0,
             description: s.description || '',
-            intensity: s.intensity,
+            intensity: s.intensity as Task['subtasks'][0]['intensity'],
           })),
-        priority: t.priority,
-        status: t.status,
-        dueDate: t.due_date,
+        priority: t.priority as Task['priority'],
+        status: t.status as Task['status'],
+        dueDate: t.due_date || '',
         createdAt: t.created_at.split('T')[0],
         workflow: t.workflow_id,
         subWorkflow: t.sub_workflow_id,
-        attachments: (attachmentsData || [])
+        attachments: attachmentRows
           .filter(a => a.task_id === t.id)
           .map(a => ({
             id: a.id,
-            type: a.type,
+            type: a.type as 'image' | 'voice' | 'note',
             url: a.url,
             name: a.name,
             duration: a.duration || undefined,
@@ -123,20 +197,22 @@ export function useTasks() {
         assignee: task.assignee || null,
         priority: task.priority,
         status: task.status,
-        due_date: task.dueDate,
-        workflow_id: task.workflow,
-        sub_workflow_id: task.subWorkflow,
+        due_date: task.dueDate || null,
+        workflow_id: task.workflow || null,
+        sub_workflow_id: task.subWorkflow || null,
       })
       .select()
       .single()
 
     if (error) throw error
 
+    const taskData = data as TaskRow
+
     // Insert collaborators
     if (task.collaborators.length > 0) {
       await supabase.from('task_collaborators').insert(
         task.collaborators.map(memberId => ({
-          task_id: data.id,
+          task_id: taskData.id,
           member_id: memberId,
         }))
       )
@@ -146,7 +222,7 @@ export function useTasks() {
     if (task.subtasks.length > 0) {
       await supabase.from('subtasks').insert(
         task.subtasks.map(st => ({
-          task_id: data.id,
+          task_id: taskData.id,
           person_id: st.personId || null,
           description: st.description,
           intensity: st.intensity,
@@ -158,7 +234,7 @@ export function useTasks() {
     if (task.attachments && task.attachments.length > 0) {
       await supabase.from('attachments').insert(
         task.attachments.map(att => ({
-          task_id: data.id,
+          task_id: taskData.id,
           type: att.type,
           url: att.url,
           name: att.name,
@@ -168,7 +244,7 @@ export function useTasks() {
     }
 
     await fetchTasks()
-    return data
+    return taskData
   }
 
   const updateTask = async (task: Task) => {
@@ -181,9 +257,9 @@ export function useTasks() {
         assignee: task.assignee || null,
         priority: task.priority,
         status: task.status,
-        due_date: task.dueDate,
-        workflow_id: task.workflow,
-        sub_workflow_id: task.subWorkflow,
+        due_date: task.dueDate || null,
+        workflow_id: task.workflow || null,
+        sub_workflow_id: task.subWorkflow || null,
       })
       .eq('id', task.id)
 
@@ -254,12 +330,14 @@ export function useWorkflows() {
 
       if (error) throw error
 
-      const mappedWorkflows: Workflow[] = (data || []).map(w => ({
+      const workflowRows = (data || []) as WorkflowRow[]
+
+      const mappedWorkflows: Workflow[] = workflowRows.map(w => ({
         id: w.id,
         name: w.name,
         short: w.short,
         color: w.color,
-        archived: w.archived,
+        archived: w.archived || false,
       }))
 
       setWorkflows(mappedWorkflows)
@@ -338,7 +416,7 @@ export function useTeamMembers() {
         .order('id', { ascending: true })
 
       if (!error && data) {
-        setMembers(data)
+        setMembers(data as TeamMemberRow[])
       }
       setLoading(false)
     }
@@ -362,14 +440,16 @@ export function useWeekData(weekStart: string) {
       ])
 
       if (capResult.data) {
+        const capRows = capResult.data as WeekCapacityRow[]
         const capMap: Record<number, number> = {}
-        capResult.data.forEach(c => { capMap[c.member_id] = c.hours })
+        capRows.forEach(c => { capMap[c.member_id] = c.hours })
         setCapacities(capMap)
       }
 
       if (notesResult.data) {
+        const noteRows = notesResult.data as WeekNoteRow[]
         const notesMap: Record<number, string> = {}
-        notesResult.data.forEach(n => { notesMap[n.member_id] = n.note })
+        noteRows.forEach(n => { notesMap[n.member_id] = n.note })
         setNotes(notesMap)
       }
 
