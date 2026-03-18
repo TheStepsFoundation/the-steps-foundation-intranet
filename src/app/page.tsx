@@ -766,7 +766,19 @@ function MeetingNotesModal({
     
     // Parse meeting notes to extract tasks
     // Supports both structured lists (- Person: - task) and free-form notes
-    const lines = notes.split('\n').map(l => l.trim())
+    
+    // Strip markdown formatting (bold, italic, etc.)
+    const stripMarkdown = (text: string): string => {
+      return text
+        .replace(/\*\*([^*]+)\*\*/g, '$1')  // **bold** -> bold
+        .replace(/\*([^*]+)\*/g, '$1')       // *italic* -> italic
+        .replace(/__([^_]+)__/g, '$1')       // __bold__ -> bold
+        .replace(/_([^_]+)_/g, '$1')         // _italic_ -> italic
+        .replace(/~~([^~]+)~~/g, '$1')       // ~~strikethrough~~ -> strikethrough
+        .replace(/`([^`]+)`/g, '$1')         // `code` -> code
+    }
+    
+    const lines = notes.split('\n').map(l => stripMarkdown(l.trim()))
     const tasks: SuggestedTask[] = []
     
     // Team member names and nicknames
