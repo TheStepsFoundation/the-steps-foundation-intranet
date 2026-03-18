@@ -3341,12 +3341,19 @@ export default function Home() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
-            <input
-              type="date"
-              value={selectedWeek}
-              onChange={e => setSelectedWeek(e.target.value)}
-              className="ml-4 px-3 py-2 border border-gray-200 rounded-lg text-sm"
-            />
+            <button
+              onClick={() => {
+                // Jump to current week (Monday)
+                const today = new Date()
+                const day = today.getDay()
+                const diff = today.getDate() - day + (day === 0 ? -6 : 1)
+                const monday = new Date(today.setDate(diff))
+                setSelectedWeek(monday.toISOString().split('T')[0])
+              }}
+              className="ml-4 px-3 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-lg transition"
+            >
+              This Week
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
