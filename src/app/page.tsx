@@ -897,34 +897,49 @@ function MeetingNotesModal({
       return titleCased.join(' ')
     }
     
-    // Check if line is a person header (e.g., "- Adi" or "- You (Favour)")
+    // Check if line is a person header (e.g., "Adi", "You (Favour)", "- Jin")
     // Headers are short lines with JUST a name, no verbs or action words
     const isPersonHeader = (line: string): { isHeader: boolean; assignee: number } => {
-      // Must start with "- " at the beginning (not indented)
-      if (!line.match(/^-\s+/)) return { isHeader: false, assignee: 0 }
+      // Remove optional leading "- " or bullet
+      const content = line.replace(/^[-•*]\s*/, '').trim()
       
-      const content = line.replace(/^-\s+/, '').trim()
+      // Headers are short (just a name) - max ~25 chars
+      if (content.length > 30) return { isHeader: false, assignee: 0 }
       
-      // Headers are short (just a name)
-      if (content.length > 35) return { isHeader: false, assignee: 0 }
-      
-      // Headers don't have action verbs or dashes (which indicate due dates)
+      // Headers don't have action verbs, dashes (due dates), or common task words
       if (content.includes('–') || content.includes(' - ')) return { isHeader: false, assignee: 0 }
+      if (/\b(follow|email|contact|lead|prepare|work|attend|join|send|create|film|confirm|help|drive|share|start|finish|respond|coordinate|sketch|move|take)\b/i.test(content)) {
+        return { isHeader: false, assignee: 0 }
+      }
       
-      // Check for "You (Favour)" or similar
-      if (/^you\s*(\(|$)/i.test(content)) {
+      // Check for "You (Favour)" or "You" alone
+      if (/^you\s*(\(favour\)|\(fav\))?$/i.test(content)) {
         return { isHeader: true, assignee: 1 } // Favour
       }
       
-      // Check for team headers
-      if (/team|entire|everyone|all/i.test(content)) {
+      // Check for team/group headers
+      if (/^(entire\s+)?(core\s+)?team$/i.test(content) || /everyone|all\s+team/i.test(content)) {
         return { isHeader: true, assignee: 0 }
       }
       
-      // Check if it matches a team member
+      // Check if it's JUST a team member name (nothing else)
       const memberId = findMember(content)
       if (memberId !== 0) {
-        return { isHeader: true, assignee: memberId }
+        // Make sure it's just the name, not a task mentioning the name
+        const nameOnly = content.toLowerCase().replace(/[^a-z\s]/g, '').trim()
+        for (const member of memberAliases) {
+          if (member.id === memberId) {
+            for (const name of member.names) {
+              if (nameOnly === name || nameOnly === name + ' ' || ' ' + nameOnly === ' ' + name) {
+                return { isHeader: true, assignee: memberId }
+              }
+            }
+          }
+        }
+        // If content is very short and matches a member, it's likely a header
+        if (content.length <= 15) {
+          return { isHeader: true, assignee: memberId }
+        }
       }
       
       return { isHeader: false, assignee: 0 }
@@ -964,60 +979,87 @@ function MeetingNotesModal({
           continue
         }
         
-        // Check for task line
-        if (isTaskLine(line) || (line.startsWith('-') && line.length > 25)) {
-          const taskText = line.replace(/^[-•*]\s*/, '').trim()
-          if (taskText.length < 15) continue
-          
-          const dueDate = parseDate(taskText)
-          const title = extractTitle(taskText)
-          
-          // Find collaborators mentioned in the task
-          const collaborators: number[] = []
-          for (const member of memberAliases) {
-            if (member.id !== currentAssignee) {
-              for (const name of member.names) {
-                if (taskText.toLowerCase().includes(name)) {
+        // Check for task line (indented or starting with -)
+        const trimmedLine = line.trim()
+        if (!trimmedLine.startsWith('-') && !trimmedLine.startsWith('•')) continue
+        
+        const taskText = trimmedLine.replace(/^[-•*]\s*/, '').trim()
+        if (taskText.length < 10) continue
+        
+        const dueDate = parseDate(taskText)
+        const title = extractTitle(taskText)
+        
+        // Find collaborators mentioned in the task
+        // Look for patterns like "with Sam", "and Dany", "co-lead with X"
+        const collaborators: number[] = []
+        const lowerText = taskText.toLowerCase()
+        
+        for (const member of memberAliases) {
+          if (member.id !== currentAssignee) {
+            for (const name of member.names) {
+              // Check for collaboration patterns
+              const patterns = [
+                `with ${name}`,
+                `and ${name}`,
+                `co-lead ${name}`,
+                `co‑lead ${name}`,
+                `${name} and `,
+                `${name}, `,
+                `+ ${name}`,
+              ]
+              
+              const hasPattern = patterns.some(p => lowerText.includes(p))
+              
+              // Also check for direct mention if name appears with context
+              const directMention = lowerText.includes(name) && 
+                (lowerText.includes('work with') || 
+                 lowerText.includes('coordinate') || 
+                 lowerText.includes('join') ||
+                 lowerText.includes('co-') ||
+                 lowerText.includes('co‑'))
+              
+              if (hasPattern || directMention) {
+                if (!collaborators.includes(member.id)) {
                   collaborators.push(member.id)
-                  break
                 }
+                break
               }
             }
           }
-          
-          // Build subtasks
-          const subtasks: Subtask[] = []
-          if (currentAssignee) {
-            subtasks.push({
-              id: Date.now() + tasks.length * 100,
-              personId: currentAssignee,
-              description: '',
-              intensity: estimateIntensity(taskText),
-            })
-          }
-          collaborators.forEach((collabId, j) => {
-            subtasks.push({
-              id: Date.now() + tasks.length * 100 + j + 1,
-              personId: collabId,
-              description: '',
-              intensity: 'small',
-            })
-          })
-          
-          tasks.push({
-            id: Date.now() + tasks.length,
-            title,
-            description: taskText,
-            assignee: currentAssignee,
-            collaborators,
-            subtasks,
-            priority: estimatePriority(taskText, dueDate),
-            status: 'todo',
-            workflow: selectedWorkflow,
-            selected: true,
-            dueDate: dueDate || undefined,
+        }
+        
+        // Build subtasks
+        const subtasks: Subtask[] = []
+        if (currentAssignee) {
+          subtasks.push({
+            id: Date.now() + tasks.length * 100,
+            personId: currentAssignee,
+            description: '',
+            intensity: estimateIntensity(taskText),
           })
         }
+        collaborators.forEach((collabId, j) => {
+          subtasks.push({
+            id: Date.now() + tasks.length * 100 + j + 1,
+            personId: collabId,
+            description: '',
+            intensity: 'small',
+          })
+        })
+        
+        tasks.push({
+          id: Date.now() + tasks.length,
+          title,
+          description: taskText,
+          assignee: currentAssignee,
+          collaborators,
+          subtasks,
+          priority: estimatePriority(taskText, dueDate),
+          status: 'todo',
+          workflow: selectedWorkflow,
+          selected: true,
+          dueDate: dueDate || undefined,
+        })
       }
     } else {
       // Free-form format: look for action verbs
