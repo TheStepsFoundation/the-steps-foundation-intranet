@@ -14,7 +14,7 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core'
-import { useData, TEAM_MEMBERS } from '@/lib/data-provider'
+import { useData } from '@/lib/data-provider'
 
 // Workflow color options
 const WORKFLOW_COLORS = [
@@ -122,11 +122,13 @@ function DraggableTaskCard({
   onClick,
   showStatus = false,
   workflows,
+  teamMembers,
 }: { 
   task: Task
   onClick: () => void
   showStatus?: boolean
   workflows: Workflow[]
+  teamMembers: { id: number; name: string; role: string; avatar: string }[]
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
@@ -137,7 +139,7 @@ function DraggableTaskCard({
     zIndex: 1000,
   } : undefined
 
-  const member = task.assignee ? TEAM_MEMBERS.find(m => m.id === task.assignee) : null
+  const member = task.assignee ? teamMembers.find(m => m.id === task.assignee) : null
   const workflow = workflows.find(w => w.id === task.workflow)
   const subWorkflow = workflows.find(w => w.id === task.subWorkflow)
 
@@ -212,7 +214,7 @@ function DraggableTaskCard({
             </div>
           )}
           {task.collaborators.slice(0, 2).map(collabId => {
-            const collab = TEAM_MEMBERS.find(m => m.id === collabId)
+            const collab = teamMembers.find(m => m.id === collabId)
             return collab ? (
               <div key={collabId} className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white" title={collab.name}>
                 {collab.avatar.charAt(0)}
@@ -236,11 +238,13 @@ function TaskModal({
   onClose, 
   onSave,
   workflows,
+  teamMembers,
 }: { 
   task: Task
   onClose: () => void
   onSave: (updatedTask: Task) => void
   workflows: Workflow[]
+  teamMembers: { id: number; name: string; role: string; avatar: string }[]
 }) {
   const [editedTask, setEditedTask] = useState<Task>({ ...task })
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false)
@@ -458,7 +462,7 @@ function TaskModal({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Assigned To</label>
             <div className="grid grid-cols-3 gap-2">
-              {TEAM_MEMBERS.map(member => (
+              {teamMembers.map(member => (
                 <button
                   key={member.id}
                   type="button"
@@ -502,7 +506,7 @@ function TaskModal({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Collaborators</label>
             <div className="grid grid-cols-3 gap-2">
-              {TEAM_MEMBERS.filter(m => m.id !== editedTask.assignee).map(member => (
+              {teamMembers.filter(m => m.id !== editedTask.assignee).map(member => (
                 <button
                   key={member.id}
                   type="button"
@@ -562,7 +566,7 @@ function TaskModal({
             ) : (
               <div className="space-y-3">
                 {editedTask.subtasks.map((subtask, index) => {
-                  const person = TEAM_MEMBERS.find(m => m.id === subtask.personId)
+                  const person = teamMembers.find(m => m.id === subtask.personId)
                   return (
                     <div key={subtask.id} className="flex gap-3 items-start p-3 bg-gray-50 rounded-lg">
                       <select
@@ -575,7 +579,7 @@ function TaskModal({
                         className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none min-w-[140px]"
                       >
                         <option value={0}>Unassigned</option>
-                        {TEAM_MEMBERS.map(m => (
+                        {teamMembers.map(m => (
                           <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>
                         ))}
                       </select>
@@ -750,10 +754,12 @@ function MeetingNotesModal({
   onClose,
   onAddTasks,
   workflows,
+  teamMembers,
 }: {
   onClose: () => void
   onAddTasks: (tasks: Task[]) => void
   workflows: Workflow[]
+  teamMembers: { id: number; name: string; role: string; avatar: string }[]
 }) {
   const [notes, setNotes] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -782,16 +788,42 @@ function MeetingNotesModal({
     const lines = notes.split('\n').map(l => stripMarkdown(l.trim()))
     const tasks: SuggestedTask[] = []
     
-    // Team member names and nicknames
-    const memberAliases: { id: number; names: string[] }[] = [
-      { id: 1, names: ["god'sfavour", "godsfavour", "favour", "fav", "you (favour)", "you(favour)"] },
-      { id: 2, names: ["jin", "jim"] },
-      { id: 3, names: ["daniyaal", "danny", "dani", "dan", "dany"] },
-      { id: 4, names: ["sam", "samuel"] },
-      { id: 5, names: ["earl"] },
-      { id: 6, names: ["aditya", "adi"] },
-      { id: 7, names: ["ricardo", "ric", "serrao", "rs"] },
-    ]
+    // Team member names and nicknames (hardcoded aliases for common names)
+    const hardcodedAliases: Record<number, string[]> = {
+      1: ["god'sfavour", "godsfavour", "favour", "fav", "you (favour)", "you(favour)"],
+      2: ["jin", "jim"],
+      3: ["daniyaal", "danny", "dani", "dan", "dany"],
+      4: ["sam", "samuel"],
+      5: ["earl"],
+      6: ["aditya", "adi"],
+      7: ["ricardo", "ric", "serrao", "rs"],
+    }
+    
+    // Generate aliases from teamMembers prop, combining hardcoded aliases with dynamic names
+    const memberAliases: { id: number; names: string[] }[] = teamMembers.map(member => {
+      const names: string[] = []
+      // Add full name (lowercase)
+      names.push(member.name.toLowerCase())
+      // Add first name
+      const firstName = member.name.split(' ')[0].toLowerCase()
+      if (!names.includes(firstName)) names.push(firstName)
+      // Add last name if exists
+      const nameParts = member.name.split(' ')
+      if (nameParts.length > 1) {
+        const lastName = nameParts[nameParts.length - 1].toLowerCase()
+        if (!names.includes(lastName)) names.push(lastName)
+      }
+      // Add initials
+      const initials = member.name.split(' ').map(n => n[0]).join('').toLowerCase()
+      if (initials.length >= 2 && !names.includes(initials)) names.push(initials)
+      // Add hardcoded aliases if available
+      if (hardcodedAliases[member.id]) {
+        for (const alias of hardcodedAliases[member.id]) {
+          if (!names.includes(alias)) names.push(alias)
+        }
+      }
+      return { id: member.id, names }
+    })
     
     // Find team member by name/nickname
     const findMember = (text: string): number => {
@@ -1544,7 +1576,7 @@ Example:
               
               <div className="space-y-3">
                 {suggestedTasks.map(task => {
-                  const member = TEAM_MEMBERS.find(m => m.id === task.assignee)
+                  const member = teamMembers.find(m => m.id === task.assignee)
                   const isEditing = editingTask === task.id
                   
                   return (
@@ -1602,7 +1634,7 @@ Example:
                                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white"
                                   >
                                     <option value={0}>Unassigned</option>
-                                    {TEAM_MEMBERS.map(m => (
+                                    {teamMembers.map(m => (
                                       <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>
                                     ))}
                                   </select>
@@ -1635,7 +1667,7 @@ Example:
                               <div>
                                 <label className="block text-xs font-medium text-gray-500 mb-1">Collaborators</label>
                                 <div className="flex flex-wrap gap-2">
-                                  {TEAM_MEMBERS.filter(m => m.id !== task.assignee).map(m => {
+                                  {teamMembers.filter(m => m.id !== task.assignee).map(m => {
                                     const isCollab = task.collaborators.includes(m.id)
                                     return (
                                       <button
@@ -1717,7 +1749,7 @@ Example:
                                           className="px-2 py-1.5 border border-gray-200 rounded text-xs bg-white min-w-[90px]"
                                         >
                                           <option value={0}>—</option>
-                                          {TEAM_MEMBERS.map(m => (
+                                          {teamMembers.map(m => (
                                             <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>
                                           ))}
                                         </select>
@@ -2415,11 +2447,13 @@ function AddTaskModal({
   onSave,
   workflows,
   defaultWorkflow,
+  teamMembers,
 }: {
   onClose: () => void
   onSave: (task: Task) => void
   workflows: Workflow[]
   defaultWorkflow: string | null
+  teamMembers: { id: number; name: string; role: string; avatar: string }[]
 }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -2772,7 +2806,7 @@ function AddTaskModal({
                     </div>
                     <span className="text-sm font-medium text-gray-600 truncate">Unassigned</span>
                   </button>
-                  {TEAM_MEMBERS.map(member => (
+                  {teamMembers.map(member => (
                     <button
                       key={member.id}
                       type="button"
@@ -2814,7 +2848,7 @@ function AddTaskModal({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Collaborators</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {TEAM_MEMBERS.filter(m => m.id !== assignee).map(member => (
+                  {teamMembers.filter(m => m.id !== assignee).map(member => (
                     <button
                       key={member.id}
                       type="button"
@@ -2871,7 +2905,7 @@ function AddTaskModal({
                 ) : (
                   <div className="space-y-3">
                     {subtasks.map((subtask, index) => {
-                      const person = TEAM_MEMBERS.find(m => m.id === subtask.personId)
+                      const person = teamMembers.find(m => m.id === subtask.personId)
                       return (
                         <div key={subtask.id} className="flex gap-3 items-start p-3 bg-gray-50 rounded-lg">
                           <select
@@ -2884,7 +2918,7 @@ function AddTaskModal({
                             className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none min-w-[140px]"
                           >
                             <option value={0}>Unassigned</option>
-                            {TEAM_MEMBERS.map(m => (
+                            {teamMembers.map(m => (
                               <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>
                             ))}
                           </select>
@@ -3143,6 +3177,7 @@ export default function Home() {
   const {
     tasks,
     workflows,
+    teamMembers,
     loading,
     isDemo,
     createTask,
@@ -3735,6 +3770,7 @@ export default function Home() {
                           task={task}
                           onClick={() => isMultiSelectMode ? toggleTaskSelection(task.id) : setEditingTask(task)}
                           workflows={workflows}
+                          teamMembers={teamMembers}
                         />
                       </div>
                     </div>
@@ -3771,6 +3807,7 @@ export default function Home() {
                     onClick={() => setEditingTask(task)}
                     showStatus
                     workflows={workflows}
+                    teamMembers={teamMembers}
                   />
                 ))}
                 {getUnassignedTasks().length === 0 && (
@@ -3796,7 +3833,7 @@ export default function Home() {
               )}
             </DroppableColumn>
 
-            {TEAM_MEMBERS.map(member => {
+            {teamMembers.map(member => {
               const activeTasks = getTasksByMember(member.id)
               const archivedTasks = getArchivedTasksByMember(member.id)
               
@@ -3824,6 +3861,7 @@ export default function Home() {
                         onClick={() => setEditingTask(task)}
                         showStatus
                         workflows={workflows}
+                        teamMembers={teamMembers}
                       />
                     ))}
                     {activeTasks.length === 0 && (
@@ -3904,7 +3942,7 @@ export default function Home() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {TEAM_MEMBERS.map(member => {
+            {teamMembers.map(member => {
               const workload = getWorkload(member.id, selectedWeek)
               const capacity = getMemberCapacity(member.id, selectedWeek)
               const loadPercent = capacity > 0 ? Math.min((workload.hours / capacity) * 100, 100) : 0
@@ -4082,7 +4120,7 @@ export default function Home() {
                         className={`appearance-none bg-transparent pr-6 cursor-pointer hover:text-purple-600 outline-none ${filterAssignee !== 'all' ? 'text-purple-600 font-semibold' : ''}`}
                       >
                         <option value="all">Assignee ▾</option>
-                        {TEAM_MEMBERS.map(m => (
+                        {teamMembers.map(m => (
                           <option key={m.id} value={m.id}>{m.name.split(' ')[0]}</option>
                         ))}
                       </select>
@@ -4126,7 +4164,7 @@ export default function Home() {
               </thead>
               <tbody>
                 {getFilteredSortedTasks().map(task => {
-                  const member = TEAM_MEMBERS.find(m => m.id === task.assignee)
+                  const member = teamMembers.find(m => m.id === task.assignee)
                   const workflow = workflows.find(w => w.id === task.workflow)
                   const subWorkflow = workflows.find(w => w.id === task.subWorkflow)
                   return (
@@ -4204,6 +4242,7 @@ export default function Home() {
           onClose={() => setEditingTask(null)}
           onSave={handleSaveTask}
           workflows={workflows}
+          teamMembers={teamMembers}
         />
       )}
 
@@ -4221,6 +4260,7 @@ export default function Home() {
           onClose={() => setShowMeetingNotesModal(false)}
           onAddTasks={handleAddTasksFromMeeting}
           workflows={workflows}
+          teamMembers={teamMembers}
         />
       )}
 
@@ -4246,6 +4286,7 @@ export default function Home() {
           onSave={async (newTask) => await createTask(newTask)}
           workflows={workflows}
           defaultWorkflow={globalWorkflow !== 'all' ? globalWorkflow : null}
+          teamMembers={teamMembers}
         />
       )}
 

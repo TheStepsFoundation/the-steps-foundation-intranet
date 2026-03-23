@@ -1,7 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
-import type { Task, Workflow, Subtask, Attachment, Priority, Status, Intensity } from './database.types'
+import type { Task, Workflow, Subtask, Attachment, Priority, Status, Intensity, TeamMember } from './database.types'
 
 // Check if Supabase is configured
 const isSupabaseConfigured = () => {
@@ -12,8 +12,8 @@ const isSupabaseConfigured = () => {
   )
 }
 
-// Default team members
-export const TEAM_MEMBERS = [
+// Default team members (fallback for demo mode)
+const DEFAULT_TEAM_MEMBERS: TeamMember[] = [
   { id: 1, name: "God'sFavour Oluwanusin", role: 'Co-founder', avatar: 'GO' },
   { id: 2, name: 'Jin Samson', role: 'Co-founder', avatar: 'JS' },
   { id: 3, name: 'Daniyaal Anawar', role: 'Co-founder', avatar: 'DA' },
@@ -22,6 +22,9 @@ export const TEAM_MEMBERS = [
   { id: 6, name: 'Aditya Muthukumar', role: 'Core Team', avatar: 'AM' },
   { id: 7, name: 'Ricardo Serrao', role: 'Core Team', avatar: 'RS' },
 ]
+
+// Export for backwards compatibility (deprecated - use useData().teamMembers instead)
+export const TEAM_MEMBERS = DEFAULT_TEAM_MEMBERS
 
 // Default workflows
 const DEFAULT_WORKFLOWS: Workflow[] = [
@@ -92,6 +95,7 @@ interface DataContextType {
   // Data
   tasks: Task[]
   workflows: Workflow[]
+  teamMembers: TeamMember[]
   loading: boolean
   isDemo: boolean
   
@@ -107,6 +111,11 @@ interface DataContextType {
   deleteWorkflow: (workflowId: string) => Promise<void>
   setWorkflows: React.Dispatch<React.SetStateAction<Workflow[]>>
   
+  // Team member operations
+  createTeamMember: (member: Omit<TeamMember, 'id'>) => Promise<void>
+  updateTeamMember: (member: TeamMember) => Promise<void>
+  deleteTeamMember: (memberId: number) => Promise<void>
+  
   // Week data
   weekCapacities: Record<string, Record<number, number>>
   weekNotes: Record<string, Record<number, string>>
@@ -119,6 +128,7 @@ const DataContext = createContext<DataContextType | null>(null)
 export function DataProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [workflows, setWorkflows] = useState<Workflow[]>(DEFAULT_WORKFLOWS)
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(DEFAULT_TEAM_MEMBERS)
   const [loading, setLoading] = useState(true)
   const [isDemo, setIsDemo] = useState(false)
   const [weekCapacities, setWeekCapacities] = useState<Record<string, Record<number, number>>>({})
@@ -135,22 +145,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
           setSupabase(sb)
           
           // Fetch data from Supabase
-          const [tasksRes, workflowsRes] = await Promise.all([
+          const [tasksRes, workflowsRes, membersRes] = await Promise.all([
             fetchTasksFromSupabase(sb),
             fetchWorkflowsFromSupabase(sb),
+            fetchTeamMembersFromSupabase(sb),
           ])
           
           setTasks(tasksRes)
           setWorkflows(workflowsRes)
+          setTeamMembers(membersRes)
           setIsDemo(false)
         } catch (err) {
           console.error('Supabase error, falling back to demo mode:', err)
           setTasks(DEMO_TASKS)
+          setTeamMembers(DEFAULT_TEAM_MEMBERS)
           setIsDemo(true)
         }
       } else {
         // Demo mode
         setTasks(DEMO_TASKS)
+        setTeamMembers(DEFAULT_TEAM_MEMBERS)
         setIsDemo(true)
       }
       setLoading(false)
@@ -171,6 +185,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'workflows' }, async () => {
         const workflows = await fetchWorkflowsFromSupabase(supabase)
         setWorkflows(workflows)
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, async () => {
+        const members = await fetchTeamMembersFromSupabase(supabase)
+        setTeamMembers(members)
       })
       .subscribe()
 
@@ -258,6 +276,49 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase, isDemo])
 
+  // Team member operations
+  const createTeamMember = useCallback(async (member: Omit<TeamMember, 'id'>) => {
+    if (supabase && !isDemo) {
+      await supabase.from('team_members').insert({
+        name: member.name,
+        role: member.role,
+        avatar: member.avatar || member.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2),
+      })
+      const members = await fetchTeamMembersFromSupabase(supabase)
+      setTeamMembers(members)
+    } else {
+      const newMember: TeamMember = {
+        ...member,
+        id: Math.max(...teamMembers.map(m => m.id), 0) + 1,
+      }
+      setTeamMembers(prev => [...prev, newMember])
+    }
+  }, [supabase, isDemo, teamMembers])
+
+  const updateTeamMember = useCallback(async (member: TeamMember) => {
+    if (supabase && !isDemo) {
+      await supabase.from('team_members').update({
+        name: member.name,
+        role: member.role,
+        avatar: member.avatar,
+      }).eq('id', member.id)
+      const members = await fetchTeamMembersFromSupabase(supabase)
+      setTeamMembers(members)
+    } else {
+      setTeamMembers(prev => prev.map(m => m.id === member.id ? member : m))
+    }
+  }, [supabase, isDemo])
+
+  const deleteTeamMember = useCallback(async (memberId: number) => {
+    if (supabase && !isDemo) {
+      await supabase.from('team_members').delete().eq('id', memberId)
+      const members = await fetchTeamMembersFromSupabase(supabase)
+      setTeamMembers(members)
+    } else {
+      setTeamMembers(prev => prev.filter(m => m.id !== memberId))
+    }
+  }, [supabase, isDemo])
+
   // Week capacity/notes
   const setWeekCapacity = useCallback((memberId: number, weekStart: string, hours: number) => {
     setWeekCapacities(prev => ({
@@ -293,6 +354,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     <DataContext.Provider value={{
       tasks,
       workflows,
+      teamMembers,
       loading,
       isDemo,
       createTask,
@@ -303,6 +365,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       updateWorkflow,
       deleteWorkflow,
       setWorkflows,
+      createTeamMember,
+      updateTeamMember,
+      deleteTeamMember,
       weekCapacities,
       weekNotes,
       setWeekCapacity,
@@ -372,6 +437,16 @@ async function fetchWorkflowsFromSupabase(supabase: any): Promise<Workflow[]> {
     short: w.short,
     color: w.color,
     archived: w.archived,
+  }))
+}
+
+async function fetchTeamMembersFromSupabase(supabase: any): Promise<TeamMember[]> {
+  const { data } = await supabase.from('team_members').select('*').order('id', { ascending: true })
+  return (data || []).map((m: any) => ({
+    id: m.id,
+    name: m.name,
+    role: m.role || 'Team Member',
+    avatar: m.avatar || m.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
   }))
 }
 
