@@ -3321,6 +3321,8 @@ export default function Home() {
   
   // Workload period view (week, 2weeks, month, quarter)
   const [workloadPeriod, setWorkloadPeriod] = useState<'week' | '2weeks' | 'month' | 'quarter'>('week')
+  // Workload mode: fixed (calendar-based) or rolling (from today)
+  const [workloadMode, setWorkloadMode] = useState<'fixed' | 'rolling'>('rolling')
   
   // Global workflow filter (applies to all views)
   const [globalWorkflow, setGlobalWorkflow] = useState<string>('all')
@@ -3439,32 +3441,57 @@ export default function Home() {
   const getUnassignedArchivedTasks = () => filteredTasks.filter(t => !t.assignee && t.status === 'done')
   
   // Helper to get period date range
-  const getPeriodRange = (baseDate: string, period: 'week' | '2weeks' | 'month' | 'quarter') => {
+  const getPeriodRange = (baseDate: string, period: 'week' | '2weeks' | 'month' | 'quarter', mode: 'fixed' | 'rolling' = 'rolling') => {
     const start = new Date(baseDate)
     const end = new Date(baseDate)
     
-    switch (period) {
-      case 'week':
-        end.setDate(end.getDate() + 7)
-        break
-      case '2weeks':
-        end.setDate(end.getDate() + 14)
-        break
-      case 'month':
-        end.setMonth(end.getMonth() + 1)
-        break
-      case 'quarter':
-        end.setMonth(end.getMonth() + 3)
-        break
+    if (mode === 'rolling') {
+      // Rolling: from baseDate forward by X days
+      switch (period) {
+        case 'week':
+          end.setDate(end.getDate() + 7)
+          break
+        case '2weeks':
+          end.setDate(end.getDate() + 14)
+          break
+        case 'month':
+          end.setDate(end.getDate() + 30)
+          break
+        case 'quarter':
+          end.setDate(end.getDate() + 90)
+          break
+      }
+    } else {
+      // Fixed: calendar-based periods
+      switch (period) {
+        case 'week':
+          end.setDate(end.getDate() + 7)
+          break
+        case '2weeks':
+          end.setDate(end.getDate() + 14)
+          break
+        case 'month':
+          end.setMonth(end.getMonth() + 1)
+          break
+        case 'quarter':
+          end.setMonth(end.getMonth() + 3)
+          break
+      }
     }
     
     return { start, end }
   }
   
-  // Helper to get period start date (1st of month/quarter)
-  const getPeriodStart = (period: 'week' | '2weeks' | 'month' | 'quarter') => {
+  // Helper to get period start date
+  const getPeriodStart = (period: 'week' | '2weeks' | 'month' | 'quarter', mode: 'fixed' | 'rolling' = 'rolling') => {
     const today = new Date()
     
+    if (mode === 'rolling') {
+      // Rolling mode: always start from today
+      return today.toISOString().split('T')[0]
+    }
+    
+    // Fixed mode: calendar-based start dates
     switch (period) {
       case 'week':
       case '2weeks': {
@@ -3486,13 +3513,13 @@ export default function Home() {
     }
   }
   
-  const getWorkload = (memberId: number, periodStart?: string, period: 'week' | '2weeks' | 'month' | 'quarter' = 'week') => {
+  const getWorkload = (memberId: number, periodStart?: string, period: 'week' | '2weeks' | 'month' | 'quarter' = 'week', mode: 'fixed' | 'rolling' = 'rolling') => {
     // Calculate workload from subtasks assigned to this person (in non-done tasks)
     let activeTasks = filteredTasks.filter(t => t.status !== 'done')
     
     // Filter by period if provided
     if (periodStart) {
-      const { start, end } = getPeriodRange(periodStart, period)
+      const { start, end } = getPeriodRange(periodStart, period, mode)
       
       activeTasks = activeTasks.filter(t => {
         const dueDate = new Date(t.dueDate)
@@ -3534,12 +3561,12 @@ export default function Home() {
   }
   
   // Get tasks for a specific member and intensity level (for popup display)
-  const getTasksByIntensity = (memberId: number, intensity: Intensity | 'unspecified', periodStart?: string, period: 'week' | '2weeks' | 'month' | 'quarter' = 'week') => {
+  const getTasksByIntensity = (memberId: number, intensity: Intensity | 'unspecified', periodStart?: string, period: 'week' | '2weeks' | 'month' | 'quarter' = 'week', mode: 'fixed' | 'rolling' = 'rolling') => {
     let activeTasks = filteredTasks.filter(t => t.status !== 'done')
     
     // Filter by period if provided
     if (periodStart) {
-      const { start, end } = getPeriodRange(periodStart, period)
+      const { start, end } = getPeriodRange(periodStart, period, mode)
       
       activeTasks = activeTasks.filter(t => {
         const dueDate = new Date(t.dueDate)
@@ -3618,21 +3645,40 @@ export default function Home() {
   const navigatePeriod = (direction: number) => {
     const current = new Date(selectedWeek)
     
-    switch (workloadPeriod) {
-      case 'week':
-        current.setDate(current.getDate() + (direction * 7))
-        break
-      case '2weeks':
-        current.setDate(current.getDate() + (direction * 14))
-        break
-      case 'month':
-        current.setMonth(current.getMonth() + direction)
-        current.setDate(1) // Always start on 1st
-        break
-      case 'quarter':
-        current.setMonth(current.getMonth() + (direction * 3))
-        current.setDate(1) // Always start on 1st
-        break
+    if (workloadMode === 'rolling') {
+      // Rolling: always move by the period length in days
+      switch (workloadPeriod) {
+        case 'week':
+          current.setDate(current.getDate() + (direction * 7))
+          break
+        case '2weeks':
+          current.setDate(current.getDate() + (direction * 14))
+          break
+        case 'month':
+          current.setDate(current.getDate() + (direction * 30))
+          break
+        case 'quarter':
+          current.setDate(current.getDate() + (direction * 90))
+          break
+      }
+    } else {
+      // Fixed: move by calendar periods
+      switch (workloadPeriod) {
+        case 'week':
+          current.setDate(current.getDate() + (direction * 7))
+          break
+        case '2weeks':
+          current.setDate(current.getDate() + (direction * 14))
+          break
+        case 'month':
+          current.setMonth(current.getMonth() + direction)
+          current.setDate(1)
+          break
+        case 'quarter':
+          current.setMonth(current.getMonth() + (direction * 3))
+          current.setDate(1)
+          break
+      }
     }
     
     setSelectedWeek(current.toISOString().split('T')[0])
@@ -3640,7 +3686,7 @@ export default function Home() {
   
   // Jump to current period
   const jumpToCurrentPeriod = () => {
-    setSelectedWeek(getPeriodStart(workloadPeriod))
+    setSelectedWeek(getPeriodStart(workloadPeriod, workloadMode))
   }
 
   // Filtered and sorted tasks for list view
@@ -4446,6 +4492,36 @@ export default function Home() {
         <div className="space-y-6">
           {/* Period Selector & Navigator */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 bg-white rounded-xl p-4 shadow-sm border">
+            {/* Mode Toggle */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => {
+                  setWorkloadMode('rolling')
+                  setSelectedWeek(getPeriodStart(workloadPeriod, 'rolling'))
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                  workloadMode === 'rolling'
+                    ? 'bg-white text-purple-700 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Rolling
+              </button>
+              <button
+                onClick={() => {
+                  setWorkloadMode('fixed')
+                  setSelectedWeek(getPeriodStart(workloadPeriod, 'fixed'))
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                  workloadMode === 'fixed'
+                    ? 'bg-white text-purple-700 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Fixed
+              </button>
+            </div>
+            
             {/* Period Selector */}
             <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
               {(['week', '2weeks', 'month', 'quarter'] as const).map(period => (
@@ -4453,7 +4529,7 @@ export default function Home() {
                   key={period}
                   onClick={() => {
                     setWorkloadPeriod(period)
-                    setSelectedWeek(getPeriodStart(period))
+                    setSelectedWeek(getPeriodStart(period, workloadMode))
                   }}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
                     workloadPeriod === period
@@ -4493,13 +4569,13 @@ export default function Home() {
               onClick={jumpToCurrentPeriod}
               className="px-3 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-lg transition"
             >
-              Current
+              Today
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {teamMembers.map(member => {
-              const workload = getWorkload(member.id, selectedWeek, workloadPeriod)
+              const workload = getWorkload(member.id, selectedWeek, workloadPeriod, workloadMode)
               // Scale capacity based on period
               const weeksInPeriod = workloadPeriod === 'week' ? 1 : workloadPeriod === '2weeks' ? 2 : workloadPeriod === 'month' ? 4 : 13
               const capacity = getMemberCapacity(member.id, selectedWeek) * weeksInPeriod
@@ -4684,7 +4760,7 @@ export default function Home() {
                         {workloadPopup.intensity === 'unspecified' ? 'Unspecified' : workloadPopup.intensity.charAt(0).toUpperCase() + workloadPopup.intensity.slice(1)} tasks:
                       </h4>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek, workloadPeriod).map(({ task, subtaskDescription, isCollaborator }) => (
+                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek, workloadPeriod, workloadMode).map(({ task, subtaskDescription, isCollaborator }) => (
                           <div 
                             key={`${task.id}-${subtaskDescription}`}
                             className="flex items-start gap-2 p-2 bg-white rounded border border-gray-100 hover:border-purple-200 cursor-pointer transition"
@@ -4709,7 +4785,7 @@ export default function Home() {
                             </svg>
                           </div>
                         ))}
-                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek, workloadPeriod).length === 0 && (
+                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek, workloadPeriod, workloadMode).length === 0 && (
                           <p className="text-xs text-gray-400 italic py-2">No tasks found</p>
                         )}
                       </div>
