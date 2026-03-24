@@ -3342,6 +3342,21 @@ export default function Home() {
   const [expandedMembers, setExpandedMembers] = useState<Set<number>>(new Set())
   const [teamViewMode, setTeamViewMode] = useState<'compact' | 'comfortable'>('compact')
   
+  // DnD sensors - must be before early return
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 150,
+        tolerance: 8,
+      },
+    })
+  )
+  
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
@@ -3383,20 +3398,6 @@ export default function Home() {
     if (globalWorkflow === 'all') return activeTasks
     return activeTasks.filter(t => t.workflow === globalWorkflow || t.subWorkflow === globalWorkflow)
   }
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8, // Slightly more distance to distinguish from clicks
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 150,
-        tolerance: 8,
-      },
-    })
-  )
 
   const filteredTasks = getGlobalFilteredTasks()
   const getTasksByStatus = (status: Status) => filteredTasks.filter(t => t.status === status)
