@@ -3319,6 +3319,9 @@ export default function Home() {
     return monday.toISOString().split('T')[0]
   })
   
+  // Workload period view (week, 2weeks, month, quarter)
+  const [workloadPeriod, setWorkloadPeriod] = useState<'week' | '2weeks' | 'month' | 'quarter'>('week')
+  
   // Global workflow filter (applies to all views)
   const [globalWorkflow, setGlobalWorkflow] = useState<string>('all')
   
@@ -3435,19 +3438,65 @@ export default function Home() {
   const getUnassignedTasks = () => filteredTasks.filter(t => !t.assignee && t.status !== 'done')
   const getUnassignedArchivedTasks = () => filteredTasks.filter(t => !t.assignee && t.status === 'done')
   
-  const getWorkload = (memberId: number, weekStart?: string) => {
+  // Helper to get period date range
+  const getPeriodRange = (baseDate: string, period: 'week' | '2weeks' | 'month' | 'quarter') => {
+    const start = new Date(baseDate)
+    const end = new Date(baseDate)
+    
+    switch (period) {
+      case 'week':
+        end.setDate(end.getDate() + 7)
+        break
+      case '2weeks':
+        end.setDate(end.getDate() + 14)
+        break
+      case 'month':
+        end.setMonth(end.getMonth() + 1)
+        break
+      case 'quarter':
+        end.setMonth(end.getMonth() + 3)
+        break
+    }
+    
+    return { start, end }
+  }
+  
+  // Helper to get period start date (1st of month/quarter)
+  const getPeriodStart = (period: 'week' | '2weeks' | 'month' | 'quarter') => {
+    const today = new Date()
+    
+    switch (period) {
+      case 'week':
+      case '2weeks': {
+        // Start from Monday of current week
+        const day = today.getDay()
+        const diff = today.getDate() - day + (day === 0 ? -6 : 1)
+        const monday = new Date(today)
+        monday.setDate(diff)
+        return monday.toISOString().split('T')[0]
+      }
+      case 'month':
+        // Start from 1st of current month
+        return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
+      case 'quarter': {
+        // Start from 1st of current quarter (Jan, Apr, Jul, Oct)
+        const quarterMonth = Math.floor(today.getMonth() / 3) * 3
+        return new Date(today.getFullYear(), quarterMonth, 1).toISOString().split('T')[0]
+      }
+    }
+  }
+  
+  const getWorkload = (memberId: number, periodStart?: string, period: 'week' | '2weeks' | 'month' | 'quarter' = 'week') => {
     // Calculate workload from subtasks assigned to this person (in non-done tasks)
     let activeTasks = filteredTasks.filter(t => t.status !== 'done')
     
-    // Filter by week if provided
-    if (weekStart) {
-      const weekStartDate = new Date(weekStart)
-      const weekEndDate = new Date(weekStart)
-      weekEndDate.setDate(weekEndDate.getDate() + 7)
+    // Filter by period if provided
+    if (periodStart) {
+      const { start, end } = getPeriodRange(periodStart, period)
       
       activeTasks = activeTasks.filter(t => {
         const dueDate = new Date(t.dueDate)
-        return dueDate >= weekStartDate && dueDate < weekEndDate
+        return dueDate >= start && dueDate < end
       })
     }
     
@@ -3485,18 +3534,16 @@ export default function Home() {
   }
   
   // Get tasks for a specific member and intensity level (for popup display)
-  const getTasksByIntensity = (memberId: number, intensity: Intensity | 'unspecified', weekStart?: string) => {
+  const getTasksByIntensity = (memberId: number, intensity: Intensity | 'unspecified', periodStart?: string, period: 'week' | '2weeks' | 'month' | 'quarter' = 'week') => {
     let activeTasks = filteredTasks.filter(t => t.status !== 'done')
     
-    // Filter by week if provided
-    if (weekStart) {
-      const weekStartDate = new Date(weekStart)
-      const weekEndDate = new Date(weekStart)
-      weekEndDate.setDate(weekEndDate.getDate() + 7)
+    // Filter by period if provided
+    if (periodStart) {
+      const { start, end } = getPeriodRange(periodStart, period)
       
       activeTasks = activeTasks.filter(t => {
         const dueDate = new Date(t.dueDate)
-        return dueDate >= weekStartDate && dueDate < weekEndDate
+        return dueDate >= start && dueDate < end
       })
     }
     
@@ -3549,18 +3596,51 @@ export default function Home() {
     setWeekNote(memberId, weekStart, note)
   }
   
-  // Get week navigation helpers
-  const getWeekLabel = (weekStart: string) => {
-    const start = new Date(weekStart)
-    const end = new Date(weekStart)
-    end.setDate(end.getDate() + 6)
-    return `${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} - ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+  // Get period navigation helpers
+  const getPeriodLabel = (periodStart: string, period: 'week' | '2weeks' | 'month' | 'quarter') => {
+    const start = new Date(periodStart)
+    const { end } = getPeriodRange(periodStart, period)
+    end.setDate(end.getDate() - 1) // Show last day of period, not first day of next
+    
+    const startStr = start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+    const endStr = end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    
+    if (period === 'month') {
+      return start.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+    } else if (period === 'quarter') {
+      const quarterNum = Math.floor(start.getMonth() / 3) + 1
+      return `Q${quarterNum} ${start.getFullYear()}`
+    }
+    
+    return `${startStr} - ${endStr}`
   }
   
-  const navigateWeek = (direction: number) => {
+  const navigatePeriod = (direction: number) => {
     const current = new Date(selectedWeek)
-    current.setDate(current.getDate() + (direction * 7))
+    
+    switch (workloadPeriod) {
+      case 'week':
+        current.setDate(current.getDate() + (direction * 7))
+        break
+      case '2weeks':
+        current.setDate(current.getDate() + (direction * 14))
+        break
+      case 'month':
+        current.setMonth(current.getMonth() + direction)
+        current.setDate(1) // Always start on 1st
+        break
+      case 'quarter':
+        current.setMonth(current.getMonth() + (direction * 3))
+        current.setDate(1) // Always start on 1st
+        break
+    }
+    
     setSelectedWeek(current.toISOString().split('T')[0])
+  }
+  
+  // Jump to current period
+  const jumpToCurrentPeriod = () => {
+    setSelectedWeek(getPeriodStart(workloadPeriod))
   }
 
   // Filtered and sorted tasks for list view
@@ -4364,47 +4444,65 @@ export default function Home() {
       {/* Workload View */}
       {view === 'workload' && (
         <div className="space-y-6">
-          {/* Week Navigator */}
-          <div className="flex items-center justify-center gap-4 bg-white rounded-xl p-4 shadow-sm border">
-            <button
-              onClick={() => navigateWeek(-1)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition"
-            >
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-            <div className="text-center">
-              <p className="text-sm text-gray-500">Week of</p>
-              <p className="font-semibold text-gray-900">{getWeekLabel(selectedWeek)}</p>
+          {/* Period Selector & Navigator */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 bg-white rounded-xl p-4 shadow-sm border">
+            {/* Period Selector */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              {(['week', '2weeks', 'month', 'quarter'] as const).map(period => (
+                <button
+                  key={period}
+                  onClick={() => {
+                    setWorkloadPeriod(period)
+                    setSelectedWeek(getPeriodStart(period))
+                  }}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                    workloadPeriod === period
+                      ? 'bg-white text-purple-700 shadow-sm'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {period === 'week' ? 'Week' : period === '2weeks' ? '2 Weeks' : period === 'month' ? 'Month' : 'Quarter'}
+                </button>
+              ))}
             </div>
+            
+            {/* Date Navigator */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigatePeriod(-1)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div className="text-center min-w-[180px]">
+                <p className="font-semibold text-gray-900">{getPeriodLabel(selectedWeek, workloadPeriod)}</p>
+              </div>
+              <button
+                onClick={() => navigatePeriod(1)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition"
+              >
+                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+            
             <button
-              onClick={() => navigateWeek(1)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition"
+              onClick={jumpToCurrentPeriod}
+              className="px-3 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-lg transition"
             >
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-            <button
-              onClick={() => {
-                // Jump to current week (Monday)
-                const today = new Date()
-                const day = today.getDay()
-                const diff = today.getDate() - day + (day === 0 ? -6 : 1)
-                const monday = new Date(today.setDate(diff))
-                setSelectedWeek(monday.toISOString().split('T')[0])
-              }}
-              className="ml-4 px-3 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-lg transition"
-            >
-              This Week
+              Current
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {teamMembers.map(member => {
-              const workload = getWorkload(member.id, selectedWeek)
-              const capacity = getMemberCapacity(member.id, selectedWeek)
+              const workload = getWorkload(member.id, selectedWeek, workloadPeriod)
+              // Scale capacity based on period
+              const weeksInPeriod = workloadPeriod === 'week' ? 1 : workloadPeriod === '2weeks' ? 2 : workloadPeriod === 'month' ? 4 : 13
+              const capacity = getMemberCapacity(member.id, selectedWeek) * weeksInPeriod
               const loadPercent = capacity > 0 ? Math.min((workload.hours / capacity) * 100, 100) : 0
               const isOverCapacity = workload.hours > capacity
               
@@ -4586,7 +4684,7 @@ export default function Home() {
                         {workloadPopup.intensity === 'unspecified' ? 'Unspecified' : workloadPopup.intensity.charAt(0).toUpperCase() + workloadPopup.intensity.slice(1)} tasks:
                       </h4>
                       <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek).map(({ task, subtaskDescription, isCollaborator }) => (
+                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek, workloadPeriod).map(({ task, subtaskDescription, isCollaborator }) => (
                           <div 
                             key={`${task.id}-${subtaskDescription}`}
                             className="flex items-start gap-2 p-2 bg-white rounded border border-gray-100 hover:border-purple-200 cursor-pointer transition"
@@ -4611,7 +4709,7 @@ export default function Home() {
                             </svg>
                           </div>
                         ))}
-                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek).length === 0 && (
+                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek, workloadPeriod).length === 0 && (
                           <p className="text-xs text-gray-400 italic py-2">No tasks found</p>
                         )}
                       </div>
