@@ -3764,7 +3764,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen p-6">
+    <main className="min-h-screen p-3 sm:p-6">
       {/* Demo mode banner */}
       {isDemo && (
         <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-800 text-sm">
@@ -3776,64 +3776,64 @@ export default function Home() {
       )}
 
       {/* Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Steps Task Tracker</h1>
-          <p className="text-gray-500">Manage all workflows and events</p>
+      <div className="flex justify-between items-center gap-2 mb-4">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 truncate">Steps Task Tracker</h1>
+          <p className="text-gray-500 text-sm hidden sm:block">Manage all workflows and events</p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex gap-2 flex-wrap">
-            {(['board', 'team', 'list', 'workload'] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={`px-4 py-2 rounded-lg font-medium transition capitalize ${
-                  view === v ? 'bg-purple-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                }`}
-              >
-                {v}
-              </button>
-            ))}
+        
+        {/* User Profile - compact on mobile */}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-medium text-sm">
+            {getUserDisplayName(user?.email).slice(0, 2).toUpperCase()}
           </div>
-          
-          {/* User Profile */}
-          <div className="flex items-center gap-2 pl-4 border-l border-gray-200">
-            <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-medium text-sm">
-              {getUserDisplayName(user?.email).slice(0, 2).toUpperCase()}
-            </div>
-            <span className="text-sm text-gray-700 hidden sm:block">{getUserDisplayName(user?.email)}</span>
-            <button
-              onClick={() => signOut()}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
-              title="Sign out"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-            </button>
-          </div>
+          <span className="text-sm text-gray-700 hidden lg:block">{getUserDisplayName(user?.email)}</span>
+          <button
+            onClick={() => signOut()}
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+            title="Sign out"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
         </div>
+      </div>
+      
+      {/* View Tabs - single row on mobile */}
+      <div className="flex gap-1 sm:gap-2 mb-3 overflow-x-auto pb-1">
+        {(['board', 'team', 'list', 'workload'] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-sm font-medium transition capitalize whitespace-nowrap ${
+              view === v ? 'bg-purple-600 text-white' : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            {v}
+          </button>
+        ))}
       </div>
 
       {/* Global Workflow Filter */}
-      <div className="mb-6 flex items-center gap-3 flex-wrap">
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
         {/* Left side - Add Task */}
         <button
           onClick={() => setShowAddTaskModal(true)}
-          className="px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition flex items-center gap-1"
+          className="px-2.5 py-1.5 sm:px-3 sm:py-2 bg-green-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-green-700 transition flex items-center gap-1"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           Add Task
         </button>
         
-        <span className="text-sm font-medium text-gray-600">|</span>
-        <span className="text-sm font-medium text-gray-600">Showing:</span>
+        <span className="text-xs sm:text-sm font-medium text-gray-400 hidden sm:inline">|</span>
+        <span className="text-xs sm:text-sm font-medium text-gray-600">Showing:</span>
         <select
           value={globalWorkflow}
           onChange={(e) => setGlobalWorkflow(e.target.value)}
-          className={`px-4 py-2 border rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none ${
+          className={`px-2 py-1.5 sm:px-4 sm:py-2 border rounded-lg text-xs sm:text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none ${
             globalWorkflow !== 'all' ? 'border-purple-500 text-purple-700 font-medium' : 'border-gray-200'
           }`}
         >
@@ -3879,27 +3879,27 @@ export default function Home() {
         )}
         
         {/* Right side - New Workflow & Parse Notes */}
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-sm text-gray-400 mr-2">
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <span className="text-xs sm:text-sm text-gray-400 mr-1 sm:mr-2 hidden sm:inline">
             {filteredTasks.length} {filteredTasks.length === 1 ? 'task' : 'tasks'}
           </span>
           <button
             onClick={() => setShowMeetingNotesModal(true)}
-            className="px-3 py-2 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 transition flex items-center gap-1"
+            className="px-2 py-1.5 sm:px-3 sm:py-2 bg-amber-500 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-amber-600 transition flex items-center gap-1"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            Parse Notes
+            <span className="hidden sm:inline">Parse</span> Notes
           </button>
           <button
             onClick={() => setShowNewWorkflowModal(true)}
-            className="px-3 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center gap-1"
+            className="px-2 py-1.5 sm:px-3 sm:py-2 bg-purple-600 text-white text-xs sm:text-sm font-medium rounded-lg hover:bg-purple-700 transition flex items-center gap-1"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            New Workflow
+            <span className="hidden sm:inline">New</span> Workflow
           </button>
         </div>
       </div>
@@ -3957,12 +3957,12 @@ export default function Home() {
         {view === 'board' && (
           <>
           {/* Board Sort Controls */}
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-sm text-gray-500">Sort by:</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 mb-3">
+            <span className="text-xs sm:text-sm text-gray-500">Sort:</span>
             <select
               value={boardSortBy}
               onChange={(e) => setBoardSortBy(e.target.value as 'none' | 'dueDate' | 'priority' | 'assignee')}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+              className="text-xs sm:text-sm border border-gray-200 rounded-lg px-2 py-1 sm:px-3 sm:py-1.5 bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
             >
               <option value="none">Default</option>
               <option value="dueDate">Due Date</option>
@@ -3970,12 +3970,12 @@ export default function Home() {
               <option value="assignee">Assignee</option>
             </select>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 sm:gap-4">
             {(['todo', 'in-progress', 'review', 'done'] as Status[]).map(status => (
               <DroppableColumn
                 key={status}
                 id={status}
-                className="bg-gray-50 rounded-xl p-4 min-h-[400px] transition-colors"
+                className="bg-gray-50 rounded-xl p-3 sm:p-4 min-h-[200px] sm:min-h-[400px] transition-colors"
               >
                 <div className="flex items-center gap-2 mb-4">
                   <div className={`w-3 h-3 rounded-full ${statusColors[status].split(' ')[0]}`} />
