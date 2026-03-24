@@ -131,7 +131,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export function useAuth() {
   const context = useContext(AuthContext)
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
+    // Return safe defaults during SSR or before provider mounts
+    return {
+      user: null,
+      session: null,
+      loading: true,
+      signIn: async () => ({ error: 'Auth not ready' }),
+      signUp: async () => ({ error: 'Auth not ready' }),
+      signInWithGoogle: async () => ({ error: 'Auth not ready' }),
+      signOut: async () => {},
+      isAllowedEmail: () => false,
+    }
   }
   return context
 }
