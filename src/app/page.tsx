@@ -513,7 +513,19 @@ function TaskModal({
               <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
               <select
                 value={editedTask.status}
-                onChange={e => setEditedTask({ ...editedTask, status: e.target.value as Status })}
+                onChange={e => {
+                  const newStatus = e.target.value as Status
+                  if (newStatus === 'done') {
+                    // Auto-complete all subtasks when marking as done
+                    setEditedTask({
+                      ...editedTask,
+                      status: newStatus,
+                      subtasks: editedTask.subtasks.map(st => ({ ...st, completed: true }))
+                    })
+                  } else {
+                    setEditedTask({ ...editedTask, status: newStatus })
+                  }
+                }}
                 className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white"
               >
                 <option value="todo">To Do</option>
@@ -3964,7 +3976,15 @@ export default function Home() {
     for (const taskId of taskIds) {
       const task = tasks.find(t => t.id === taskId)
       if (task) {
-        await updateTaskInDb({ ...task, status: newStatus })
+        let updatedTask = { ...task, status: newStatus }
+        // Auto-complete all subtasks when moving to done
+        if (newStatus === 'done') {
+          updatedTask = {
+            ...updatedTask,
+            subtasks: updatedTask.subtasks.map(st => ({ ...st, completed: true }))
+          }
+        }
+        await updateTaskInDb(updatedTask)
       }
     }
     clearSelection()
@@ -3996,7 +4016,17 @@ export default function Home() {
 
     // Dragged to status column
     if (['todo', 'in-progress', 'review', 'done'].includes(overId)) {
-      const updatedTask = { ...task, status: overId as Status }
+      const newStatus = overId as Status
+      let updatedTask = { ...task, status: newStatus }
+      
+      // Auto-complete all subtasks when moving to done
+      if (newStatus === 'done') {
+        updatedTask = {
+          ...updatedTask,
+          subtasks: updatedTask.subtasks.map(st => ({ ...st, completed: true }))
+        }
+      }
+      
       await updateTaskInDb(updatedTask)
     }
     
