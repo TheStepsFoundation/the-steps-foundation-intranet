@@ -73,6 +73,7 @@ interface Task {
   status: Status
   dueDate: string
   createdAt: string
+  createdBy?: string
   workflow: string | null
   subWorkflow: string | null
   attachments?: Attachment[]
@@ -369,6 +370,28 @@ function TaskModal({
         </div>
 
         <div className="p-6 space-y-6">
+          {/* Task Metadata */}
+          {(task.createdBy || task.createdAt) && (
+            <div className="flex items-center gap-4 text-sm text-gray-500 pb-4 border-b border-gray-100">
+              {task.createdBy && (
+                <span className="flex items-center gap-1">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  Created by <span className="font-medium text-gray-700">{task.createdBy.split('@')[0]}</span>
+                </span>
+              )}
+              {task.createdAt && (
+                <span className="flex items-center gap-1">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  {new Date(task.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+              )}
+            </div>
+          )}
+          
           {/* Workflow Selection - At the top */}
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -2509,12 +2532,14 @@ function AddTaskModal({
   workflows,
   defaultWorkflow,
   teamMembers,
+  currentUserEmail,
 }: {
   onClose: () => void
   onSave: (task: Task) => void
   workflows: Workflow[]
   defaultWorkflow: string | null
   teamMembers: { id: number; name: string; role: string; avatar: string }[]
+  currentUserEmail?: string
 }) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -2716,6 +2741,7 @@ function AddTaskModal({
       status: 'todo',
       dueDate,
       createdAt: new Date().toISOString().split('T')[0],
+      createdBy: currentUserEmail,
       workflow,
       subWorkflow,
       attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
@@ -4748,6 +4774,7 @@ export default function Home() {
           workflows={workflows}
           defaultWorkflow={globalWorkflow !== 'all' ? globalWorkflow : null}
           teamMembers={teamMembers}
+          currentUserEmail={user?.email}
         />
       )}
 
