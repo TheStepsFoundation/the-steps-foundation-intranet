@@ -213,24 +213,24 @@ function DraggableTaskCard({
         </span>
         <div className="flex -space-x-2 ml-auto">
           {member ? (
-            <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 text-xs font-medium border-2 border-white" title={member.name}>
-              {member.avatar.charAt(0)}
+            <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 text-[10px] font-medium border-2 border-white" title={member.name}>
+              {member.avatar}
             </div>
           ) : (
-            <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs border-2 border-white" title="Unassigned">
+            <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] border-2 border-white" title="Unassigned">
               ?
             </div>
           )}
           {task.collaborators.slice(0, 2).map(collabId => {
             const collab = teamMembers.find(m => m.id === collabId)
             return collab ? (
-              <div key={collabId} className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white" title={collab.name}>
-                {collab.avatar.charAt(0)}
+              <div key={collabId} className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 text-[10px] font-medium border-2 border-white" title={collab.name}>
+                {collab.avatar}
               </div>
             ) : null
           })}
           {task.collaborators.length > 2 && (
-            <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-medium border-2 border-white">
+            <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-[10px] font-medium border-2 border-white">
               +{task.collaborators.length - 2}
             </div>
           )}
@@ -3238,6 +3238,10 @@ export default function Home() {
   // Workload popup state: { memberId, intensity } or null
   const [workloadPopup, setWorkloadPopup] = useState<{ memberId: number; intensity: Intensity | 'unspecified' } | null>(null)
   
+  // Team view state
+  const [teamViewFilter, setTeamViewFilter] = useState<'all' | 'assigned' | 'collaborating'>('all')
+  const [expandedMembers, setExpandedMembers] = useState<Set<number>>(new Set())
+  
   // Helper to toggle sort
   const handleSortClick = (column: 'dueDate' | 'priority' | 'status' | 'workflow') => {
     if (sortBy === column) {
@@ -3847,112 +3851,172 @@ export default function Home() {
 
         {/* Team View */}
         {view === 'team' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
-            {/* Unassigned Column */}
-            <DroppableColumn
-              id="member-0"
-              className="bg-gray-100 rounded-xl p-4 min-h-[400px] transition-colors border-2 border-dashed border-gray-300"
-            >
-              <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-300">
-                <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 font-bold text-sm">
-                  ?
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h2 className="font-semibold text-gray-700 text-sm">Unassigned</h2>
-                  <p className="text-xs text-gray-400">{getUnassignedTasks().length} tasks</p>
-                </div>
-              </div>
-              
-              <div className="space-y-3 mb-4">
-                {getUnassignedTasks().map(task => (
-                  <DraggableTaskCard
-                    key={task.id}
-                    task={task}
-                    onClick={() => setEditingTask(task)}
-                    showStatus
-                    workflows={workflows}
-                    teamMembers={teamMembers}
-                  />
-                ))}
-                {getUnassignedTasks().length === 0 && (
-                  <p className="text-sm text-gray-400 text-center py-4">No unassigned tasks</p>
-                )}
-              </div>
-
-              {getUnassignedArchivedTasks().length > 0 && (
-                <div className="border-t border-gray-300 pt-3">
-                  <p className="text-xs text-gray-400 mb-2">Completed ({getUnassignedArchivedTasks().length})</p>
-                  <div className="space-y-2 opacity-60">
-                    {getUnassignedArchivedTasks().slice(0, 3).map(task => (
-                      <div 
-                        key={task.id} 
-                        className="bg-white rounded-lg p-3 text-sm cursor-pointer hover:opacity-100 transition"
-                        onClick={() => setEditingTask(task)}
-                      >
-                        <p className="text-gray-600 line-clamp-1">{task.title}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </DroppableColumn>
-
-            {teamMembers.map(member => {
-              const activeTasks = getTasksByMember(member.id)
-              const archivedTasks = getArchivedTasksByMember(member.id)
-              
-              return (
-                <DroppableColumn
-                  key={member.id}
-                  id={`member-${member.id}`}
-                  className="bg-gray-50 rounded-xl p-4 min-h-[400px] transition-colors"
+          <div className="space-y-3">
+            {/* Filter Controls */}
+            <div className="flex items-center gap-2 bg-white rounded-lg p-2 shadow-sm border">
+              <span className="text-xs text-gray-500 px-2">Show:</span>
+              {(['all', 'assigned', 'collaborating'] as const).map(filter => (
+                <button
+                  key={filter}
+                  onClick={() => setTeamViewFilter(filter)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                    teamViewFilter === filter
+                      ? 'bg-purple-100 text-purple-700'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
                 >
-                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-200">
-                    <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-sm">
-                      {member.avatar}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h2 className="font-semibold text-gray-700 text-sm truncate">{member.name.split(' ')[0]}</h2>
-                      <p className="text-xs text-gray-400">{activeTasks.length} active</p>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-3 mb-4">
-                    {activeTasks.map(task => (
-                      <DraggableTaskCard
-                        key={task.id}
-                        task={task}
-                        onClick={() => setEditingTask(task)}
-                        showStatus
-                        workflows={workflows}
-                        teamMembers={teamMembers}
-                        viewingMemberId={member.id}
-                      />
-                    ))}
-                    {activeTasks.length === 0 && (
-                      <p className="text-sm text-gray-400 text-center py-4">No active tasks</p>
-                    )}
-                  </div>
+                  {filter === 'all' ? 'All' : filter === 'assigned' ? 'Assigned' : 'Collaborating'}
+                </button>
+              ))}
+            </div>
 
-                  {archivedTasks.length > 0 && (
-                    <div className="border-t border-gray-200 pt-3">
-                      <p className="text-xs text-gray-400 mb-2">Completed ({archivedTasks.length})</p>
-                      <div className="space-y-2 opacity-60">
-                        {archivedTasks.slice(0, 3).map(task => (
-                          <div 
-                            key={task.id} 
-                            className="bg-white rounded-lg p-3 text-sm cursor-pointer hover:opacity-100 transition"
-                            onClick={() => setEditingTask(task)}
-                          >
-                            <p className="text-gray-600 line-clamp-1">{task.title}</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+              {/* Unassigned Column */}
+              <DroppableColumn
+                id="member-0"
+                className="bg-gray-100 rounded-lg p-3 min-h-[200px] transition-colors border border-dashed border-gray-300"
+              >
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-300">
+                  <div className="w-7 h-7 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 font-bold text-xs">
+                    ?
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="font-semibold text-gray-700 text-xs">Unassigned</h2>
+                    <p className="text-[10px] text-gray-400">{getUnassignedTasks().length} tasks</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-1.5">
+                  {getUnassignedTasks()
+                    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                    .slice(0, expandedMembers.has(0) ? undefined : 3)
+                    .map(task => {
+                      const workflow = workflows.find(w => w.id === task.workflow)
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={() => setEditingTask(task)}
+                          className="bg-white rounded p-2 cursor-pointer hover:shadow-sm transition border border-gray-100"
+                        >
+                          <p className="text-[11px] font-medium text-gray-900 line-clamp-1">{task.title}</p>
+                          <div className="flex items-center gap-1 mt-1 flex-wrap">
+                            {workflow && (
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded text-white ${workflow.color}`}>
+                                {workflow.short}
+                              </span>
+                            )}
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded ${statusColors[task.status]}`}>
+                              {statusLabels[task.status]}
+                            </span>
+                            <span className="text-[9px] text-gray-400 ml-auto">
+                              {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                            </span>
                           </div>
-                        ))}
+                        </div>
+                      )
+                    })}
+                  {getUnassignedTasks().length === 0 && (
+                    <p className="text-[10px] text-gray-400 text-center py-2">None</p>
+                  )}
+                  {getUnassignedTasks().length > 3 && (
+                    <button
+                      onClick={() => setExpandedMembers(prev => {
+                        const next = new Set(prev)
+                        if (next.has(0)) next.delete(0)
+                        else next.add(0)
+                        return next
+                      })}
+                      className="w-full text-[10px] text-purple-600 hover:text-purple-700 py-1"
+                    >
+                      {expandedMembers.has(0) ? 'Show less' : `+${getUnassignedTasks().length - 3} more`}
+                    </button>
+                  )}
+                </div>
+              </DroppableColumn>
+
+              {teamMembers.map(member => {
+                // Get tasks and apply filter
+                let activeTasks = getTasksByMember(member.id)
+                if (teamViewFilter === 'assigned') {
+                  activeTasks = activeTasks.filter(t => t.assignee === member.id)
+                } else if (teamViewFilter === 'collaborating') {
+                  activeTasks = activeTasks.filter(t => t.assignee !== member.id && t.collaborators.includes(member.id))
+                }
+                // Sort by due date (earliest first)
+                activeTasks = [...activeTasks].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                
+                const isExpanded = expandedMembers.has(member.id)
+                const displayTasks = isExpanded ? activeTasks : activeTasks.slice(0, 3)
+                
+                return (
+                  <DroppableColumn
+                    key={member.id}
+                    id={`member-${member.id}`}
+                    className="bg-gray-50 rounded-lg p-3 min-h-[200px] transition-colors"
+                  >
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-200">
+                      <div className="w-7 h-7 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-[10px]">
+                        {member.avatar}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="font-semibold text-gray-700 text-xs truncate">{member.name.split(' ')[0]}</h2>
+                        <p className="text-[10px] text-gray-400">{activeTasks.length} active</p>
                       </div>
                     </div>
-                  )}
-                </DroppableColumn>
-              )
-            })}
+                    
+                    <div className="space-y-1.5">
+                      {displayTasks.map(task => {
+                        const workflow = workflows.find(w => w.id === task.workflow)
+                        const isPrimaryAssignee = task.assignee === member.id
+                        return (
+                          <div
+                            key={task.id}
+                            onClick={() => setEditingTask(task)}
+                            className={`bg-white rounded p-2 cursor-pointer hover:shadow-sm transition ${
+                              isPrimaryAssignee ? 'border-2 border-purple-300 ring-1 ring-purple-100' : 'border border-gray-100'
+                            }`}
+                          >
+                            <p className="text-[11px] font-medium text-gray-900 line-clamp-1">{task.title}</p>
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
+                              {workflow && (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded text-white ${workflow.color}`}>
+                                  {workflow.short}
+                                </span>
+                              )}
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded ${statusColors[task.status]}`}>
+                                {statusLabels[task.status]}
+                              </span>
+                              {!isPrimaryAssignee && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">collab</span>
+                              )}
+                              <span className="text-[9px] text-gray-400 ml-auto">
+                                {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {activeTasks.length === 0 && (
+                        <p className="text-[10px] text-gray-400 text-center py-2">No tasks</p>
+                      )}
+                      {activeTasks.length > 3 && (
+                        <button
+                          onClick={() => setExpandedMembers(prev => {
+                            const next = new Set(prev)
+                            if (next.has(member.id)) next.delete(member.id)
+                            else next.add(member.id)
+                            return next
+                          })}
+                          className="w-full text-[10px] text-purple-600 hover:text-purple-700 py-1"
+                        >
+                          {isExpanded ? 'Show less' : `+${activeTasks.length - 3} more`}
+                        </button>
+                      )}
+                    </div>
+                  </DroppableColumn>
+                )
+              })}
+            </div>
           </div>
         )}
 
