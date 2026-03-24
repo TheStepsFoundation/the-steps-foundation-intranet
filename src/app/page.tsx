@@ -4077,11 +4077,11 @@ export default function Home() {
 
             {/* Compact View */}
             {teamViewMode === 'compact' && (
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="flex lg:grid lg:grid-cols-7 gap-3 overflow-x-auto pb-2 snap-x snap-mandatory lg:snap-none -mx-3 px-3 sm:mx-0 sm:px-0">
               {/* Unassigned Column */}
               <DroppableColumn
                 id="member-0"
-                className="bg-gray-100 rounded-lg p-3 min-h-[200px] transition-colors border border-dashed border-gray-300"
+                className="bg-gray-100 rounded-lg p-3 min-h-[200px] transition-colors border border-dashed border-gray-300 w-[160px] sm:w-[180px] lg:w-auto flex-shrink-0 lg:flex-shrink snap-center"
               >
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-300">
                   <div className="w-7 h-7 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 font-bold text-xs">
@@ -4159,7 +4159,7 @@ export default function Home() {
                   <DroppableColumn
                     key={member.id}
                     id={`member-${member.id}`}
-                    className="bg-gray-50 rounded-lg p-3 min-h-[200px] transition-colors"
+                    className="bg-gray-50 rounded-lg p-3 min-h-[200px] transition-colors w-[160px] sm:w-[180px] lg:w-auto flex-shrink-0 lg:flex-shrink snap-center"
                   >
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-200">
                       <div className="w-7 h-7 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-[10px]">
@@ -4228,11 +4228,11 @@ export default function Home() {
 
             {/* Comfortable View */}
             {teamViewMode === 'comfortable' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
+            <div className="flex lg:grid lg:grid-cols-7 gap-4 overflow-x-auto pb-2 snap-x snap-mandatory lg:snap-none -mx-3 px-3 sm:mx-0 sm:px-0">
               {/* Unassigned Column */}
               <DroppableColumn
                 id="member-0"
-                className="bg-gray-100 rounded-xl p-4 min-h-[400px] transition-colors border-2 border-dashed border-gray-300"
+                className="bg-gray-100 rounded-xl p-4 min-h-[300px] lg:min-h-[400px] transition-colors border-2 border-dashed border-gray-300 w-[220px] sm:w-[260px] lg:w-auto flex-shrink-0 lg:flex-shrink snap-center"
               >
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-300">
                   <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 font-bold text-sm">
@@ -4247,6 +4247,7 @@ export default function Home() {
                 <div className="space-y-3 mb-4">
                   {getUnassignedTasks()
                     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                    .slice(0, expandedMembers.has(0) ? undefined : 3)
                     .map(task => (
                     <DraggableTaskCard
                       key={task.id}
@@ -4259,6 +4260,19 @@ export default function Home() {
                   ))}
                   {getUnassignedTasks().length === 0 && (
                     <p className="text-sm text-gray-400 text-center py-4">No unassigned tasks</p>
+                  )}
+                  {getUnassignedTasks().length > 3 && (
+                    <button
+                      onClick={() => setExpandedMembers(prev => {
+                        const next = new Set(prev)
+                        if (next.has(0)) next.delete(0)
+                        else next.add(0)
+                        return next
+                      })}
+                      className="w-full text-xs text-purple-600 hover:text-purple-700 py-2"
+                    >
+                      {expandedMembers.has(0) ? 'Show less' : `+${getUnassignedTasks().length - 3} more`}
+                    </button>
                   )}
                 </div>
               </DroppableColumn>
@@ -4273,12 +4287,14 @@ export default function Home() {
                 }
                 // Sort by due date (earliest first)
                 activeTasks = [...activeTasks].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                const isExpanded = expandedMembers.has(member.id)
+                const displayTasks = isExpanded ? activeTasks : activeTasks.slice(0, 3)
                 
                 return (
                   <DroppableColumn
                     key={member.id}
                     id={`member-${member.id}`}
-                    className="bg-gray-50 rounded-xl p-4 min-h-[400px] transition-colors"
+                    className="bg-gray-50 rounded-xl p-4 min-h-[300px] lg:min-h-[400px] transition-colors w-[220px] sm:w-[260px] lg:w-auto flex-shrink-0 lg:flex-shrink snap-center"
                   >
                     <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-200">
                       <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-sm">
@@ -4291,7 +4307,7 @@ export default function Home() {
                     </div>
                     
                     <div className="space-y-3 mb-4">
-                      {activeTasks.map(task => (
+                      {displayTasks.map(task => (
                         <DraggableTaskCard
                           key={task.id}
                           task={task}
@@ -4304,6 +4320,19 @@ export default function Home() {
                       ))}
                       {activeTasks.length === 0 && (
                         <p className="text-sm text-gray-400 text-center py-4">No active tasks</p>
+                      )}
+                      {activeTasks.length > 3 && (
+                        <button
+                          onClick={() => setExpandedMembers(prev => {
+                            const next = new Set(prev)
+                            if (next.has(member.id)) next.delete(member.id)
+                            else next.add(member.id)
+                            return next
+                          })}
+                          className="w-full text-xs text-purple-600 hover:text-purple-700 py-2"
+                        >
+                          {isExpanded ? 'Show less' : `+${activeTasks.length - 3} more`}
+                        </button>
                       )}
                     </div>
                   </DroppableColumn>
