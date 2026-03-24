@@ -19,7 +19,8 @@ interface AuthContextType {
   user: User | null
   session: Session | null
   loading: boolean
-  signIn: (email: string) => Promise<{ error: string | null }>
+  signIn: (email: string, password: string) => Promise<{ error: string | null }>
+  signUp: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   isAllowedEmail: (email: string) => boolean
 }
@@ -55,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return ALLOWED_EMAILS.includes(email.toLowerCase())
   }
 
-  const signIn = async (email: string): Promise<{ error: string | null }> => {
+  const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
     const normalizedEmail = email.toLowerCase().trim()
     
     // Check whitelist
@@ -63,13 +64,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: 'This email is not authorized to access the task tracker.' }
     }
 
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
-      options: {
-        emailRedirectTo: typeof window !== 'undefined' 
-          ? `${window.location.origin}/auth/callback`
-          : undefined,
-      },
+      password,
+    })
+
+    if (error) {
+      return { error: error.message }
+    }
+
+    return { error: null }
+  }
+
+  const signUp = async (email: string, password: string): Promise<{ error: string | null }> => {
+    const normalizedEmail = email.toLowerCase().trim()
+    
+    // Check whitelist
+    if (!isAllowedEmail(normalizedEmail)) {
+      return { error: 'This email is not authorized to access the task tracker.' }
+    }
+
+    const { error } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password,
     })
 
     if (error) {
@@ -84,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signOut, isAllowedEmail }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut, isAllowedEmail }}>
       {children}
     </AuthContext.Provider>
   )
