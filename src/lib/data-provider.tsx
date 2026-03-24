@@ -381,7 +381,31 @@ export function DataProvider({ children }: { children: ReactNode }) {
 export function useData() {
   const context = useContext(DataContext)
   if (!context) {
-    throw new Error('useData must be used within a DataProvider')
+    // Return safe defaults during SSR or before provider mounts
+    const noop = async () => {}
+    const noopSet = () => {}
+    return {
+      tasks: [],
+      workflows: [],
+      teamMembers: DEFAULT_TEAM_MEMBERS,
+      loading: true,
+      isDemo: false,
+      createTask: noop,
+      updateTask: noop,
+      deleteTask: noop,
+      setTasks: noopSet as any,
+      createWorkflow: noop,
+      updateWorkflow: noop,
+      deleteWorkflow: noop,
+      setWorkflows: noopSet as any,
+      createTeamMember: noop,
+      updateTeamMember: noop,
+      deleteTeamMember: noop,
+      weekCapacities: {} as Record<string, Record<number, number>>,
+      weekNotes: {} as Record<string, Record<number, string>>,
+      setWeekCapacity: () => {},
+      setWeekNote: () => {},
+    }
   }
   return context
 }
