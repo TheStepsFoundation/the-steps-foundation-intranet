@@ -123,12 +123,14 @@ function DraggableTaskCard({
   showStatus = false,
   workflows,
   teamMembers,
+  viewingMemberId,
 }: { 
   task: Task
   onClick: () => void
   showStatus?: boolean
   workflows: Workflow[]
   teamMembers: { id: number; name: string; role: string; avatar: string }[]
+  viewingMemberId?: number // The member whose section this card is in (for Team view)
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
@@ -142,6 +144,10 @@ function DraggableTaskCard({
   const member = task.assignee ? teamMembers.find(m => m.id === task.assignee) : null
   const workflow = workflows.find(w => w.id === task.workflow)
   const subWorkflow = workflows.find(w => w.id === task.subWorkflow)
+  
+  // In Team view, highlight tasks where the viewing member is the primary assignee
+  const isPrimaryAssignee = viewingMemberId !== undefined && task.assignee === viewingMemberId
+  const isCollaborator = viewingMemberId !== undefined && task.assignee !== viewingMemberId
 
   const handleCardClick = (e: MouseEvent) => {
     if ((e.target as HTMLElement).closest('.drag-handle')) {
@@ -155,8 +161,10 @@ function DraggableTaskCard({
       ref={setNodeRef}
       style={style}
       onClick={handleCardClick}
-      className={`relative bg-white rounded-lg p-4 shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer ${
+      className={`relative bg-white rounded-lg p-4 shadow-sm border hover:shadow-md transition cursor-pointer ${
         isDragging ? 'opacity-50 shadow-lg' : ''
+      } ${
+        isPrimaryAssignee ? 'border-purple-300 ring-2 ring-purple-200' : 'border-gray-100'
       }`}
     >
       {/* Drag Handle */}
@@ -1887,11 +1895,11 @@ interface Workflow {
 type Intensity = 'quick' | 'small' | 'medium' | 'large' | 'huge'
 
 const INTENSITY_OPTIONS: { value: Intensity; label: string; hours: number }[] = [
-  { value: 'quick', label: 'Quick Win', hours: 0.33 },  // ~20 mins
-  { value: 'small', label: 'Small', hours: 1 },
-  { value: 'medium', label: 'Medium', hours: 3 },
-  { value: 'large', label: 'Large', hours: 6 },
-  { value: 'huge', label: 'Huge', hours: 8 },  // ~1 day
+  { value: 'quick', label: 'Quick Win (~20 min)', hours: 0.33 },
+  { value: 'small', label: 'Small (~1 hr)', hours: 1 },
+  { value: 'medium', label: 'Medium (~3 hrs)', hours: 3 },
+  { value: 'large', label: 'Large (~6 hrs)', hours: 6 },
+  { value: 'huge', label: 'Huge (~1 day)', hours: 8 },
 ]
 
 const intensityColors: Record<Intensity, string> = {
@@ -3227,6 +3235,9 @@ export default function Home() {
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false)
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   
+  // Workload popup state: { memberId, intensity } or null
+  const [workloadPopup, setWorkloadPopup] = useState<{ memberId: number; intensity: Intensity | 'unspecified' } | null>(null)
+  
   // Helper to toggle sort
   const handleSortClick = (column: 'dueDate' | 'priority' | 'status' | 'workflow') => {
     if (sortBy === column) {
@@ -3263,8 +3274,14 @@ export default function Home() {
 
   const filteredTasks = getGlobalFilteredTasks()
   const getTasksByStatus = (status: Status) => filteredTasks.filter(t => t.status === status)
-  const getTasksByMember = (memberId: number) => filteredTasks.filter(t => t.assignee === memberId && t.status !== 'done')
-  const getArchivedTasksByMember = (memberId: number) => filteredTasks.filter(t => t.assignee === memberId && t.status === 'done')
+  // Get tasks where member is assigned OR collaborating (non-done)
+  const getTasksByMember = (memberId: number) => filteredTasks.filter(t => 
+    (t.assignee === memberId || t.collaborators.includes(memberId)) && t.status !== 'done'
+  )
+  // Get done tasks where member is assigned OR collaborating
+  const getArchivedTasksByMember = (memberId: number) => filteredTasks.filter(t => 
+    (t.assignee === memberId || t.collaborators.includes(memberId)) && t.status === 'done'
+  )
   const getUnassignedTasks = () => filteredTasks.filter(t => !t.assignee && t.status !== 'done')
   const getUnassignedArchivedTasks = () => filteredTasks.filter(t => !t.assignee && t.status === 'done')
   
@@ -3315,6 +3332,51 @@ export default function Home() {
       unspecified: assignedWithNoSubtask,
       byIntensity: intensityCounts,
     }
+  }
+  
+  // Get tasks for a specific member and intensity level (for popup display)
+  const getTasksByIntensity = (memberId: number, intensity: Intensity | 'unspecified', weekStart?: string) => {
+    let activeTasks = filteredTasks.filter(t => t.status !== 'done')
+    
+    // Filter by week if provided
+    if (weekStart) {
+      const weekStartDate = new Date(weekStart)
+      const weekEndDate = new Date(weekStart)
+      weekEndDate.setDate(weekEndDate.getDate() + 7)
+      
+      activeTasks = activeTasks.filter(t => {
+        const dueDate = new Date(t.dueDate)
+        return dueDate >= weekStartDate && dueDate < weekEndDate
+      })
+    }
+    
+    if (intensity === 'unspecified') {
+      // Return tasks where they're assignee but have no subtask assigned to them
+      return activeTasks
+        .filter(t => t.assignee === memberId && !t.subtasks.some(st => st.personId === memberId))
+        .map(t => ({
+          task: t,
+          subtaskDescription: null,
+          isCollaborator: false,
+        }))
+    }
+    
+    // Return tasks with subtasks matching the intensity
+    const results: { task: Task; subtaskDescription: string | null; isCollaborator: boolean }[] = []
+    
+    activeTasks.forEach(task => {
+      task.subtasks
+        .filter(st => st.personId === memberId && st.intensity === intensity)
+        .forEach(st => {
+          results.push({
+            task,
+            subtaskDescription: st.description || null,
+            isCollaborator: task.assignee !== memberId,
+          })
+        })
+    })
+    
+    return results
   }
   
   // Get capacity for a member for a specific week
@@ -3864,6 +3926,7 @@ export default function Home() {
                         showStatus
                         workflows={workflows}
                         teamMembers={teamMembers}
+                        viewingMemberId={member.id}
                       />
                     ))}
                     {activeTasks.length === 0 && (
@@ -4027,42 +4090,138 @@ export default function Home() {
                     />
                   </div>
                   
-                  {/* Breakdown by intensity with time estimates */}
-                  <div className="flex gap-1 text-xs flex-wrap">
+                  {/* Breakdown by intensity with time estimates - clickable to see tasks */}
+                  <div className="flex gap-1 text-xs flex-wrap relative">
                     {workload.byIntensity.quick > 0 && (
-                      <span className={`px-2 py-0.5 rounded ${intensityColors.quick}`}>
+                      <button
+                        type="button"
+                        onClick={() => setWorkloadPopup(
+                          workloadPopup?.memberId === member.id && workloadPopup?.intensity === 'quick' 
+                            ? null 
+                            : { memberId: member.id, intensity: 'quick' }
+                        )}
+                        className={`px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-green-400 transition ${intensityColors.quick}`}
+                      >
                         {workload.byIntensity.quick} quick (~20min)
-                      </span>
+                      </button>
                     )}
                     {workload.byIntensity.small > 0 && (
-                      <span className={`px-2 py-0.5 rounded ${intensityColors.small}`}>
+                      <button
+                        type="button"
+                        onClick={() => setWorkloadPopup(
+                          workloadPopup?.memberId === member.id && workloadPopup?.intensity === 'small' 
+                            ? null 
+                            : { memberId: member.id, intensity: 'small' }
+                        )}
+                        className={`px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-blue-400 transition ${intensityColors.small}`}
+                      >
                         {workload.byIntensity.small} small (~1h)
-                      </span>
+                      </button>
                     )}
                     {workload.byIntensity.medium > 0 && (
-                      <span className={`px-2 py-0.5 rounded ${intensityColors.medium}`}>
+                      <button
+                        type="button"
+                        onClick={() => setWorkloadPopup(
+                          workloadPopup?.memberId === member.id && workloadPopup?.intensity === 'medium' 
+                            ? null 
+                            : { memberId: member.id, intensity: 'medium' }
+                        )}
+                        className={`px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-yellow-400 transition ${intensityColors.medium}`}
+                      >
                         {workload.byIntensity.medium} medium (~3h)
-                      </span>
+                      </button>
                     )}
                     {workload.byIntensity.large > 0 && (
-                      <span className={`px-2 py-0.5 rounded ${intensityColors.large}`}>
+                      <button
+                        type="button"
+                        onClick={() => setWorkloadPopup(
+                          workloadPopup?.memberId === member.id && workloadPopup?.intensity === 'large' 
+                            ? null 
+                            : { memberId: member.id, intensity: 'large' }
+                        )}
+                        className={`px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-orange-400 transition ${intensityColors.large}`}
+                      >
                         {workload.byIntensity.large} large (~6h)
-                      </span>
+                      </button>
                     )}
                     {workload.byIntensity.huge > 0 && (
-                      <span className={`px-2 py-0.5 rounded ${intensityColors.huge}`}>
+                      <button
+                        type="button"
+                        onClick={() => setWorkloadPopup(
+                          workloadPopup?.memberId === member.id && workloadPopup?.intensity === 'huge' 
+                            ? null 
+                            : { memberId: member.id, intensity: 'huge' }
+                        )}
+                        className={`px-2 py-0.5 rounded cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-red-400 transition ${intensityColors.huge}`}
+                      >
                         {workload.byIntensity.huge} huge (~1 day)
-                      </span>
+                      </button>
                     )}
                     {workload.unspecified > 0 && (
-                      <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                      <button
+                        type="button"
+                        onClick={() => setWorkloadPopup(
+                          workloadPopup?.memberId === member.id && workloadPopup?.intensity === 'unspecified' 
+                            ? null 
+                            : { memberId: member.id, intensity: 'unspecified' }
+                        )}
+                        className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 cursor-pointer hover:ring-2 hover:ring-offset-1 hover:ring-gray-400 transition"
+                      >
                         {workload.unspecified} unspecified
-                      </span>
+                      </button>
                     )}
                     {workload.hours === 0 && (
                       <span className="text-gray-400 italic">No tasks this week</span>
                     )}
                   </div>
+                  
+                  {/* Popup showing tasks for selected intensity */}
+                  {workloadPopup?.memberId === member.id && (
+                    <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 relative">
+                      <button
+                        type="button"
+                        onClick={() => setWorkloadPopup(null)}
+                        className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                      <h4 className="text-xs font-semibold text-gray-700 mb-2">
+                        {workloadPopup.intensity === 'unspecified' ? 'Unspecified' : workloadPopup.intensity.charAt(0).toUpperCase() + workloadPopup.intensity.slice(1)} tasks:
+                      </h4>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek).map(({ task, subtaskDescription, isCollaborator }) => (
+                          <div 
+                            key={`${task.id}-${subtaskDescription}`}
+                            className="flex items-start gap-2 p-2 bg-white rounded border border-gray-100 hover:border-purple-200 cursor-pointer transition"
+                            onClick={() => { setEditingTask(task); setWorkloadPopup(null); }}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium text-gray-900 truncate">{task.title}</p>
+                              {subtaskDescription && (
+                                <p className="text-xs text-gray-500 truncate">→ {subtaskDescription}</p>
+                              )}
+                              <div className="flex items-center gap-1 mt-1">
+                                {isCollaborator && (
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">collaborating</span>
+                                )}
+                                <span className="text-xs text-gray-400">
+                                  Due {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                </span>
+                              </div>
+                            </div>
+                            <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </div>
+                        ))}
+                        {getTasksByIntensity(member.id, workloadPopup.intensity, selectedWeek).length === 0 && (
+                          <p className="text-xs text-gray-400 italic py-2">No tasks found</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
