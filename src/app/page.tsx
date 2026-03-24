@@ -675,7 +675,15 @@ function TaskModal({
                         onClick={() => {
                           const newSubtasks = [...editedTask.subtasks]
                           newSubtasks[index] = { ...subtask, completed: !subtask.completed }
-                          setEditedTask({ ...editedTask, subtasks: newSubtasks })
+                          
+                          // Check if all subtasks are now complete → auto-mark task as done
+                          const allComplete = newSubtasks.length > 0 && newSubtasks.every(st => st.completed)
+                          
+                          setEditedTask({ 
+                            ...editedTask, 
+                            subtasks: newSubtasks,
+                            status: allComplete ? 'done' : editedTask.status
+                          })
                         }}
                         className={`mt-2 flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition ${
                           subtask.completed
@@ -4059,15 +4067,23 @@ export default function Home() {
   const toggleSubtaskCompletion = async (task: Task, memberId: number) => {
     // Check if ALL of this member's subtasks are currently complete
     const memberSubtasks = task.subtasks.filter(st => st.personId === memberId)
-    const allComplete = memberSubtasks.length > 0 && memberSubtasks.every(st => st.completed)
+    const allMemberComplete = memberSubtasks.length > 0 && memberSubtasks.every(st => st.completed)
     
     // Toggle all to the opposite state
     const updatedSubtasks = task.subtasks.map(st => 
       st.personId === memberId 
-        ? { ...st, completed: !allComplete }
+        ? { ...st, completed: !allMemberComplete }
         : st
     )
-    const updatedTask = { ...task, subtasks: updatedSubtasks }
+    
+    // Check if ALL subtasks are now complete → auto-mark task as done
+    const allSubtasksComplete = updatedSubtasks.length > 0 && updatedSubtasks.every(st => st.completed)
+    
+    const updatedTask = { 
+      ...task, 
+      subtasks: updatedSubtasks,
+      status: allSubtasksComplete ? 'done' as Status : task.status
+    }
     await updateTaskInDb(updatedTask)
   }
 
