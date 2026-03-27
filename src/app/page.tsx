@@ -102,6 +102,58 @@ const DEFAULT_LABELS: Label[] = [
   { id: 'review-needed', name: 'Review Needed', color: 'bg-purple-500', isDefault: true },
 ]
 
+// Workflow Types & Task Templates (Feature #16)
+interface WorkflowType {
+  id: string
+  name: string
+  description: string
+}
+
+interface TaskTemplate {
+  id: string
+  workflowTypeId: string
+  title: string
+  description: string
+  priority: Priority
+}
+
+const WORKFLOW_TYPES: WorkflowType[] = [
+  { id: 'event', name: 'Event', description: 'Conferences, workshops, and gatherings' },
+  { id: 'schools', name: 'Schools', description: 'School outreach and partnerships' },
+  { id: 'partnerships', name: 'Partnerships', description: 'Sponsor and partner relationships' },
+  { id: 'internal', name: 'Internal', description: 'Team operations and admin' },
+]
+
+const TASK_TEMPLATES: TaskTemplate[] = [
+  // Event templates
+  { id: 'evt-1', workflowTypeId: 'event', title: 'Create event poster', description: 'Design main promotional poster in Canva', priority: 'high' },
+  { id: 'evt-2', workflowTypeId: 'event', title: 'Create sign-up form', description: 'Set up Google Form for event registration', priority: 'high' },
+  { id: 'evt-3', workflowTypeId: 'event', title: 'Confirm venue booking', description: 'Finalise venue reservation and logistics', priority: 'urgent' },
+  { id: 'evt-4', workflowTypeId: 'event', title: 'Reach out to speakers', description: 'Invite and confirm speakers/panelists', priority: 'urgent' },
+  { id: 'evt-5', workflowTypeId: 'event', title: 'Create event schedule', description: 'Plan detailed minute-by-minute schedule', priority: 'high' },
+  { id: 'evt-6', workflowTypeId: 'event', title: 'Write promotional copy', description: 'Draft copy for LinkedIn/social media', priority: 'medium' },
+  { id: 'evt-7', workflowTypeId: 'event', title: 'Book catering', description: 'Arrange food and refreshments', priority: 'high' },
+  { id: 'evt-8', workflowTypeId: 'event', title: 'Send reminder emails', description: 'Email confirmed attendees before event', priority: 'medium' },
+  { id: 'evt-9', workflowTypeId: 'event', title: 'Create feedback form', description: 'Set up post-event feedback survey', priority: 'low' },
+  // Schools templates
+  { id: 'sch-1', workflowTypeId: 'schools', title: 'Research target schools', description: 'Identify schools matching our criteria', priority: 'high' },
+  { id: 'sch-2', workflowTypeId: 'schools', title: 'Draft outreach email', description: 'Create email template for school contact', priority: 'medium' },
+  { id: 'sch-3', workflowTypeId: 'schools', title: 'Send school emails', description: 'Email target schools about opportunity', priority: 'high' },
+  { id: 'sch-4', workflowTypeId: 'schools', title: 'Follow up with schools', description: 'Chase responses from contacted schools', priority: 'medium' },
+  { id: 'sch-5', workflowTypeId: 'schools', title: 'Schedule school visit', description: 'Arrange date and logistics for visit', priority: 'high' },
+  // Partnerships templates
+  { id: 'prt-1', workflowTypeId: 'partnerships', title: 'Identify potential sponsors', description: 'Research companies for sponsorship', priority: 'high' },
+  { id: 'prt-2', workflowTypeId: 'partnerships', title: 'Create sponsorship deck', description: 'Design presentation for sponsors', priority: 'high' },
+  { id: 'prt-3', workflowTypeId: 'partnerships', title: 'Send sponsorship proposal', description: 'Email deck to potential sponsors', priority: 'medium' },
+  { id: 'prt-4', workflowTypeId: 'partnerships', title: 'Schedule sponsor call', description: 'Arrange meeting with interested sponsor', priority: 'high' },
+  { id: 'prt-5', workflowTypeId: 'partnerships', title: 'Draft partnership agreement', description: 'Create contract/MOU for partnership', priority: 'medium' },
+  // Internal templates
+  { id: 'int-1', workflowTypeId: 'internal', title: 'Team meeting agenda', description: 'Prepare agenda for team meeting', priority: 'medium' },
+  { id: 'int-2', workflowTypeId: 'internal', title: 'Update documentation', description: 'Update internal docs and processes', priority: 'low' },
+  { id: 'int-3', workflowTypeId: 'internal', title: 'Review finances', description: 'Check budget and expenses', priority: 'medium' },
+  { id: 'int-4', workflowTypeId: 'internal', title: 'Onboard new volunteer', description: 'Set up access and brief new team member', priority: 'high' },
+]
+
 const priorityColors: Record<Priority, string> = {
   low: 'bg-gray-100 text-gray-700 border-gray-200',
   medium: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -2444,6 +2496,7 @@ interface Workflow {
   short: string
   color: string
   archived?: boolean
+  workflowTypeId?: string // Links to WorkflowType for task templates
 }
 
 // Intensity levels for subtasks
@@ -2485,9 +2538,13 @@ function NewWorkflowModal({
   const [name, setName] = useState('')
   const [short, setShort] = useState('')
   const [color, setColor] = useState('bg-purple-500')
+  const [workflowTypeId, setWorkflowTypeId] = useState<string>('event')
   const [selectedTasks, setSelectedTasks] = useState<Set<number>>(
     new Set(EVENT_TEMPLATE_TASKS.map((_, i) => i))
   )
+  
+  // Get templates for selected workflow type
+  const typeTemplates = TASK_TEMPLATES.filter(t => t.workflowTypeId === workflowTypeId)
 
   const toggleTask = (index: number) => {
     setSelectedTasks(prev => {
@@ -2502,7 +2559,7 @@ function NewWorkflowModal({
   }
 
   const selectAll = () => {
-    setSelectedTasks(new Set(EVENT_TEMPLATE_TASKS.map((_, i) => i)))
+    setSelectedTasks(new Set(typeTemplates.map((_, i) => i)))
   }
 
   const selectNone = () => {
@@ -2518,10 +2575,12 @@ function NewWorkflowModal({
       name: name.trim(),
       short: short.trim().toUpperCase(),
       color,
+      workflowTypeId,
     }
 
-    const newTasks: Task[] = Array.from(selectedTasks).map((index, i) => {
-      const template = EVENT_TEMPLATE_TASKS[index]
+    // Use templates from the selected workflow type
+    const selectedTemplates = typeTemplates.filter((_, i) => selectedTasks.has(i))
+    const newTasks: Task[] = selectedTemplates.map((template, i) => {
       return {
         id: Date.now() + i,
         title: template.title,
@@ -2583,6 +2642,33 @@ function NewWorkflowModal({
             </div>
           </div>
 
+          {/* Workflow Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Workflow Type</label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {WORKFLOW_TYPES.map(type => (
+                <button
+                  key={type.id}
+                  type="button"
+                  onClick={() => {
+                    setWorkflowTypeId(type.id)
+                    // Reset selected tasks when type changes
+                    const newTemplates = TASK_TEMPLATES.filter(t => t.workflowTypeId === type.id)
+                    setSelectedTasks(new Set(newTemplates.map((_, i) => i)))
+                  }}
+                  className={`p-3 rounded-lg border-2 text-left transition ${
+                    workflowTypeId === type.id 
+                      ? 'border-purple-500 bg-purple-50' 
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-gray-900">{type.name}</div>
+                  <div className="text-xs text-gray-500">{type.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Color Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
@@ -2629,12 +2715,12 @@ function NewWorkflowModal({
               </div>
             </div>
             <p className="text-sm text-gray-500 mb-3">
-              Select the tasks to include. {selectedTasks.size} of {EVENT_TEMPLATE_TASKS.length} selected.
+              Select the tasks to include. {selectedTasks.size} of {typeTemplates.length} selected.
             </p>
             <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-lg divide-y">
-              {EVENT_TEMPLATE_TASKS.map((task, index) => (
+              {typeTemplates.map((task, index) => (
                 <label
-                  key={index}
+                  key={task.id}
                   className={`flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50 ${
                     selectedTasks.has(index) ? 'bg-purple-50' : ''
                   }`}
@@ -3038,6 +3124,22 @@ function AddTaskModal({
   const [meetingNotes, setMeetingNotes] = useState('')
   const [activeTab, setActiveTab] = useState<'basic' | 'attachments'>('basic')
   
+  // Get available templates based on selected workflow's type
+  const selectedWorkflow = workflows.find(w => w.id === workflow)
+  const availableTemplates = selectedWorkflow?.workflowTypeId 
+    ? TASK_TEMPLATES.filter(t => t.workflowTypeId === selectedWorkflow.workflowTypeId)
+    : []
+  
+  // Apply template
+  const applyTemplate = (templateId: string) => {
+    const template = TASK_TEMPLATES.find(t => t.id === templateId)
+    if (template) {
+      setTitle(template.title)
+      setDescription(template.description)
+      setPriority(template.priority)
+    }
+  }
+  
   // Toggle collaborator
   const toggleCollaborator = (memberId: number) => {
     if (memberId === assignee) return
@@ -3292,6 +3394,27 @@ function AddTaskModal({
         <div className="flex-1 overflow-y-auto p-6">
           {activeTab === 'basic' ? (
             <div className="space-y-4">
+              {/* Task Template Selector */}
+              {availableTemplates.length > 0 && (
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3">
+                  <label className="block text-sm font-medium text-purple-700 dark:text-purple-300 mb-2">
+                    📋 Quick Start from Template
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {availableTemplates.map(template => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => applyTemplate(template.id)}
+                        className="px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-700 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-800 transition text-gray-700 dark:text-gray-200"
+                      >
+                        {template.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Title */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Task Title *</label>
