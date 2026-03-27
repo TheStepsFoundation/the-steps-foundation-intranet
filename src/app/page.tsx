@@ -127,47 +127,102 @@ interface WorkflowType {
   id: string
   name: string
   description: string
+  subTemplates?: EventSubTemplate[] // Only for event type
+}
+
+interface EventSubTemplate {
+  id: string
+  name: string
+  description: string
 }
 
 interface TaskTemplate {
   id: string
   workflowTypeId: string
+  subTemplateId?: string // For event sub-templates
   title: string
   description: string
   priority: Priority
 }
 
+// Event sub-templates
+const EVENT_SUB_TEMPLATES: EventSubTemplate[] = [
+  { id: 'in-person', name: 'In-Person Event', description: 'Physical venue event with attendees' },
+  { id: 'online', name: 'Online Event', description: 'Virtual webinar or online workshop' },
+  { id: 'westminster', name: 'Westminster School Event', description: 'Event at Westminster school venue' },
+  { id: 'office-visit', name: 'Office Visit', description: 'Corporate office visit or tour' },
+]
+
 const WORKFLOW_TYPES: WorkflowType[] = [
-  { id: 'event', name: 'Event', description: 'Conferences, workshops, and gatherings' },
+  { id: 'event', name: 'Event', description: 'Conferences, workshops, and gatherings', subTemplates: EVENT_SUB_TEMPLATES },
   { id: 'schools', name: 'Schools', description: 'School outreach and partnerships' },
   { id: 'partnerships', name: 'Partnerships', description: 'Sponsor and partner relationships' },
   { id: 'internal', name: 'Internal', description: 'Team operations and admin' },
 ]
 
 const TASK_TEMPLATES: TaskTemplate[] = [
-  // Event templates
-  { id: 'evt-1', workflowTypeId: 'event', title: 'Create event poster', description: 'Design main promotional poster in Canva', priority: 'high' },
-  { id: 'evt-2', workflowTypeId: 'event', title: 'Create sign-up form', description: 'Set up Google Form for event registration', priority: 'high' },
-  { id: 'evt-3', workflowTypeId: 'event', title: 'Confirm venue booking', description: 'Finalise venue reservation and logistics', priority: 'urgent' },
-  { id: 'evt-4', workflowTypeId: 'event', title: 'Reach out to speakers', description: 'Invite and confirm speakers/panelists', priority: 'urgent' },
-  { id: 'evt-5', workflowTypeId: 'event', title: 'Create event schedule', description: 'Plan detailed minute-by-minute schedule', priority: 'high' },
-  { id: 'evt-6', workflowTypeId: 'event', title: 'Write promotional copy', description: 'Draft copy for LinkedIn/social media', priority: 'medium' },
-  { id: 'evt-7', workflowTypeId: 'event', title: 'Book catering', description: 'Arrange food and refreshments', priority: 'high' },
-  { id: 'evt-8', workflowTypeId: 'event', title: 'Send reminder emails', description: 'Email confirmed attendees before event', priority: 'medium' },
-  { id: 'evt-9', workflowTypeId: 'event', title: 'Create feedback form', description: 'Set up post-event feedback survey', priority: 'low' },
-  // Schools templates
+  // === IN-PERSON EVENT ===
+  { id: 'ip-1', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Confirm venue booking', description: 'Finalise venue reservation and logistics', priority: 'urgent' },
+  { id: 'ip-2', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Create event poster', description: 'Design main promotional poster in Canva', priority: 'high' },
+  { id: 'ip-3', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Create sign-up form', description: 'Set up Google Form for event registration', priority: 'high' },
+  { id: 'ip-4', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Reach out to speakers', description: 'Invite and confirm speakers/panelists', priority: 'urgent' },
+  { id: 'ip-5', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Create event schedule', description: 'Plan detailed minute-by-minute schedule', priority: 'high' },
+  { id: 'ip-6', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Write promotional copy', description: 'Draft copy for LinkedIn/social media', priority: 'medium' },
+  { id: 'ip-7', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Book catering', description: 'Arrange food and refreshments', priority: 'high' },
+  { id: 'ip-8', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Arrange AV equipment', description: 'Confirm microphones, projectors, screens', priority: 'high' },
+  { id: 'ip-9', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Print materials', description: 'Print name badges, programmes, signage', priority: 'medium' },
+  { id: 'ip-10', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Send reminder emails', description: 'Email confirmed attendees before event', priority: 'medium' },
+  { id: 'ip-11', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Create feedback form', description: 'Set up post-event feedback survey', priority: 'low' },
+  { id: 'ip-12', workflowTypeId: 'event', subTemplateId: 'in-person', title: 'Recruit volunteers', description: 'Confirm volunteer helpers for the day', priority: 'medium' },
+  
+  // === ONLINE EVENT ===
+  { id: 'on-1', workflowTypeId: 'event', subTemplateId: 'online', title: 'Set up Zoom/Teams', description: 'Create meeting link and test settings', priority: 'urgent' },
+  { id: 'on-2', workflowTypeId: 'event', subTemplateId: 'online', title: 'Create digital poster', description: 'Design promotional graphic for socials', priority: 'high' },
+  { id: 'on-3', workflowTypeId: 'event', subTemplateId: 'online', title: 'Create sign-up form', description: 'Set up registration form with meeting link', priority: 'high' },
+  { id: 'on-4', workflowTypeId: 'event', subTemplateId: 'online', title: 'Reach out to speakers', description: 'Invite and confirm online speakers', priority: 'urgent' },
+  { id: 'on-5', workflowTypeId: 'event', subTemplateId: 'online', title: 'Create run of show', description: 'Plan session timing and transitions', priority: 'high' },
+  { id: 'on-6', workflowTypeId: 'event', subTemplateId: 'online', title: 'Prepare slides/deck', description: 'Create presentation materials', priority: 'high' },
+  { id: 'on-7', workflowTypeId: 'event', subTemplateId: 'online', title: 'Write social media posts', description: 'Draft promotional copy for platforms', priority: 'medium' },
+  { id: 'on-8', workflowTypeId: 'event', subTemplateId: 'online', title: 'Test tech setup', description: 'Run through with speakers before event', priority: 'high' },
+  { id: 'on-9', workflowTypeId: 'event', subTemplateId: 'online', title: 'Send calendar invites', description: 'Email attendees with meeting link', priority: 'medium' },
+  { id: 'on-10', workflowTypeId: 'event', subTemplateId: 'online', title: 'Create feedback form', description: 'Set up post-event feedback survey', priority: 'low' },
+  
+  // === WESTMINSTER SCHOOL EVENT ===
+  { id: 'ws-1', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Contact Westminster admin', description: 'Confirm date and room booking with school', priority: 'urgent' },
+  { id: 'ws-2', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Complete venue paperwork', description: 'Submit required forms and insurance docs', priority: 'urgent' },
+  { id: 'ws-3', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Create event poster', description: 'Design poster (check school branding rules)', priority: 'high' },
+  { id: 'ws-4', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Create sign-up form', description: 'Set up registration with school details', priority: 'high' },
+  { id: 'ws-5', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Confirm speaker access', description: 'Arrange visitor passes for external speakers', priority: 'high' },
+  { id: 'ws-6', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Create event schedule', description: 'Plan schedule within school constraints', priority: 'high' },
+  { id: 'ws-7', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Arrange school catering', description: 'Book through school catering if required', priority: 'medium' },
+  { id: 'ws-8', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Send attendee instructions', description: 'Email directions and entry procedures', priority: 'medium' },
+  { id: 'ws-9', workflowTypeId: 'event', subTemplateId: 'westminster', title: 'Create feedback form', description: 'Set up post-event survey', priority: 'low' },
+  
+  // === OFFICE VISIT ===
+  { id: 'ov-1', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Contact company host', description: 'Confirm date, time and contact person', priority: 'urgent' },
+  { id: 'ov-2', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Collect attendee details', description: 'Get names/IDs for building security', priority: 'urgent' },
+  { id: 'ov-3', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Create sign-up form', description: 'Registration with required info fields', priority: 'high' },
+  { id: 'ov-4', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Confirm visit agenda', description: 'Agree schedule with company host', priority: 'high' },
+  { id: 'ov-5', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Brief attendees', description: 'Send dress code and behaviour guidelines', priority: 'medium' },
+  { id: 'ov-6', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Arrange transport', description: 'Plan travel logistics for group', priority: 'medium' },
+  { id: 'ov-7', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Send reminder with directions', description: 'Final details email day before', priority: 'medium' },
+  { id: 'ov-8', workflowTypeId: 'event', subTemplateId: 'office-visit', title: 'Create feedback form', description: 'Post-visit survey for attendees', priority: 'low' },
+  
+  // Schools templates (unchanged)
   { id: 'sch-1', workflowTypeId: 'schools', title: 'Research target schools', description: 'Identify schools matching our criteria', priority: 'high' },
   { id: 'sch-2', workflowTypeId: 'schools', title: 'Draft outreach email', description: 'Create email template for school contact', priority: 'medium' },
   { id: 'sch-3', workflowTypeId: 'schools', title: 'Send school emails', description: 'Email target schools about opportunity', priority: 'high' },
   { id: 'sch-4', workflowTypeId: 'schools', title: 'Follow up with schools', description: 'Chase responses from contacted schools', priority: 'medium' },
   { id: 'sch-5', workflowTypeId: 'schools', title: 'Schedule school visit', description: 'Arrange date and logistics for visit', priority: 'high' },
-  // Partnerships templates
+  
+  // Partnerships templates (unchanged)
   { id: 'prt-1', workflowTypeId: 'partnerships', title: 'Identify potential sponsors', description: 'Research companies for sponsorship', priority: 'high' },
   { id: 'prt-2', workflowTypeId: 'partnerships', title: 'Create sponsorship deck', description: 'Design presentation for sponsors', priority: 'high' },
   { id: 'prt-3', workflowTypeId: 'partnerships', title: 'Send sponsorship proposal', description: 'Email deck to potential sponsors', priority: 'medium' },
   { id: 'prt-4', workflowTypeId: 'partnerships', title: 'Schedule sponsor call', description: 'Arrange meeting with interested sponsor', priority: 'high' },
   { id: 'prt-5', workflowTypeId: 'partnerships', title: 'Draft partnership agreement', description: 'Create contract/MOU for partnership', priority: 'medium' },
-  // Internal templates
+  
+  // Internal templates (unchanged)
   { id: 'int-1', workflowTypeId: 'internal', title: 'Team meeting agenda', description: 'Prepare agenda for team meeting', priority: 'medium' },
   { id: 'int-2', workflowTypeId: 'internal', title: 'Update documentation', description: 'Update internal docs and processes', priority: 'low' },
   { id: 'int-3', workflowTypeId: 'internal', title: 'Review finances', description: 'Check budget and expenses', priority: 'medium' },
@@ -2709,12 +2764,17 @@ function NewWorkflowModal({
   const [short, setShort] = useState('')
   const [color, setColor] = useState('bg-purple-500')
   const [workflowTypeId, setWorkflowTypeId] = useState<string>('event')
+  const [eventSubTemplateId, setEventSubTemplateId] = useState<string>('in-person')
   const [selectedTasks, setSelectedTasks] = useState<Set<number>>(
-    new Set(EVENT_TEMPLATE_TASKS.map((_, i) => i))
+    new Set(TASK_TEMPLATES.filter(t => t.workflowTypeId === 'event' && t.subTemplateId === 'in-person').map((_, i) => i))
   )
   
-  // Get templates for selected workflow type
-  const typeTemplates = TASK_TEMPLATES.filter(t => t.workflowTypeId === workflowTypeId)
+  // Get templates for selected workflow type (and sub-template if event)
+  const typeTemplates = TASK_TEMPLATES.filter(t => {
+    if (t.workflowTypeId !== workflowTypeId) return false
+    if (workflowTypeId === 'event' && t.subTemplateId !== eventSubTemplateId) return false
+    return true
+  })
 
   const toggleTask = (index: number) => {
     setSelectedTasks(prev => {
@@ -2822,9 +2882,15 @@ function NewWorkflowModal({
                   type="button"
                   onClick={() => {
                     setWorkflowTypeId(type.id)
-                    // Reset selected tasks when type changes
-                    const newTemplates = TASK_TEMPLATES.filter(t => t.workflowTypeId === type.id)
-                    setSelectedTasks(new Set(newTemplates.map((_, i) => i)))
+                    // Reset sub-template and selected tasks
+                    if (type.id === 'event') {
+                      setEventSubTemplateId('in-person')
+                      const newTemplates = TASK_TEMPLATES.filter(t => t.workflowTypeId === 'event' && t.subTemplateId === 'in-person')
+                      setSelectedTasks(new Set(newTemplates.map((_, i) => i)))
+                    } else {
+                      const newTemplates = TASK_TEMPLATES.filter(t => t.workflowTypeId === type.id)
+                      setSelectedTasks(new Set(newTemplates.map((_, i) => i)))
+                    }
                   }}
                   className={`p-3 rounded-lg border-2 text-left transition ${
                     workflowTypeId === type.id 
@@ -2838,6 +2904,34 @@ function NewWorkflowModal({
               ))}
             </div>
           </div>
+
+          {/* Event Sub-Template (only show for Event type) */}
+          {workflowTypeId === 'event' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Event Type</label>
+              <div className="grid grid-cols-2 gap-2">
+                {EVENT_SUB_TEMPLATES.map(subTemplate => (
+                  <button
+                    key={subTemplate.id}
+                    type="button"
+                    onClick={() => {
+                      setEventSubTemplateId(subTemplate.id)
+                      const newTemplates = TASK_TEMPLATES.filter(t => t.workflowTypeId === 'event' && t.subTemplateId === subTemplate.id)
+                      setSelectedTasks(new Set(newTemplates.map((_, i) => i)))
+                    }}
+                    className={`p-3 rounded-lg border-2 text-left transition ${
+                      eventSubTemplateId === subTemplate.id 
+                        ? 'border-purple-500 bg-purple-50' 
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="font-medium text-sm text-gray-900">{subTemplate.name}</div>
+                    <div className="text-xs text-gray-500">{subTemplate.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Color Selection */}
           <div>
