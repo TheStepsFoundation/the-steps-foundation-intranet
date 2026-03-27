@@ -83,6 +83,26 @@ interface Task {
   blockedBy?: number[] // Task IDs that must be completed first
   labels?: string[] // Label IDs
   startDate?: string // For Gantt view - when work begins
+  comments?: TaskComment[]
+  activityLog?: ActivityEntry[]
+}
+
+// Comments and Activity Log (Feature #6)
+interface TaskComment {
+  id: number
+  author: string
+  content: string
+  mentions: string[] // @mentioned names
+  createdAt: string
+}
+
+interface ActivityEntry {
+  id: number
+  user: string
+  action: 'status_change' | 'assignee_change' | 'priority_change' | 'created' | 'comment'
+  oldValue?: string
+  newValue?: string
+  createdAt: string
 }
 
 // Custom Labels
@@ -472,11 +492,46 @@ function TaskModal({
   const [editedTask, setEditedTask] = useState<Task>({ ...task })
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [activeTab, setActiveTab] = useState<'basic' | 'attachments'>('basic')
+  const [activeTab, setActiveTab] = useState<'basic' | 'attachments' | 'activity'>('basic')
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+  const [newComment, setNewComment] = useState('')
+  
+  // Add a comment
+  const addComment = () => {
+    if (!newComment.trim()) return
+    
+    // Parse @mentions
+    const mentionRegex = /@(\w+)/g
+    const mentions: string[] = []
+    let match
+    while ((match = mentionRegex.exec(newComment)) !== null) {
+      mentions.push(match[1])
+    }
+    
+    const comment: TaskComment = {
+      id: Date.now(),
+      author: 'You', // Would be user email in real app
+      content: newComment.trim(),
+      mentions,
+      createdAt: new Date().toISOString(),
+    }
+    
+    setEditedTask(prev => ({
+      ...prev,
+      comments: [...(prev.comments || []), comment],
+      activityLog: [...(prev.activityLog || []), {
+        id: Date.now() + 1,
+        user: 'You',
+        action: 'comment' as const,
+        newValue: newComment.trim().slice(0, 50) + (newComment.length > 50 ? '...' : ''),
+        createdAt: new Date().toISOString(),
+      }]
+    }))
+    setNewComment('')
+  }
   
   // Check if there are unsaved changes
   const hasChanges = JSON.stringify(editedTask) !== JSON.stringify(task)
@@ -604,6 +659,21 @@ function TaskModal({
             {editedTask.attachments && editedTask.attachments.length > 0 && (
               <span className="bg-purple-100 text-purple-600 text-xs px-2 py-0.5 rounded-full">
                 {editedTask.attachments.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('activity')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition flex items-center justify-center gap-2 ${
+              activeTab === 'activity'
+                ? 'text-purple-600 border-b-2 border-purple-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Activity
+            {((editedTask.comments?.length || 0) + (editedTask.activityLog?.length || 0)) > 0 && (
+              <span className="bg-purple-100 text-purple-600 text-xs px-2 py-0.5 rounded-full">
+                {(editedTask.comments?.length || 0) + (editedTask.activityLog?.length || 0)}
               </span>
             )}
           </button>
@@ -1251,6 +1321,106 @@ function TaskModal({
                   <p>No attachments yet</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Activity Tab */}
+          {activeTab === 'activity' && (
+            <div className="space-y-4">
+              {/* Add Comment */}
+              <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Add Comment
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addComment()}
+                    placeholder="Write a comment... Use @name to mention"
+                    className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-white dark:bg-gray-700 dark:text-white"
+                  />
+                  <button
+                    onClick={addComment}
+                    disabled={!newComment.trim()}
+                    className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                  >
+                    Send
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Tip: Use @{teamMembers[0]?.name.split(' ')[0] || 'name'} to mention someone
+                </p>
+              </div>
+
+              {/* Comments & Activity Feed */}
+              <div className="space-y-3">
+                {[...(editedTask.comments || []), ...(editedTask.activityLog || [])]
+                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                  .map(item => {
+                    const isComment = 'content' in item
+                    return (
+                      <div 
+                        key={item.id} 
+                        className={`p-3 rounded-lg ${isComment ? 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600' : 'bg-gray-50 dark:bg-gray-800'}`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                            isComment ? 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-600 dark:text-gray-300'
+                          }`}>
+                            {(isComment ? (item as TaskComment).author : (item as ActivityEntry).user).slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-medium text-sm text-gray-900 dark:text-white">
+                                {isComment ? (item as TaskComment).author : (item as ActivityEntry).user}
+                              </span>
+                              <span className="text-xs text-gray-400">
+                                {new Date(item.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            {isComment ? (
+                              <p className="text-sm text-gray-700 dark:text-gray-200">
+                                {(item as TaskComment).content.split(/(@\w+)/g).map((part, i) => 
+                                  part.startsWith('@') 
+                                    ? <span key={i} className="text-purple-600 dark:text-purple-400 font-medium">{part}</span>
+                                    : part
+                                )}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-gray-500 dark:text-gray-400">
+                                {(item as ActivityEntry).action === 'status_change' && (
+                                  <>Changed status from <strong>{(item as ActivityEntry).oldValue}</strong> to <strong>{(item as ActivityEntry).newValue}</strong></>
+                                )}
+                                {(item as ActivityEntry).action === 'assignee_change' && (
+                                  <>Changed assignee to <strong>{(item as ActivityEntry).newValue}</strong></>
+                                )}
+                                {(item as ActivityEntry).action === 'priority_change' && (
+                                  <>Changed priority to <strong>{(item as ActivityEntry).newValue}</strong></>
+                                )}
+                                {(item as ActivityEntry).action === 'comment' && (
+                                  <>Added a comment</>
+                                )}
+                                {(item as ActivityEntry).action === 'created' && (
+                                  <>Created this task</>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                {(!editedTask.comments?.length && !editedTask.activityLog?.length) && (
+                  <div className="text-center py-8 text-gray-400 dark:text-gray-500">
+                    <svg className="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    <p>No activity yet</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -4491,31 +4661,71 @@ export default function Home() {
 
   const handleSaveTask = async (updatedTask: Task) => {
     const originalTask = tasks.find(t => t.id === updatedTask.id)
+    const activityLog: ActivityEntry[] = [...(updatedTask.activityLog || [])]
+    const userName = user?.email?.split('@')[0] || 'Someone'
     
-    // Check for assignee change
-    if (originalTask && originalTask.assignee !== updatedTask.assignee && updatedTask.assignee) {
-      const assignee = teamMembers.find(m => m.id === updatedTask.assignee)
-      if (assignee && getDiscordWebhookUrl()) {
-        notifyTaskAssigned({
-          title: updatedTask.title,
-          assignee: assignee.name,
-          dueDate: updatedTask.dueDate,
-          priority: updatedTask.priority,
-        }, window.location.href)
+    if (originalTask) {
+      // Log status change
+      if (originalTask.status !== updatedTask.status) {
+        activityLog.push({
+          id: Date.now(),
+          user: userName,
+          action: 'status_change',
+          oldValue: statusLabels[originalTask.status],
+          newValue: statusLabels[updatedTask.status],
+          createdAt: new Date().toISOString(),
+        })
+      }
+      
+      // Log assignee change
+      if (originalTask.assignee !== updatedTask.assignee) {
+        const assignee = teamMembers.find(m => m.id === updatedTask.assignee)
+        activityLog.push({
+          id: Date.now() + 1,
+          user: userName,
+          action: 'assignee_change',
+          oldValue: teamMembers.find(m => m.id === originalTask.assignee)?.name || 'Unassigned',
+          newValue: assignee?.name || 'Unassigned',
+          createdAt: new Date().toISOString(),
+        })
+        
+        // Discord notification
+        if (assignee && getDiscordWebhookUrl()) {
+          notifyTaskAssigned({
+            title: updatedTask.title,
+            assignee: assignee.name,
+            dueDate: updatedTask.dueDate,
+            priority: updatedTask.priority,
+          }, window.location.href)
+        }
+      }
+      
+      // Log priority change
+      if (originalTask.priority !== updatedTask.priority) {
+        activityLog.push({
+          id: Date.now() + 2,
+          user: userName,
+          action: 'priority_change',
+          oldValue: originalTask.priority,
+          newValue: updatedTask.priority,
+          createdAt: new Date().toISOString(),
+        })
+      }
+      
+      // Discord notification for completion
+      if (originalTask.status !== 'done' && updatedTask.status === 'done') {
+        if (getDiscordWebhookUrl()) {
+          notifyTaskCompleted({
+            title: updatedTask.title,
+            completedBy: userName,
+          }, window.location.href)
+        }
       }
     }
     
-    // Check for status change to done
-    if (originalTask && originalTask.status !== 'done' && updatedTask.status === 'done') {
-      if (getDiscordWebhookUrl()) {
-        notifyTaskCompleted({
-          title: updatedTask.title,
-          completedBy: user?.email?.split('@')[0] || 'Someone',
-        }, window.location.href)
-      }
-    }
-    
-    await updateTaskInDb(updatedTask)
+    // Note: activityLog stored locally (would need DB migration for persistence)
+    const taskToSave = { ...updatedTask, activityLog }
+    await updateTaskInDb(taskToSave as Task)
   }
 
   // Toggle ALL subtask completions for a specific member
