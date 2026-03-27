@@ -970,15 +970,19 @@ function TaskModal({
                     const newAssignee = member.id
                     const filteredCollabs = editedTask.collaborators.filter(id => id !== member.id)
                     
-                    // Auto-create subtask for assignee if no subtasks exist
-                    let newSubtasks = editedTask.subtasks
+                    // First subtask always follows assignee
+                    let newSubtasks = [...editedTask.subtasks]
                     if (editedTask.subtasks.length === 0) {
+                      // Create first subtask for assignee
                       newSubtasks = [{
                         id: Date.now(),
                         personId: newAssignee,
                         description: '',
                         intensity: 'small' as Intensity,
                       }]
+                    } else {
+                      // Update first subtask to match new assignee
+                      newSubtasks[0] = { ...newSubtasks[0], personId: newAssignee }
                     }
                     
                     setEditedTask({ 
@@ -3803,15 +3807,19 @@ function AddTaskModal({
                         const newAssignee = member.id
                         const filteredCollabs = collaborators.filter(id => id !== member.id)
                         
-                        // Auto-create subtask for assignee if no subtasks exist
-                        let newSubtasks = subtasks
+                        // First subtask always follows assignee
+                        let newSubtasks = [...subtasks]
                         if (subtasks.length === 0) {
+                          // Create first subtask for assignee
                           newSubtasks = [{
                             id: Date.now(),
                             personId: newAssignee,
                             description: '',
                             intensity: 'small' as Intensity,
                           }]
+                        } else {
+                          // Update first subtask to match new assignee
+                          newSubtasks[0] = { ...newSubtasks[0], personId: newAssignee }
                         }
                         
                         setAssignee(newAssignee)
@@ -4736,6 +4744,57 @@ export default function Home() {
   
   // Template management modal state
   const [showTemplateManager, setShowTemplateManager] = useState(false)
+  
+  // Busy days state (for workload view) - stores which days are busy per member per week
+  // Format: { "2026-03-24": { 1: [0, 2, 4] } } = member 1 busy on Mon, Wed, Fri of that week
+  const [busyDays, setBusyDays] = useState<Record<string, Record<number, number[]>>>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('task-tracker-busy-days')
+      if (stored) return JSON.parse(stored)
+    }
+    return {}
+  })
+  
+  // Toggle busy day for a member
+  const toggleBusyDay = (memberId: number, weekStart: string, dayIndex: number) => {
+    setBusyDays(prev => {
+      const weekData = prev[weekStart] || {}
+      const memberDays = weekData[memberId] || []
+      const updated = memberDays.includes(dayIndex)
+        ? memberDays.filter(d => d !== dayIndex)
+        : [...memberDays, dayIndex].sort()
+      const newData = {
+        ...prev,
+        [weekStart]: {
+          ...weekData,
+          [memberId]: updated
+        }
+      }
+      localStorage.setItem('task-tracker-busy-days', JSON.stringify(newData))
+      return newData
+    })
+  }
+  
+  // Get busy days for a member
+  const getMemberBusyDays = (memberId: number, weekStart: string): number[] => {
+    return busyDays[weekStart]?.[memberId] || []
+  }
+  
+  // Get current user's team member ID (for restricting workload edits)
+  const getCurrentUserMemberId = (): number | null => {
+    if (!user?.email) return null
+    const emailLower = user.email.toLowerCase()
+    // Try to match by email or name
+    const member = teamMembers.find(m => {
+      // Check if any part of member name matches email prefix
+      const nameParts = m.name.toLowerCase().split(' ')
+      const emailPrefix = emailLower.split('@')[0]
+      return nameParts.some(part => emailPrefix.includes(part)) || 
+             emailPrefix.includes(nameParts[0])
+    })
+    return member?.id || null
+  }
+  const currentUserMemberId = getCurrentUserMemberId()
   
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false)
@@ -6421,37 +6480,81 @@ export default function Home() {
                     </div>
                   </div>
                   
-                  {/* Capacity slider */}
+                  {/* Busy Days */}
                   <div className="mb-3">
                     <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span>Set weekly capacity</span>
-                      <span>{capacity}h</span>
+                      <span>Busy days</span>
+                      {member.id === currentUserMemberId && <span className="text-purple-500">Click to toggle</span>}
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="25"
-                      step="1"
-                      value={capacity}
-                      onChange={e => handleSetMemberCapacity(member.id, selectedWeek, parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                    />
-                    <div className="flex justify-between text-xs text-gray-400 mt-1">
-                      <span>0h</span>
-                      <span>12h</span>
-                      <span>25h</span>
+                    <div className="flex gap-1">
+                      {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, idx) => {
+                        const isBusy = getMemberBusyDays(member.id, selectedWeek).includes(idx)
+                        const canEdit = member.id === currentUserMemberId
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => canEdit && toggleBusyDay(member.id, selectedWeek, idx)}
+                            disabled={!canEdit}
+                            className={`flex-1 py-1.5 text-xs font-medium rounded transition ${
+                              isBusy 
+                                ? 'bg-red-500 text-white' 
+                                : 'bg-gray-100 text-gray-600'
+                            } ${canEdit ? 'hover:ring-2 hover:ring-offset-1 hover:ring-purple-400 cursor-pointer' : 'cursor-default'}`}
+                            title={isBusy ? 'Busy' : 'Available'}
+                          >
+                            {day}
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                   
-                  {/* Availability note */}
+                  {/* Capacity slider - only editable by owner */}
                   <div className="mb-3">
-                    <input
-                      type="text"
-                      value={getMemberNote(member.id, selectedWeek)}
-                      onChange={e => handleSetMemberNote(member.id, selectedWeek, e.target.value)}
-                      placeholder="Note: exams, holiday, busy..."
-                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-transparent outline-none"
-                    />
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span>Weekly capacity</span>
+                      <span>{capacity}h</span>
+                    </div>
+                    {member.id === currentUserMemberId ? (
+                      <>
+                        <input
+                          type="range"
+                          min="0"
+                          max="25"
+                          step="1"
+                          value={capacity}
+                          onChange={e => handleSetMemberCapacity(member.id, selectedWeek, parseInt(e.target.value))}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                        />
+                        <div className="flex justify-between text-xs text-gray-400 mt-1">
+                          <span>0h</span>
+                          <span>12h</span>
+                          <span>25h</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="h-2 bg-gray-200 rounded-lg overflow-hidden">
+                        <div className="h-full bg-purple-300" style={{ width: `${(capacity / 25) * 100}%` }} />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Availability note - only editable by owner */}
+                  <div className="mb-3">
+                    {member.id === currentUserMemberId ? (
+                      <input
+                        type="text"
+                        value={getMemberNote(member.id, selectedWeek)}
+                        onChange={e => handleSetMemberNote(member.id, selectedWeek, e.target.value)}
+                        placeholder="Note: exams, holiday, busy..."
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-transparent outline-none"
+                      />
+                    ) : getMemberNote(member.id, selectedWeek) ? (
+                      <p className="text-xs text-gray-500 italic px-2 py-1.5 bg-gray-50 rounded-lg">
+                        {getMemberNote(member.id, selectedWeek)}
+                      </p>
+                    ) : null}
                   </div>
                   
                   {/* Breakdown by intensity with time estimates - clickable to see tasks */}
