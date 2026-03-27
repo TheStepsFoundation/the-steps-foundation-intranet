@@ -3639,7 +3639,12 @@ export default function Home() {
   } = useData()
 
   // ALL useState hooks MUST be before any early returns
-  const [view, setView] = useState<'board' | 'team' | 'list' | 'workload'>('board')
+  const [view, setView] = useState<'board' | 'team' | 'list' | 'workload' | 'calendar'>('board')
+  
+  // Calendar view state
+  const [calendarPeriod, setCalendarPeriod] = useState<'week' | 'month' | 'quarter'>('month')
+  const [calendarMode, setCalendarMode] = useState<'fixed' | 'rolling'>('fixed')
+  const [calendarDate, setCalendarDate] = useState(() => new Date().toISOString().split('T')[0])
   const [activeTask, setActiveTask] = useState<Task | null>(null)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [showNewWorkflowModal, setShowNewWorkflowModal] = useState(false)
@@ -4393,7 +4398,7 @@ export default function Home() {
       
       {/* View Tabs - single row on mobile */}
       <div className="flex gap-1 sm:gap-2 mb-3 overflow-x-auto pb-1">
-        {(['board', 'team', 'list', 'workload'] as const).map((v) => (
+        {(['board', 'team', 'list', 'calendar', 'workload'] as const).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
@@ -5562,6 +5567,305 @@ export default function Home() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Calendar View */}
+      {view === 'calendar' && (
+        <div className="space-y-4">
+          {/* Calendar Controls */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border dark:border-gray-700">
+            {/* Mode Toggle */}
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setCalendarMode('fixed')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                  calendarMode === 'fixed'
+                    ? 'bg-white dark:bg-gray-600 text-purple-700 dark:text-purple-300 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                Fixed
+              </button>
+              <button
+                onClick={() => setCalendarMode('rolling')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                  calendarMode === 'rolling'
+                    ? 'bg-white dark:bg-gray-600 text-purple-700 dark:text-purple-300 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                Rolling
+              </button>
+            </div>
+            
+            {/* Period Selector */}
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              {(['week', 'month', 'quarter'] as const).map(period => (
+                <button
+                  key={period}
+                  onClick={() => setCalendarPeriod(period)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition capitalize ${
+                    calendarPeriod === period
+                      ? 'bg-white dark:bg-gray-600 text-purple-700 dark:text-purple-300 shadow-sm'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  {period}
+                </button>
+              ))}
+            </div>
+            
+            {/* Date Navigator */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const d = new Date(calendarDate)
+                  if (calendarPeriod === 'week') d.setDate(d.getDate() - 7)
+                  else if (calendarPeriod === 'month') d.setMonth(d.getMonth() - 1)
+                  else d.setMonth(d.getMonth() - 3)
+                  setCalendarDate(d.toISOString().split('T')[0])
+                }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              >
+                <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div className="text-center min-w-[150px]">
+                <p className="font-semibold text-gray-900 dark:text-white">
+                  {(() => {
+                    const d = new Date(calendarDate)
+                    if (calendarPeriod === 'week') {
+                      const weekEnd = new Date(d)
+                      weekEnd.setDate(weekEnd.getDate() + 6)
+                      return `${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} - ${weekEnd.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+                    } else if (calendarPeriod === 'month') {
+                      return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+                    } else {
+                      const quarterNum = Math.floor(d.getMonth() / 3) + 1
+                      return `Q${quarterNum} ${d.getFullYear()}`
+                    }
+                  })()}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const d = new Date(calendarDate)
+                  if (calendarPeriod === 'week') d.setDate(d.getDate() + 7)
+                  else if (calendarPeriod === 'month') d.setMonth(d.getMonth() + 1)
+                  else d.setMonth(d.getMonth() + 3)
+                  setCalendarDate(d.toISOString().split('T')[0])
+                }}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              >
+                <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+            
+            <button
+              onClick={() => setCalendarDate(new Date().toISOString().split('T')[0])}
+              className="px-3 py-2 text-sm font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 rounded-lg transition"
+            >
+              Today
+            </button>
+          </div>
+
+          {/* Calendar Grid */}
+          {calendarPeriod === 'month' && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 overflow-hidden">
+              {/* Day headers */}
+              <div className="grid grid-cols-7 border-b dark:border-gray-700">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                  <div key={day} className="p-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900">
+                    {day}
+                  </div>
+                ))}
+              </div>
+              {/* Calendar cells */}
+              <div className="grid grid-cols-7">
+                {(() => {
+                  const d = new Date(calendarDate)
+                  const year = d.getFullYear()
+                  const month = d.getMonth()
+                  const firstDay = new Date(year, month, 1)
+                  const lastDay = new Date(year, month + 1, 0)
+                  const startOffset = (firstDay.getDay() + 6) % 7 // Monday start
+                  const totalDays = lastDay.getDate()
+                  const cells = []
+                  
+                  // Empty cells before first day
+                  for (let i = 0; i < startOffset; i++) {
+                    cells.push(<div key={`empty-${i}`} className="min-h-[100px] border-r border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50" />)
+                  }
+                  
+                  // Day cells
+                  for (let day = 1; day <= totalDays; day++) {
+                    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+                    const dayTasks = filteredTasks.filter(t => t.dueDate === dateStr)
+                    const isToday = dateStr === new Date().toISOString().split('T')[0]
+                    
+                    cells.push(
+                      <div 
+                        key={day} 
+                        className={`min-h-[100px] border-r border-b dark:border-gray-700 p-1 ${
+                          isToday ? 'bg-purple-50 dark:bg-purple-900/20' : ''
+                        }`}
+                      >
+                        <div className={`text-xs font-medium mb-1 ${
+                          isToday ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {day}
+                        </div>
+                        <div className="space-y-1">
+                          {dayTasks.slice(0, 3).map(task => {
+                            const workflow = workflows.find(w => w.id === task.workflow)
+                            return (
+                              <div
+                                key={task.id}
+                                onClick={() => setEditingTask(task)}
+                                className={`text-xs p-1 rounded cursor-pointer truncate ${
+                                  workflow ? workflow.color + ' text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200'
+                                }`}
+                                title={task.title}
+                              >
+                                {task.title}
+                              </div>
+                            )
+                          })}
+                          {dayTasks.length > 3 && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 pl-1">
+                              +{dayTasks.length - 3} more
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  }
+                  
+                  // Fill remaining cells to complete the grid
+                  const totalCells = startOffset + totalDays
+                  const remainingCells = (7 - (totalCells % 7)) % 7
+                  for (let i = 0; i < remainingCells; i++) {
+                    cells.push(<div key={`end-${i}`} className="min-h-[100px] border-r border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50" />)
+                  }
+                  
+                  return cells
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Week View */}
+          {calendarPeriod === 'week' && (
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 overflow-hidden">
+              <div className="grid grid-cols-7">
+                {(() => {
+                  const startDate = new Date(calendarDate)
+                  const dayOfWeek = startDate.getDay()
+                  startDate.setDate(startDate.getDate() - ((dayOfWeek + 6) % 7)) // Monday
+                  
+                  return Array.from({ length: 7 }, (_, i) => {
+                    const d = new Date(startDate)
+                    d.setDate(d.getDate() + i)
+                    const dateStr = d.toISOString().split('T')[0]
+                    const dayTasks = filteredTasks.filter(t => t.dueDate === dateStr)
+                    const isToday = dateStr === new Date().toISOString().split('T')[0]
+                    
+                    return (
+                      <div key={i} className={`border-r dark:border-gray-700 last:border-r-0 ${isToday ? 'bg-purple-50 dark:bg-purple-900/20' : ''}`}>
+                        <div className={`p-2 text-center border-b dark:border-gray-700 ${isToday ? 'bg-purple-100 dark:bg-purple-900/30' : 'bg-gray-50 dark:bg-gray-900'}`}>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {d.toLocaleDateString('en-GB', { weekday: 'short' })}
+                          </div>
+                          <div className={`text-lg font-semibold ${isToday ? 'text-purple-600 dark:text-purple-400' : 'text-gray-900 dark:text-white'}`}>
+                            {d.getDate()}
+                          </div>
+                        </div>
+                        <div className="p-2 space-y-2 min-h-[300px]">
+                          {dayTasks.map(task => {
+                            const workflow = workflows.find(w => w.id === task.workflow)
+                            return (
+                              <div
+                                key={task.id}
+                                onClick={() => setEditingTask(task)}
+                                className={`text-xs p-2 rounded cursor-pointer ${
+                                  workflow ? workflow.color + ' text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200'
+                                }`}
+                              >
+                                <div className="font-medium truncate">{task.title}</div>
+                                <div className="opacity-75 truncate">{task.description}</div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Quarter View */}
+          {calendarPeriod === 'quarter' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {(() => {
+                const d = new Date(calendarDate)
+                const quarterStart = Math.floor(d.getMonth() / 3) * 3
+                
+                return [0, 1, 2].map(offset => {
+                  const monthDate = new Date(d.getFullYear(), quarterStart + offset, 1)
+                  const monthName = monthDate.toLocaleDateString('en-GB', { month: 'long' })
+                  const year = monthDate.getFullYear()
+                  const month = monthDate.getMonth()
+                  const lastDay = new Date(year, month + 1, 0).getDate()
+                  
+                  const monthTasks = filteredTasks.filter(t => {
+                    const td = new Date(t.dueDate)
+                    return td.getMonth() === month && td.getFullYear() === year
+                  })
+                  
+                  return (
+                    <div key={offset} className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 overflow-hidden">
+                      <div className="p-3 bg-gray-50 dark:bg-gray-900 border-b dark:border-gray-700">
+                        <h3 className="font-semibold text-gray-900 dark:text-white">{monthName}</h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{monthTasks.length} tasks</p>
+                      </div>
+                      <div className="p-3 space-y-2 max-h-[300px] overflow-y-auto">
+                        {monthTasks.length === 0 ? (
+                          <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">No tasks</p>
+                        ) : (
+                          monthTasks.map(task => {
+                            const workflow = workflows.find(w => w.id === task.workflow)
+                            return (
+                              <div
+                                key={task.id}
+                                onClick={() => setEditingTask(task)}
+                                className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                              >
+                                {workflow && (
+                                  <div className={`w-2 h-2 rounded-full ${workflow.color}`} />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{task.title}</div>
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                                    {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  </div>
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
+            </div>
+          )}
         </div>
       )}
 
