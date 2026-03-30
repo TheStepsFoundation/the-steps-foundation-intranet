@@ -145,15 +145,19 @@ export function DataProvider({ children }: { children: ReactNode }) {
           setSupabase(sb)
           
           // Fetch data from Supabase
-          const [tasksRes, workflowsRes, membersRes] = await Promise.all([
+          const [tasksRes, workflowsRes, membersRes, capacitiesRes, notesRes] = await Promise.all([
             fetchTasksFromSupabase(sb),
             fetchWorkflowsFromSupabase(sb),
             fetchTeamMembersFromSupabase(sb),
+            fetchWeekCapacitiesFromSupabase(sb),
+            fetchWeekNotesFromSupabase(sb),
           ])
           
           setTasks(tasksRes)
           setWorkflows(workflowsRes)
           setTeamMembers(membersRes)
+          setWeekCapacities(capacitiesRes)
+          setWeekNotes(notesRes)
           setIsDemo(false)
         } catch (err) {
           console.error('Supabase error, falling back to demo mode:', err)
@@ -565,4 +569,24 @@ async function updateTaskInSupabase(supabase: any, task: Task) {
       }))
     )
   }
+}
+
+async function fetchWeekCapacitiesFromSupabase(supabase: any): Promise<Record<string, Record<number, number>>> {
+  const { data } = await supabase.from('week_capacities').select('*')
+  const result: Record<string, Record<number, number>> = {}
+  for (const row of (data || [])) {
+    if (!result[row.week_start]) result[row.week_start] = {}
+    result[row.week_start][row.member_id] = row.hours
+  }
+  return result
+}
+
+async function fetchWeekNotesFromSupabase(supabase: any): Promise<Record<string, Record<number, string>>> {
+  const { data } = await supabase.from('week_notes').select('*')
+  const result: Record<string, Record<number, string>> = {}
+  for (const row of (data || [])) {
+    if (!result[row.week_start]) result[row.week_start] = {}
+    result[row.week_start][row.member_id] = row.note
+  }
+  return result
 }
