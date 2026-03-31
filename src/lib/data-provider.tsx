@@ -481,6 +481,7 @@ async function fetchTeamMembersFromSupabase(supabase: any): Promise<TeamMember[]
     name: m.name,
     role: m.role || 'Team Member',
     avatar: m.avatar || m.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
+    discordId: m.discord_id || undefined,
   }))
 }
 

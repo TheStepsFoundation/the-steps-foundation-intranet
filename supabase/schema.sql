@@ -15,7 +15,8 @@ CREATE TABLE team_members (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   role TEXT NOT NULL,
-  avatar TEXT NOT NULL
+  avatar TEXT NOT NULL,
+  discord_id TEXT                    -- Discord user ID for @mentions in webhooks
 );
 
 -- Insert default team members

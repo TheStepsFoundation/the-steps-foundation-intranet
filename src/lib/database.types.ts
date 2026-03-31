@@ -177,6 +177,7 @@ export interface TeamMember {
   name: string
   role: string
   avatar: string
+  discordId?: string  // Discord user ID for @mentions
 }
 
 // Custom Labels

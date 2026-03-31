@@ -46,10 +46,17 @@ export async function sendDiscordNotification(message: DiscordMessage): Promise<
   }
 }
 
+// Helper to format Discord mention
+function formatMention(name: string, discordId?: string): string {
+  return discordId ? `<@${discordId}>` : name
+}
+
 // Notification helpers
 export async function notifyTaskAssigned(task: {
   title: string
   assignee: string
+  assigneeDiscordId?: string
+  collaborators?: { name: string; discordId?: string }[]
   dueDate: string
   priority: string
 }, appUrl?: string) {
@@ -60,18 +67,41 @@ export async function notifyTaskAssigned(task: {
     urgent: 0xe74c3c,
   }
 
+  // Build mention string for content (triggers actual notification)
+  const mentions: string[] = []
+  if (task.assigneeDiscordId) {
+    mentions.push(`<@${task.assigneeDiscordId}>`)
+  }
+  if (task.collaborators) {
+    task.collaborators.forEach(c => {
+      if (c.discordId) mentions.push(`<@${c.discordId}>`)
+    })
+  }
+
+  const assigneeDisplay = formatMention(task.assignee, task.assigneeDiscordId)
+  const collaboratorDisplay = task.collaborators?.length 
+    ? task.collaborators.map(c => formatMention(c.name, c.discordId)).join(', ')
+    : undefined
+
+  const fields = [
+    { name: 'Assigned To', value: assigneeDisplay, inline: true },
+    { name: 'Priority', value: task.priority.toUpperCase(), inline: true },
+    { name: 'Due Date', value: new Date(task.dueDate).toLocaleDateString('en-GB', { 
+      day: 'numeric', month: 'short', year: 'numeric' 
+    }), inline: true },
+  ]
+  
+  if (collaboratorDisplay) {
+    fields.push({ name: 'Collaborators', value: collaboratorDisplay, inline: false })
+  }
+
   return sendDiscordNotification({
+    content: mentions.length > 0 ? mentions.join(' ') : undefined,
     embeds: [{
       title: '📋 Task Assigned',
       description: task.title,
       color: priorityColors[task.priority] || 0x9b59b6,
-      fields: [
-        { name: 'Assigned To', value: task.assignee, inline: true },
-        { name: 'Priority', value: task.priority.toUpperCase(), inline: true },
-        { name: 'Due Date', value: new Date(task.dueDate).toLocaleDateString('en-GB', { 
-          day: 'numeric', month: 'short', year: 'numeric' 
-        }), inline: true },
-      ],
+      fields,
       url: appUrl,
       timestamp: new Date().toISOString(),
     }],
@@ -81,6 +111,7 @@ export async function notifyTaskAssigned(task: {
 export async function notifyTaskDueSoon(task: {
   title: string
   assignee: string
+  assigneeDiscordId?: string
   dueDate: string
   daysUntilDue: number
 }, appUrl?: string) {
@@ -92,13 +123,17 @@ export async function notifyTaskDueSoon(task: {
       ? `${emoji} Task Due Today!` 
       : `${emoji} Task Due Tomorrow`
 
+  const assigneeDisplay = formatMention(task.assignee, task.assigneeDiscordId)
+  const mentionContent = task.assigneeDiscordId ? `<@${task.assigneeDiscordId}>` : undefined
+
   return sendDiscordNotification({
+    content: mentionContent,
     embeds: [{
       title,
       description: task.title,
       color: isOverdue ? 0xe74c3c : task.daysUntilDue === 0 ? 0xf39c12 : 0x3498db,
       fields: [
-        { name: 'Assigned To', value: task.assignee, inline: true },
+        { name: 'Assigned To', value: assigneeDisplay, inline: true },
         { name: 'Due Date', value: new Date(task.dueDate).toLocaleDateString('en-GB', { 
           day: 'numeric', month: 'short', year: 'numeric' 
         }), inline: true },
@@ -112,14 +147,17 @@ export async function notifyTaskDueSoon(task: {
 export async function notifyTaskCompleted(task: {
   title: string
   completedBy: string
+  completedByDiscordId?: string
 }, appUrl?: string) {
+  const completedByDisplay = formatMention(task.completedBy, task.completedByDiscordId)
+  
   return sendDiscordNotification({
     embeds: [{
       title: '✅ Task Completed',
       description: task.title,
       color: 0x2ecc71,
       fields: [
-        { name: 'Completed By', value: task.completedBy, inline: true },
+        { name: 'Completed By', value: completedByDisplay, inline: true },
       ],
       url: appUrl,
       timestamp: new Date().toISOString(),

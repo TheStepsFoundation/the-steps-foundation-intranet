@@ -5451,11 +5451,18 @@ export default function Home() {
           createdAt: new Date().toISOString(),
         })
         
-        // Discord notification
+        // Discord notification with @mentions
         if (assignee && getDiscordWebhookUrl()) {
+          const collaboratorMembers = updatedTask.collaborators
+            ?.map(cid => teamMembers.find(m => m.id === cid))
+            .filter(Boolean)
+            .map(m => ({ name: m!.name, discordId: m!.discordId }))
+          
           notifyTaskAssigned({
             title: updatedTask.title,
             assignee: assignee.name,
+            assigneeDiscordId: assignee.discordId,
+            collaborators: collaboratorMembers,
             dueDate: updatedTask.dueDate,
             priority: updatedTask.priority,
           }, window.location.href)
@@ -5477,9 +5484,15 @@ export default function Home() {
       // Discord notification for completion
       if (originalTask.status !== 'done' && updatedTask.status === 'done') {
         if (getDiscordWebhookUrl()) {
+          // Try to find the completing user's Discord ID
+          const completingMember = teamMembers.find(m => 
+            m.name.toLowerCase().includes(userName.toLowerCase()) ||
+            userName.toLowerCase().includes(m.name.split(' ')[0].toLowerCase())
+          )
           notifyTaskCompleted({
             title: updatedTask.title,
             completedBy: userName,
+            completedByDiscordId: completingMember?.discordId,
           }, window.location.href)
         }
       }
