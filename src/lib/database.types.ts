@@ -44,8 +44,14 @@ export interface Database {
           description: string
           intensity: Intensity
           completed: boolean
+          completed_at: string | null
+          actual_hours: number | null
         }
-        Insert: Omit<Database['public']['Tables']['subtasks']['Row'], 'id' | 'completed'> & { completed?: boolean }
+        Insert: Omit<Database['public']['Tables']['subtasks']['Row'], 'id' | 'completed' | 'completed_at' | 'actual_hours'> & { 
+          completed?: boolean
+          completed_at?: string | null
+          actual_hours?: number | null
+        }
         Update: Partial<Database['public']['Tables']['subtasks']['Insert']>
       }
       attachments: {
@@ -133,6 +139,8 @@ export interface Subtask {
   description: string
   intensity: Intensity
   completed?: boolean
+  completedAt?: string    // ISO timestamp when marked complete
+  actualHours?: number    // Actual hours reported by user
 }
 
 export interface Task {

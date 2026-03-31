@@ -441,6 +441,8 @@ async function fetchTasksFromSupabase(supabase: any): Promise<Task[]> {
         description: s.description || '',
         intensity: s.intensity as Intensity,
         completed: s.completed || false,
+        completedAt: s.completed_at || undefined,
+        actualHours: s.actual_hours ?? undefined,
       })),
     priority: t.priority as Priority,
     status: t.status as Status,
@@ -509,6 +511,8 @@ async function createTaskInSupabase(supabase: any, task: Task) {
         description: st.description,
         intensity: st.intensity,
         completed: st.completed || false,
+        completed_at: st.completedAt || null,
+        actual_hours: st.actualHours ?? null,
       }))
     )
   }
@@ -555,6 +559,8 @@ async function updateTaskInSupabase(supabase: any, task: Task) {
         description: st.description,
         intensity: st.intensity,
         completed: st.completed || false,
+        completed_at: st.completedAt || null,
+        actual_hours: st.actualHours ?? null,
       }))
     )
   }

@@ -76,7 +76,10 @@ CREATE TABLE subtasks (
   task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
   person_id INTEGER REFERENCES team_members(id) ON DELETE SET NULL,
   description TEXT DEFAULT '',
-  intensity intensity DEFAULT 'small'
+  intensity intensity DEFAULT 'small',
+  completed BOOLEAN DEFAULT FALSE,
+  completed_at TIMESTAMPTZ,           -- When the subtask was marked complete
+  actual_hours DECIMAL(4,2)           -- Actual hours reported by user on completion
 );
 
 -- Attachments

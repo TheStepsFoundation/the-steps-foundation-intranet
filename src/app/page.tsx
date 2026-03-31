@@ -23,6 +23,7 @@ import {
   closestCenter,
 } from '@dnd-kit/core'
 import { useData } from '@/lib/data-provider'
+import { SubtaskCompletionModal } from '@/components/SubtaskCompletionModal'
 
 // Workflow color options
 const WORKFLOW_COLORS = [
@@ -548,6 +549,7 @@ function TaskModal({
   const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [activeTab, setActiveTab] = useState<'basic' | 'attachments' | 'activity'>('basic')
+  const [completingSubtaskIndex, setCompletingSubtaskIndex] = useState<number | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [recordingTime, setRecordingTime] = useState(0)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -674,6 +676,35 @@ function TaskModal({
           </div>
         </div>
       </div>
+    )}
+
+    {/* Subtask completion modal - asks for actual hours */}
+    {completingSubtaskIndex !== null && (
+      <SubtaskCompletionModal
+        subtaskDescription={editedTask.subtasks[completingSubtaskIndex]?.description || ''}
+        predictedIntensity={editedTask.subtasks[completingSubtaskIndex]?.intensity || 'small'}
+        onConfirm={(actualHours, newIntensity) => {
+          const newSubtasks = [...editedTask.subtasks]
+          newSubtasks[completingSubtaskIndex] = {
+            ...newSubtasks[completingSubtaskIndex],
+            completed: true,
+            completedAt: new Date().toISOString(),
+            actualHours,
+            intensity: newIntensity,
+          }
+          
+          // Check if all subtasks are now complete → auto-mark task as done
+          const allComplete = newSubtasks.length > 0 && newSubtasks.every(st => st.completed)
+          
+          setEditedTask({
+            ...editedTask,
+            subtasks: newSubtasks,
+            status: allComplete ? 'done' : editedTask.status,
+          })
+          setCompletingSubtaskIndex(null)
+        }}
+        onCancel={() => setCompletingSubtaskIndex(null)}
+      />
     )}
     
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleClose}>
@@ -1077,17 +1108,20 @@ function TaskModal({
                       <button
                         type="button"
                         onClick={() => {
-                          const newSubtasks = [...editedTask.subtasks]
-                          newSubtasks[index] = { ...subtask, completed: !subtask.completed }
-                          
-                          // Check if all subtasks are now complete → auto-mark task as done
-                          const allComplete = newSubtasks.length > 0 && newSubtasks.every(st => st.completed)
-                          
-                          setEditedTask({ 
-                            ...editedTask, 
-                            subtasks: newSubtasks,
-                            status: allComplete ? 'done' : editedTask.status
-                          })
+                          if (!subtask.completed) {
+                            // Show completion modal to ask for actual hours
+                            setCompletingSubtaskIndex(index)
+                          } else {
+                            // Un-completing: just toggle off
+                            const newSubtasks = [...editedTask.subtasks]
+                            newSubtasks[index] = { 
+                              ...subtask, 
+                              completed: false,
+                              completedAt: undefined,
+                              actualHours: undefined
+                            }
+                            setEditedTask({ ...editedTask, subtasks: newSubtasks })
+                          }
                         }}
                         className={`mt-2 flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition ${
                           subtask.completed
@@ -1127,6 +1161,15 @@ function TaskModal({
                           placeholder="What are they doing?"
                           className={`w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none ${subtask.completed ? 'line-through opacity-60' : ''}`}
                         />
+                        {/* Show completion info */}
+                        {subtask.completed && subtask.completedAt && (
+                          <div className="text-xs text-green-600 mt-1 flex items-center gap-2">
+                            <span>Done {new Date(subtask.completedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                            {subtask.actualHours && (
+                              <span className="text-gray-500">• took {subtask.actualHours}h</span>
+                            )}
+                          </div>
+                        )}
                       </div>
                       <select
                         value={subtask.intensity}
@@ -2754,6 +2797,8 @@ interface Subtask {
   description: string
   intensity: Intensity
   completed?: boolean
+  completedAt?: string    // ISO timestamp when marked complete
+  actualHours?: number    // Actual hours reported by user
 }
 
 // New Workflow Modal with Template Tasks
@@ -5034,30 +5079,47 @@ export default function Home() {
   }
   
   const getWorkload = (memberId: number, periodStart?: string, period: 'week' | '2weeks' | 'month' | 'quarter' = 'week', mode: 'fixed' | 'rolling' = 'rolling') => {
-    // Calculate workload from subtasks assigned to this person (all tasks regardless of status)
-    let activeTasks = [...filteredTasks]
-    
-    // Filter by period if provided
-    if (periodStart) {
-      const { start, end } = getPeriodRange(periodStart, period, mode)
-      
-      activeTasks = activeTasks.filter(t => {
-        const dueDate = new Date(t.dueDate)
-        return dueDate >= start && dueDate < end
-      })
-    }
+    // Calculate workload from subtasks assigned to this person
+    // Completed subtasks: attribute to completion week, use actual hours if available
+    // Incomplete subtasks: attribute to due date week, use predicted hours
     
     let totalHours = 0
     let subtaskCount = 0
     const intensityCounts: Record<Intensity, number> = { quick: 0, small: 0, medium: 0, large: 0, huge: 0 }
     
-    activeTasks.forEach(task => {
+    // Get period bounds if filtering
+    let periodStart_dt: Date | undefined
+    let periodEnd_dt: Date | undefined
+    if (periodStart) {
+      const range = getPeriodRange(periodStart, period, mode)
+      periodStart_dt = range.start
+      periodEnd_dt = range.end
+    }
+    
+    filteredTasks.forEach(task => {
+      const taskDueDate = new Date(task.dueDate)
+      
       task.subtasks
         .filter(st => st.personId === memberId)
         .forEach(st => {
+          // Determine which week this subtask's hours should count toward
+          // Completed: use completion date; Incomplete: use task due date
+          const attributionDate = st.completed && st.completedAt 
+            ? new Date(st.completedAt) 
+            : taskDueDate
+          
+          // Check if this subtask falls within the period
+          if (periodStart_dt && periodEnd_dt) {
+            if (attributionDate < periodStart_dt || attributionDate >= periodEnd_dt) {
+              return // Skip - not in this period
+            }
+          }
+          
+          // Use actual hours if available (completed), otherwise predicted intensity hours
           const intensity = INTENSITY_OPTIONS.find(o => o.value === st.intensity)
           if (intensity) {
-            totalHours += intensity.hours
+            const hours = (st.completed && st.actualHours != null) ? st.actualHours : intensity.hours
+            totalHours += hours
             intensityCounts[st.intensity]++
             subtaskCount++
           }
@@ -5065,9 +5127,20 @@ export default function Home() {
     })
     
     // Also count tasks where they're the assignee but have no subtask yet
-    const assignedWithNoSubtask = activeTasks.filter(t => 
-      t.assignee === memberId && !t.subtasks.some(st => st.personId === memberId)
-    ).length
+    // These still attribute to due date week
+    let assignedWithNoSubtask = 0
+    filteredTasks.forEach(t => {
+      if (t.assignee === memberId && !t.subtasks.some(st => st.personId === memberId)) {
+        const taskDueDate = new Date(t.dueDate)
+        if (periodStart_dt && periodEnd_dt) {
+          if (taskDueDate >= periodStart_dt && taskDueDate < periodEnd_dt) {
+            assignedWithNoSubtask++
+          }
+        } else {
+          assignedWithNoSubtask++
+        }
+      }
+    })
     
     // Assume medium intensity for unspecified work
     totalHours += assignedWithNoSubtask * 3
