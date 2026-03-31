@@ -4719,27 +4719,16 @@ export default function Home() {
   const createTaskWithNotification = async (task: Task) => {
     await createTask(task)
     
-    // Debug logging
-    console.log('[Discord] Task created:', { 
-      title: task.title, 
-      assignee: task.assignee, 
-      webhookUrl: getDiscordWebhookUrl()?.slice(0, 50) + '...',
-      teamMembersCount: teamMembers.length 
-    })
-    
     // Send Discord notification if assignee is set
     if (task.assignee && getDiscordWebhookUrl()) {
       const assignee = teamMembers.find(m => m.id === task.assignee)
-      console.log('[Discord] Found assignee:', assignee)
-      
       if (assignee) {
         const collaboratorMembers = task.collaborators
           ?.map(cid => teamMembers.find(m => m.id === cid))
           .filter(Boolean)
           .map(m => ({ name: m!.name, discordId: m!.discordId }))
         
-        console.log('[Discord] Sending notification...')
-        const result = await notifyTaskAssigned({
+        await notifyTaskAssigned({
           title: task.title,
           assignee: assignee.name,
           assigneeDiscordId: assignee.discordId,
@@ -4747,10 +4736,7 @@ export default function Home() {
           dueDate: task.dueDate,
           priority: task.priority,
         }, typeof window !== 'undefined' ? window.location.href : undefined)
-        console.log('[Discord] Notification result:', result)
       }
-    } else {
-      console.log('[Discord] Skipped - no assignee or no webhook URL')
     }
   }
 
