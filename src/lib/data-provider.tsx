@@ -100,7 +100,7 @@ interface DataContextType {
   isDemo: boolean
   
   // Task operations
-  createTask: (task: Omit<Task, 'id' | 'createdAt'>) => Promise<void>
+  createTask: (task: Omit<Task, 'id' | 'createdAt'>) => Promise<Task | undefined>
   updateTask: (task: Task) => Promise<void>
   deleteTask: (taskId: number) => Promise<void>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
@@ -202,7 +202,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [supabase])
 
   // Task operations
-  const createTask = useCallback(async (task: Omit<Task, 'id' | 'createdAt'>) => {
+  const createTask = useCallback(async (task: Omit<Task, 'id' | 'createdAt'>): Promise<Task | undefined> => {
     const newTask: Task = {
       ...task,
       id: Date.now(),
@@ -210,11 +210,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
 
     if (supabase && !isDemo) {
-      await createTaskInSupabase(supabase, newTask)
+      const createdTask = await createTaskInSupabase(supabase, newTask)
       const tasks = await fetchTasksFromSupabase(supabase)
       setTasks(tasks)
+      return createdTask
     } else {
       setTasks(prev => [...prev, newTask])
+      return newTask
     }
   }, [supabase, isDemo])
 
@@ -529,6 +531,9 @@ async function createTaskInSupabase(supabase: any, task: Task) {
       }))
     )
   }
+  
+  // Return created task with ID
+  return { ...task, id: data.id }
 }
 
 async function updateTaskInSupabase(supabase: any, task: Task) {

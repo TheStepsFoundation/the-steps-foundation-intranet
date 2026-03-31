@@ -4717,7 +4717,7 @@ export default function Home() {
 
   // Wrapper to create task AND send Discord notification
   const createTaskWithNotification = async (task: Task) => {
-    await createTask(task)
+    const createdTask = await createTask(task)
     
     // Send Discord notification if assignee is set
     if (task.assignee && getDiscordWebhookUrl()) {
@@ -4728,6 +4728,11 @@ export default function Home() {
           .filter(Boolean)
           .map(m => ({ name: m!.name, discordId: m!.discordId }))
         
+        // Build URL with task ID so clicking opens the task directly
+        const taskUrl = typeof window !== 'undefined' 
+          ? `${window.location.origin}/?task=${createdTask?.id || task.id}`
+          : undefined
+        
         await notifyTaskAssigned({
           title: task.title,
           assignee: assignee.name,
@@ -4735,7 +4740,7 @@ export default function Home() {
           collaborators: collaboratorMembers,
           dueDate: task.dueDate,
           priority: task.priority,
-        }, typeof window !== 'undefined' ? window.location.href : undefined)
+        }, taskUrl)
       }
     }
   }
@@ -4945,6 +4950,23 @@ export default function Home() {
       router.push('/login')
     }
   }, [authLoading, user, router])
+  
+  // Handle URL parameter to open specific task (e.g. from Discord notification)
+  useEffect(() => {
+    if (typeof window === 'undefined' || loading || tasks.length === 0) return
+    
+    const params = new URLSearchParams(window.location.search)
+    const taskId = params.get('task')
+    
+    if (taskId) {
+      const task = tasks.find(t => t.id === parseInt(taskId))
+      if (task) {
+        setEditingTask(task)
+        // Clear the URL parameter without reload
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+    }
+  }, [loading, tasks])
   
   // Show loading while checking auth (AFTER all hooks)
   if (authLoading || !user) {
