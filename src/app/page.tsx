@@ -5248,11 +5248,18 @@ export default function Home() {
   }
   
   // Get/set availability note for a member for a specific week
-  // Also checks overlapping weeks if exact match not found (for rolling/fixed view consistency)
+  // Checks if note is still valid (hasn't expired based on endDate)
   const getMemberNote = (memberId: number, weekStart: string): string => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
     // First try exact match
-    if (weekNotes[weekStart]?.[memberId]) {
-      return weekNotes[weekStart][memberId]
+    const exactMatch = weekNotes[weekStart]?.[memberId]
+    if (exactMatch?.note) {
+      // Check if note hasn't expired
+      if (!exactMatch.endDate || new Date(exactMatch.endDate) >= today) {
+        return exactMatch.note
+      }
     }
     
     // Check weeks that might overlap (within 7 days before/after)
@@ -5260,16 +5267,39 @@ export default function Home() {
     for (const storedWeek of Object.keys(weekNotes)) {
       const storedDate = new Date(storedWeek)
       const daysDiff = Math.abs((targetDate.getTime() - storedDate.getTime()) / (1000 * 60 * 60 * 24))
-      if (daysDiff < 7 && weekNotes[storedWeek]?.[memberId]) {
-        return weekNotes[storedWeek][memberId]
+      if (daysDiff < 7) {
+        const noteData = weekNotes[storedWeek]?.[memberId]
+        if (noteData?.note) {
+          // Check if note hasn't expired
+          if (!noteData.endDate || new Date(noteData.endDate) >= today) {
+            return noteData.note
+          }
+        }
       }
     }
     
     return ''
   }
   
-  const handleSetMemberNote = (memberId: number, weekStart: string, note: string) => {
-    setWeekNote(memberId, weekStart, note)
+  // Get the end date of a member's note (for display)
+  const getMemberNoteEndDate = (memberId: number, weekStart: string): string | undefined => {
+    const exactMatch = weekNotes[weekStart]?.[memberId]
+    if (exactMatch?.endDate) return exactMatch.endDate
+    
+    // Check overlapping weeks
+    const targetDate = new Date(weekStart)
+    for (const storedWeek of Object.keys(weekNotes)) {
+      const storedDate = new Date(storedWeek)
+      const daysDiff = Math.abs((targetDate.getTime() - storedDate.getTime()) / (1000 * 60 * 60 * 24))
+      if (daysDiff < 7 && weekNotes[storedWeek]?.[memberId]?.endDate) {
+        return weekNotes[storedWeek][memberId].endDate
+      }
+    }
+    return undefined
+  }
+  
+  const handleSetMemberNote = (memberId: number, weekStart: string, note: string, endDate?: string) => {
+    setWeekNote(memberId, weekStart, note, endDate)
   }
   
   // Get period navigation helpers
@@ -6788,17 +6818,54 @@ export default function Home() {
                   {/* Availability note - only editable by owner */}
                   <div className="mb-3">
                     {member.id === currentUserMemberId ? (
-                      <input
-                        type="text"
-                        value={getMemberNote(member.id, selectedWeek)}
-                        onChange={e => handleSetMemberNote(member.id, selectedWeek, e.target.value)}
-                        placeholder="Note: exams, holiday, busy..."
-                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-transparent outline-none"
-                      />
+                      <div className="space-y-1.5">
+                        <input
+                          type="text"
+                          value={getMemberNote(member.id, selectedWeek)}
+                          onChange={e => handleSetMemberNote(member.id, selectedWeek, e.target.value, getMemberNoteEndDate(member.id, selectedWeek))}
+                          placeholder="Note: exams, holiday, busy..."
+                          className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-transparent outline-none"
+                        />
+                        {getMemberNote(member.id, selectedWeek) && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500">Until:</span>
+                            <input
+                              type="date"
+                              value={getMemberNoteEndDate(member.id, selectedWeek) || ''}
+                              onChange={e => handleSetMemberNote(member.id, selectedWeek, getMemberNote(member.id, selectedWeek), e.target.value || undefined)}
+                              className="px-2 py-1 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-purple-500 outline-none"
+                            />
+                            <div className="flex gap-1">
+                              {[
+                                { label: '1w', days: 7 },
+                                { label: '2w', days: 14 },
+                              ].map(({ label, days }) => (
+                                <button
+                                  key={label}
+                                  type="button"
+                                  onClick={() => {
+                                    const endDate = new Date()
+                                    endDate.setDate(endDate.getDate() + days)
+                                    handleSetMemberNote(member.id, selectedWeek, getMemberNote(member.id, selectedWeek), endDate.toISOString().split('T')[0])
+                                  }}
+                                  className="px-2 py-0.5 text-xs bg-gray-100 hover:bg-gray-200 rounded transition"
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     ) : getMemberNote(member.id, selectedWeek) ? (
-                      <p className="text-xs text-gray-500 italic px-2 py-1.5 bg-gray-50 rounded-lg">
-                        {getMemberNote(member.id, selectedWeek)}
-                      </p>
+                      <div className="text-xs text-gray-500 italic px-2 py-1.5 bg-gray-50 rounded-lg">
+                        <p>{getMemberNote(member.id, selectedWeek)}</p>
+                        {getMemberNoteEndDate(member.id, selectedWeek) && (
+                          <p className="text-gray-400 mt-0.5">
+                            Until {new Date(getMemberNoteEndDate(member.id, selectedWeek)!).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                          </p>
+                        )}
+                      </div>
                     ) : null}
                   </div>
                   

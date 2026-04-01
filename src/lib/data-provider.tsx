@@ -118,9 +118,9 @@ interface DataContextType {
   
   // Week data
   weekCapacities: Record<string, Record<number, number>>
-  weekNotes: Record<string, Record<number, string>>
+  weekNotes: Record<string, Record<number, { note: string; endDate?: string }>>
   setWeekCapacity: (memberId: number, weekStart: string, hours: number) => void
-  setWeekNote: (memberId: number, weekStart: string, note: string) => void
+  setWeekNote: (memberId: number, weekStart: string, note: string, endDate?: string) => void
 }
 
 const DataContext = createContext<DataContextType | null>(null)
@@ -132,7 +132,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [isDemo, setIsDemo] = useState(false)
   const [weekCapacities, setWeekCapacities] = useState<Record<string, Record<number, number>>>({})
-  const [weekNotes, setWeekNotes] = useState<Record<string, Record<number, string>>>({})
+  const [weekNotes, setWeekNotes] = useState<Record<string, Record<number, { note: string; endDate?: string }>>>({})
   const [supabase, setSupabase] = useState<any>(null)
 
   // Initialize
@@ -342,10 +342,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase, isDemo])
 
-  const setWeekNote = useCallback(async (memberId: number, weekStart: string, note: string) => {
+  const setWeekNote = useCallback(async (memberId: number, weekStart: string, note: string, endDate?: string) => {
     setWeekNotes(prev => ({
       ...prev,
-      [weekStart]: { ...prev[weekStart], [memberId]: note }
+      [weekStart]: { ...prev[weekStart], [memberId]: { note, endDate } }
     }))
     
     if (supabase && !isDemo) {
@@ -353,6 +353,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         week_start: weekStart,
         member_id: memberId,
         note,
+        end_date: endDate || null,
       }, { onConflict: 'week_start,member_id' })
       if (error) console.error('Failed to save week note:', error)
     }
@@ -410,7 +411,7 @@ export function useData() {
       updateTeamMember: noop,
       deleteTeamMember: noop,
       weekCapacities: {} as Record<string, Record<number, number>>,
-      weekNotes: {} as Record<string, Record<number, string>>,
+      weekNotes: {} as Record<string, Record<number, { note: string; endDate?: string }>>,
       setWeekCapacity: () => {},
       setWeekNote: () => {},
     }
@@ -595,12 +596,15 @@ async function fetchWeekCapacitiesFromSupabase(supabase: any): Promise<Record<st
   return result
 }
 
-async function fetchWeekNotesFromSupabase(supabase: any): Promise<Record<string, Record<number, string>>> {
+async function fetchWeekNotesFromSupabase(supabase: any): Promise<Record<string, Record<number, { note: string; endDate?: string }>>> {
   const { data } = await supabase.from('week_notes').select('*')
-  const result: Record<string, Record<number, string>> = {}
+  const result: Record<string, Record<number, { note: string; endDate?: string }>> = {}
   for (const row of (data || [])) {
     if (!result[row.week_start]) result[row.week_start] = {}
-    result[row.week_start][row.member_id] = row.note
+    result[row.week_start][row.member_id] = {
+      note: row.note,
+      endDate: row.end_date || undefined
+    }
   }
   return result
 }
