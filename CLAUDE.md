@@ -2,7 +2,7 @@
 
 This repo is the **Steps Foundation Intranet**. It started as the Steps Task Tracker and has been broadened in scope: the task tracker is now one module alongside a new student database, events, campaigns, and admin modules.
 
-Repo: `github.com/TheStepsFoundation/steps-task-tracker` (name retained for continuity).
+Repo: `github.com/TheStepsFoundation/the-steps-foundation-intranet`.
 
 ## Modules
 
