@@ -264,3 +264,55 @@ export async function fetchStudent(id: string): Promise<{ student: StudentRow | 
   if (aErr) throw aErr
   return { student: (sData as StudentRow) ?? null, applications: (aData as ApplicationRow[]) ?? [] }
 }
+
+// === School review queue =====================================================
+
+export type ReviewCandidate = {
+  id: string
+  name: string
+  town: string | null
+  postcode: string | null
+  phase: string | null
+  type_group: string | null
+  local_authority: string | null
+  similarity: number
+}
+
+export type ReviewRow = {
+  raw: string
+  student_count: number
+  student_ids: string[]
+  candidates: ReviewCandidate[]
+  total_count: number
+}
+
+export async function fetchUnlinkedReview(opts?: {
+  perRaw?: number
+  pageSize?: number
+  pageOffset?: number
+}): Promise<ReviewRow[]> {
+  const { data, error } = await supabase.rpc('unlinked_school_review', {
+    per_raw: opts?.perRaw ?? 6,
+    page_size: opts?.pageSize ?? 25,
+    page_offset: opts?.pageOffset ?? 0,
+  })
+  if (error) throw error
+  return (data ?? []) as ReviewRow[]
+}
+
+export async function linkStudentsByRaw(raw: string, schoolId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('link_students_by_raw', {
+    p_raw: raw,
+    p_school_id: schoolId,
+  })
+  if (error) throw error
+  invalidateStudentsCache()
+  return (data as number) ?? 0
+}
+
+export async function dismissUnlinkedRaw(raw: string): Promise<number> {
+  const { data, error } = await supabase.rpc('dismiss_unlinked_raw', { p_raw: raw })
+  if (error) throw error
+  invalidateStudentsCache()
+  return (data as number) ?? 0
+}

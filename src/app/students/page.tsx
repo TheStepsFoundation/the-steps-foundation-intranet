@@ -185,6 +185,13 @@ export default function StudentsDashboard() {
           <p className="text-sm text-gray-500 dark:text-gray-400">Engagement across every Steps event.</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/students/review-schools"
+            className="px-3 py-2 text-sm rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+            title="Review students whose school name didn't auto-link to GIAS."
+          >
+            Review schools
+          </Link>
           <input
             value={filters.search}
             onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
