@@ -111,6 +111,50 @@ export async function fetchAllStudentsAndApps(): Promise<{ students: StudentRow[
   return { students, applications }
 }
 
+export type StudentUpdate = Partial<Omit<StudentRow, 'id' | 'created_at'>>
+export type ApplicationUpdate = Partial<Pick<ApplicationRow, 'status' | 'attended' | 'submitted_at' | 'attribution_source'>>
+
+export async function updateStudent(id: string, patch: StudentUpdate): Promise<StudentRow> {
+  const { data, error } = await supabase
+    .from('students')
+    .update(patch)
+    .eq('id', id)
+    .select('id,first_name,last_name,personal_email,school_name_raw,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,notes,created_at')
+    .single()
+  if (error) throw error
+  return data as StudentRow
+}
+
+export async function upsertApplication(
+  studentId: string,
+  eventId: string,
+  patch: ApplicationUpdate,
+  existingId?: string,
+): Promise<ApplicationRow> {
+  if (existingId) {
+    const { data, error } = await supabase
+      .from('applications')
+      .update(patch)
+      .eq('id', existingId)
+      .select('id,student_id,event_id,status,attended,submitted_at,attribution_source')
+      .single()
+    if (error) throw error
+    return data as ApplicationRow
+  }
+  const { data, error } = await supabase
+    .from('applications')
+    .insert({ student_id: studentId, event_id: eventId, status: patch.status ?? 'submitted', ...patch })
+    .select('id,student_id,event_id,status,attended,submitted_at,attribution_source')
+    .single()
+  if (error) throw error
+  return data as ApplicationRow
+}
+
+export async function deleteApplication(id: string): Promise<void> {
+  const { error } = await supabase.from('applications').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function fetchStudent(id: string): Promise<{ student: StudentRow | null; applications: ApplicationRow[] }> {
   const { data: sData, error: sErr } = await supabase
     .from('students')
