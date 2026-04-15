@@ -183,7 +183,7 @@ begin
 
       insert into public.applications (
         student_id, event_id, submitted_at, channel, raw_response,
-        status, consent_given, consent_text_version
+        status, consent_text_version
       ) values (
         v_st_id,
         v_ev_id,
@@ -194,7 +194,6 @@ begin
           'source_tracking', v_channels[1 + (v_seed % array_length(v_channels, 1))]
         ),
         v_statuses[1 + (v_seed % array_length(v_statuses, 1))],
-        true,
         'v1.0'
       )
       on conflict (student_id, event_id) do nothing;
@@ -253,3 +252,4 @@ begin
   raise notice 'applications:   %', v_applications;
   raise notice 'participation:  %', v_participation;
 end $$;
+                             
