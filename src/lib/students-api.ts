@@ -29,6 +29,7 @@ export type StudentRow = {
   last_name: string | null
   personal_email: string | null
   school_name_raw: string | null
+  school_id: string | null
   year_group: string | null
   free_school_meals: boolean | null
   parental_income_band: string | null
@@ -63,6 +64,12 @@ export type EnrichedStudent = StudentRow & {
   bonus_total: number
   smi_count: number
   eligibility: Eligibility
+  // Denormalised school columns from the students_enriched view.
+  school_name: string | null
+  school_phase: string | null
+  school_type_group: string | null
+  school_town: string | null
+  school_postcode: string | null
 }
 
 export function enrich(s: StudentRow, apps: ApplicationRow[]): EnrichedStudent {
@@ -113,6 +120,11 @@ export function enrich(s: StudentRow, apps: ApplicationRow[]): EnrichedStudent {
     bonus_total,
     smi_count,
     eligibility,
+    school_name: null,
+    school_phase: null,
+    school_type_group: null,
+    school_town: null,
+    school_postcode: null,
   }
 }
 
@@ -122,6 +134,9 @@ let enrichedCache: { data: EnrichedStudent[]; at: number } | null = null
 export function invalidateStudentsCache() {
   enrichedCache = null
 }
+
+const STUDENT_COLUMNS =
+  'id,first_name,last_name,personal_email,school_name_raw,school_id,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,school_type,bursary_90plus,notes,created_at'
 
 export async function fetchAllStudentsEnriched(opts?: { forceRefresh?: boolean }): Promise<EnrichedStudent[]> {
   if (!opts?.forceRefresh && enrichedCache && Date.now() - enrichedCache.at < CACHE_TTL_MS) {
@@ -147,7 +162,14 @@ export async function fetchAllStudentsEnriched(opts?: { forceRefresh?: boolean }
 
 export async function fetchAllStudentsAndApps(): Promise<{ students: StudentRow[]; applications: ApplicationRow[] }> {
   const enriched = await fetchAllStudentsEnriched()
-  const students: StudentRow[] = enriched.map(({ applications: _a, attended_count: _ac, accepted_count: _acc, no_show_count: _n, submitted_count: _s, rejected_count: _r, engagement_score: _es, bonus_total: _bt, smi_count: _sm, eligibility: _el, ...s }) => s)
+  const students: StudentRow[] = enriched.map(({
+    applications: _a, attended_count: _ac, accepted_count: _acc, no_show_count: _n,
+    submitted_count: _s, rejected_count: _r, engagement_score: _es, bonus_total: _bt,
+    smi_count: _sm, eligibility: _el,
+    school_name: _sn, school_phase: _sp, school_type_group: _stg,
+    school_town: _st, school_postcode: _spc,
+    ...s
+  }) => s)
   const applications: ApplicationRow[] = enriched.flatMap(e => e.applications)
   return { students, applications }
 }
@@ -156,13 +178,25 @@ export type StudentUpdate = Partial<Omit<StudentRow, 'id' | 'created_at'>>
 export type ApplicationUpdate = Partial<Pick<ApplicationRow,
   'status' | 'attended' | 'submitted_at' | 'attribution_source' | 'bonus_points' | 'bonus_reason'
 >>
+export type StudentInsert = StudentUpdate
+
+export async function createStudent(patch: StudentInsert): Promise<StudentRow> {
+  const { data, error } = await supabase
+    .from('students')
+    .insert(patch)
+    .select(STUDENT_COLUMNS)
+    .single()
+  if (error) throw error
+  invalidateStudentsCache()
+  return data as StudentRow
+}
 
 export async function updateStudent(id: string, patch: StudentUpdate): Promise<StudentRow> {
   const { data, error } = await supabase
     .from('students')
     .update(patch)
     .eq('id', id)
-    .select('id,first_name,last_name,personal_email,school_name_raw,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,school_type,bursary_90plus,notes,created_at')
+    .select(STUDENT_COLUMNS)
     .single()
   if (error) throw error
   invalidateStudentsCache()
@@ -218,7 +252,7 @@ export async function fetchEnrichedStudent(id: string): Promise<EnrichedStudent 
 export async function fetchStudent(id: string): Promise<{ student: StudentRow | null; applications: ApplicationRow[] }> {
   const { data: sData, error: sErr } = await supabase
     .from('students')
-    .select('id,first_name,last_name,personal_email,school_name_raw,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,school_type,bursary_90plus,notes,created_at')
+    .select(STUDENT_COLUMNS)
     .eq('id', id)
     .maybeSingle()
   if (sErr) throw sErr

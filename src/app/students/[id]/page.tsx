@@ -15,6 +15,7 @@ import {
   upsertApplication,
   deleteApplication,
 } from '@/lib/students-api'
+import SchoolPicker from '@/components/SchoolPicker'
 
 const STATUS_OPTIONS = ['submitted', 'shortlisted', 'accepted', 'waitlist', 'rejected', 'withdrew'] as const
 
@@ -66,6 +67,7 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
       last_name: student.last_name,
       personal_email: student.personal_email,
       school_name_raw: student.school_name_raw,
+      school_id: student.school_id,
       year_group: student.year_group,
       free_school_meals: student.free_school_meals,
       parental_income_band: student.parental_income_band,
@@ -172,7 +174,18 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
             <Field label="First name" value={student.first_name} />
             <Field label="Last name" value={student.last_name} />
             <Field label="Email" value={student.personal_email} />
-            <Field label="School" value={student.school_name_raw} />
+            <Field
+              label="School"
+              value={
+                enriched.school_name
+                  ? enriched.school_town
+                    ? `${enriched.school_name} — ${enriched.school_town}`
+                    : enriched.school_name
+                  : student.school_name_raw
+                    ? `${student.school_name_raw} (unmatched)`
+                    : null
+              }
+            />
             <Field label="Year group" value={student.year_group} />
             <Field label="Income band" value={incomeLabel(student.parental_income_band)} />
             <Field label="Free school meals" value={boolLabel(student.free_school_meals)} />
@@ -187,7 +200,20 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
             <Input label="First name" value={draft.first_name ?? ''} onChange={v => setDraft(d => ({ ...d, first_name: v }))} />
             <Input label="Last name" value={draft.last_name ?? ''} onChange={v => setDraft(d => ({ ...d, last_name: v }))} />
             <Input label="Email" value={draft.personal_email ?? ''} onChange={v => setDraft(d => ({ ...d, personal_email: v }))} type="email" />
-            <Input label="School" value={draft.school_name_raw ?? ''} onChange={v => setDraft(d => ({ ...d, school_name_raw: v }))} />
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">School</label>
+              <SchoolPicker
+                value={{ schoolId: draft.school_id ?? null, schoolNameRaw: draft.school_name_raw ?? null }}
+                initialSchool={
+                  enriched.school_id && enriched.school_name
+                    ? { id: enriched.school_id, name: enriched.school_name, town: enriched.school_town }
+                    : null
+                }
+                onChange={v =>
+                  setDraft(d => ({ ...d, school_id: v.schoolId, school_name_raw: v.schoolNameRaw }))
+                }
+              />
+            </div>
             <Input label="Year group" value={draft.year_group ?? ''} onChange={v => setDraft(d => ({ ...d, year_group: v }))} />
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Income band</label>
