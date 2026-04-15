@@ -2,84 +2,154 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { EVENTS, EnrichedStudent, fetchAllStudentsEnriched } from '@/lib/students-api'
+import { EVENTS, EnrichedStudent, fetchAllStudentsEnriched, ATTRIBUTION_SOURCES } from '@/lib/students-api'
 
-type ViewKey = 'all' | 'attended3' | 'noshow2' | 'byevent' | 'subscribed'
+type SortKey =
+  | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
+  | 'rejected' | 'bonus' | 'last_name' | 'first_name' | 'recent' | 'year'
+type SortDir = 'asc' | 'desc'
+type TriBool = 'any' | 'yes' | 'no' | 'unknown'
+type EventStatus = 'any' | 'attended' | 'accepted' | 'no_show' | 'submitted' | 'rejected' | 'none'
+
+const SORT_OPTIONS: { value: SortKey; label: string; defaultDir: SortDir }[] = [
+  { value: 'engagement', label: 'Engagement score', defaultDir: 'desc' },
+  { value: 'attended', label: 'Events attended', defaultDir: 'desc' },
+  { value: 'accepted', label: 'Events accepted', defaultDir: 'desc' },
+  { value: 'no_show', label: 'No-shows', defaultDir: 'desc' },
+  { value: 'submitted', label: 'Submitted apps', defaultDir: 'desc' },
+  { value: 'rejected', label: 'Rejections', defaultDir: 'desc' },
+  { value: 'bonus', label: 'Bonus points', defaultDir: 'desc' },
+  { value: 'recent', label: 'Most recent activity', defaultDir: 'desc' },
+  { value: 'last_name', label: 'Last name', defaultDir: 'asc' },
+  { value: 'first_name', label: 'First name', defaultDir: 'asc' },
+  { value: 'year', label: 'Year group', defaultDir: 'asc' },
+]
+
+const INCOME_BANDS = ['under_20k', '20k_40k', '40k_60k', '60k_80k', 'over_80k', 'prefer_not_to_say']
+
+type Filters = {
+  search: string
+  yearGroups: string[]
+  schoolContains: string
+  fsm: TriBool
+  firstGen: TriBool
+  mailing: TriBool
+  incomeBands: string[]
+  sources: string[]
+  eventStatus: Record<string, EventStatus>
+  minAttended: number
+  minEngagement: number
+}
+
+const defaultFilters = (): Filters => ({
+  search: '',
+  yearGroups: [],
+  schoolContains: '',
+  fsm: 'any',
+  firstGen: 'any',
+  mailing: 'any',
+  incomeBands: [],
+  sources: [],
+  eventStatus: Object.fromEntries(EVENTS.map(e => [e.id, 'any' as EventStatus])),
+  minAttended: 0,
+  minEngagement: 0,
+})
 
 export default function StudentsDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [students, setStudents] = useState<EnrichedStudent[]>([])
-  const [view, setView] = useState<ViewKey>('all')
-  const [search, setSearch] = useState('')
-  const [eventFilter, setEventFilter] = useState<string>(EVENTS[EVENTS.length - 1].id)
-  const [eventStatus, setEventStatus] = useState<'all' | 'accepted' | 'attended' | 'rejected' | 'no_show'>('all')
-  const [sortBy, setSortBy] = useState<'engagement' | 'attended' | 'last_name' | 'recent'>('engagement')
+  const [sortBy, setSortBy] = useState<SortKey>('engagement')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [filters, setFilters] = useState<Filters>(defaultFilters())
+  const [panelOpen, setPanelOpen] = useState(false)
 
   useEffect(() => {
     let active = true
     setLoading(true)
     fetchAllStudentsEnriched()
-      .then(enriched => {
-        if (!active) return
-        setStudents(enriched)
-        setLoading(false)
-      })
-      .catch(err => {
-        if (!active) return
-        setError(err?.message ?? 'Failed to load')
-        setLoading(false)
-      })
+      .then(enriched => { if (active) { setStudents(enriched); setLoading(false) } })
+      .catch(err => { if (active) { setError(err?.message ?? 'Failed to load'); setLoading(false) } })
     return () => { active = false }
   }, [])
 
-  const totals = useMemo(() => {
-    const total = students.length
-    const attended1plus = students.filter(s => s.attended_count >= 1).length
-    const attended3plus = students.filter(s => s.attended_count >= 3).length
-    const noshow2plus = students.filter(s => s.no_show_count >= 2).length
-    const subscribed = students.filter(s => s.subscribed_to_mailing).length
-    return { total, attended1plus, attended3plus, noshow2plus, subscribed }
+  const yearGroupOptions = useMemo(() => {
+    const set = new Set<string>()
+    for (const s of students) if (s.year_group) set.add(s.year_group)
+    return [...set].sort()
   }, [students])
 
+  const totals = useMemo(() => ({
+    total: students.length,
+    attended1plus: students.filter(s => s.attended_count >= 1).length,
+    attended3plus: students.filter(s => s.attended_count >= 3).length,
+    noshow2plus: students.filter(s => s.no_show_count >= 2).length,
+    subscribed: students.filter(s => s.subscribed_to_mailing).length,
+  }), [students])
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0
+    if (filters.search.trim()) n++
+    if (filters.yearGroups.length) n++
+    if (filters.schoolContains.trim()) n++
+    if (filters.fsm !== 'any') n++
+    if (filters.firstGen !== 'any') n++
+    if (filters.mailing !== 'any') n++
+    if (filters.incomeBands.length) n++
+    if (filters.sources.length) n++
+    for (const id of Object.keys(filters.eventStatus)) if (filters.eventStatus[id] !== 'any') n++
+    if (filters.minAttended > 0) n++
+    if (filters.minEngagement > 0) n++
+    return n
+  }, [filters])
+
   const filtered = useMemo(() => {
-    let list = students
-    if (view === 'attended3') list = list.filter(s => s.attended_count >= 3)
-    else if (view === 'noshow2') list = list.filter(s => s.no_show_count >= 2)
-    else if (view === 'subscribed') list = list.filter(s => s.subscribed_to_mailing)
-    else if (view === 'byevent') {
-      list = list.filter(s => {
-        const app = s.applications.find(a => a.event_id === eventFilter)
-        if (!app) return false
-        if (eventStatus === 'all') return true
-        if (eventStatus === 'attended') return !!app.attended
-        if (eventStatus === 'no_show') return app.status === 'accepted' && !app.attended
-        return app.status === eventStatus
-      })
-    }
-    const q = search.trim().toLowerCase()
-    if (q) {
-      list = list.filter(s =>
-        (s.first_name || '').toLowerCase().includes(q) ||
-        (s.last_name || '').toLowerCase().includes(q) ||
-        (s.personal_email || '').toLowerCase().includes(q) ||
-        (s.school_name_raw || '').toLowerCase().includes(q),
-      )
-    }
-    const sorted = [...list]
-    sorted.sort((a, b) => {
-      if (sortBy === 'engagement') return b.engagement_score - a.engagement_score
-      if (sortBy === 'attended') return b.attended_count - a.attended_count
-      if (sortBy === 'last_name') return (a.last_name || '').localeCompare(b.last_name || '')
-      if (sortBy === 'recent') {
-        const aMax = Math.max(0, ...a.applications.map(x => x.submitted_at ? Date.parse(x.submitted_at) : 0))
-        const bMax = Math.max(0, ...b.applications.map(x => x.submitted_at ? Date.parse(x.submitted_at) : 0))
-        return bMax - aMax
+    const f = filters
+    const q = f.search.trim().toLowerCase()
+    const schoolQ = f.schoolContains.trim().toLowerCase()
+    let list = students.filter(s => {
+      if (q) {
+        const hay = `${s.first_name || ''} ${s.last_name || ''} ${s.personal_email || ''} ${s.school_name_raw || ''}`.toLowerCase()
+        if (!hay.includes(q)) return false
       }
-      return 0
+      if (f.yearGroups.length && (!s.year_group || !f.yearGroups.includes(s.year_group))) return false
+      if (schoolQ && !(s.school_name_raw || '').toLowerCase().includes(schoolQ)) return false
+      if (!matchTri(f.fsm, s.free_school_meals)) return false
+      if (!matchTri(f.firstGen, s.first_generation_uni)) return false
+      if (!matchTri(f.mailing, s.subscribed_to_mailing)) return false
+      if (f.incomeBands.length && (!s.parental_income_band || !f.incomeBands.includes(s.parental_income_band))) return false
+      if (f.sources.length) {
+        const ok = s.applications.some(a => a.attribution_source && f.sources.includes(a.attribution_source))
+        if (!ok) return false
+      }
+      for (const ev of EVENTS) {
+        const want = f.eventStatus[ev.id]
+        if (!want || want === 'any') continue
+        const app = s.applications.find(a => a.event_id === ev.id)
+        if (want === 'none') { if (app) return false; continue }
+        if (!app) return false
+        if (want === 'attended' && !app.attended) return false
+        if (want === 'no_show' && !(app.status === 'accepted' && !app.attended)) return false
+        if (want === 'accepted' && app.status !== 'accepted') return false
+        if (want === 'submitted' && app.status !== 'submitted') return false
+        if (want === 'rejected' && app.status !== 'rejected') return false
+      }
+      if (f.minAttended > 0 && s.attended_count < f.minAttended) return false
+      if (f.minEngagement > 0 && s.engagement_score < f.minEngagement) return false
+      return true
+    })
+    const dir = sortDir === 'asc' ? 1 : -1
+    const sorted = [...list].sort((a, b) => {
+      const v = compareBy(sortBy, a, b)
+      return v * dir
     })
     return sorted
-  }, [students, view, search, eventFilter, eventStatus, sortBy])
+  }, [students, filters, sortBy, sortDir])
+
+  const setEventStatus = (id: string, v: EventStatus) =>
+    setFilters(f => ({ ...f, eventStatus: { ...f.eventStatus, [id]: v } }))
+  const toggleArr = (key: 'yearGroups' | 'incomeBands' | 'sources', v: string) =>
+    setFilters(f => ({ ...f, [key]: f[key].includes(v) ? f[key].filter(x => x !== v) : [...f[key], v] }))
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -90,11 +160,23 @@ export default function StudentsDashboard() {
         </div>
         <div className="flex items-center gap-2">
           <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+            value={filters.search}
+            onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
             placeholder="Search name, email, school…"
             className="w-72 px-3 py-2 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+          <button
+            onClick={() => setPanelOpen(o => !o)}
+            className={`px-3 py-2 text-sm rounded-md border flex items-center gap-2 ${panelOpen || activeFilterCount > 0
+              ? 'bg-indigo-600 text-white border-indigo-600'
+              : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+            Sort &amp; Filter
+            {activeFilterCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white/90 text-indigo-700 text-[11px] font-semibold">{activeFilterCount}</span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -107,54 +189,156 @@ export default function StudentsDashboard() {
         <Kpi label="Mailing list" value={totals.subscribed} />
       </div>
 
-      {/* View tabs */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <Tab active={view === 'all'} onClick={() => setView('all')}>All</Tab>
-        <Tab active={view === 'attended3'} onClick={() => setView('attended3')}>Attended 3+</Tab>
-        <Tab active={view === 'noshow2'} onClick={() => setView('noshow2')}>No-shows 2+</Tab>
-        <Tab active={view === 'byevent'} onClick={() => setView('byevent')}>By event</Tab>
-        <Tab active={view === 'subscribed'} onClick={() => setView('subscribed')}>Mailing list</Tab>
-        <div className="ml-auto flex items-center gap-2 text-sm">
-          <label className="text-gray-500 dark:text-gray-400">Sort</label>
-          <select
-            value={sortBy}
-            onChange={e => setSortBy(e.target.value as typeof sortBy)}
-            className="px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 text-sm"
-          >
-            <option value="engagement">Engagement score</option>
-            <option value="attended">Events attended</option>
-            <option value="last_name">Last name</option>
-            <option value="recent">Most recent app</option>
-          </select>
-        </div>
-      </div>
+      {panelOpen && (
+        <div className="mb-6 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-5">
+          {/* Sort */}
+          <Segment title="Sort">
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={sortBy}
+                onChange={e => {
+                  const v = e.target.value as SortKey
+                  setSortBy(v)
+                  const def = SORT_OPTIONS.find(o => o.value === v)?.defaultDir ?? 'desc'
+                  setSortDir(def)
+                }}
+                className="px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+              >
+                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <button onClick={() => setSortDir('desc')} className={`px-3 py-1.5 text-sm ${sortDir === 'desc' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300'}`}>Descending</button>
+                <button onClick={() => setSortDir('asc')} className={`px-3 py-1.5 text-sm border-l border-gray-200 dark:border-gray-700 ${sortDir === 'asc' ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300'}`}>Ascending</button>
+              </div>
+            </div>
+          </Segment>
 
-      {view === 'byevent' && (
-        <div className="flex flex-wrap items-center gap-2 mb-4 p-3 rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-          <label className="text-sm text-gray-500 dark:text-gray-400">Event</label>
-          <select
-            value={eventFilter}
-            onChange={e => setEventFilter(e.target.value)}
-            className="px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
-          >
-            {EVENTS.map(e => (
-              <option key={e.id} value={e.id}>{e.name}</option>
-            ))}
-          </select>
-          <label className="ml-4 text-sm text-gray-500 dark:text-gray-400">Status</label>
-          <select
-            value={eventStatus}
-            onChange={e => setEventStatus(e.target.value as typeof eventStatus)}
-            className="px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
-          >
-            <option value="all">All</option>
-            <option value="attended">Attended</option>
-            <option value="accepted">Accepted</option>
-            <option value="no_show">No-show</option>
-            <option value="rejected">Rejected</option>
-          </select>
+          {/* Per-event */}
+          <Segment title="By event">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {EVENTS.map(ev => (
+                <div key={ev.id} className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600 dark:text-gray-400 w-44 truncate" title={ev.name}>{ev.name}</span>
+                  <select
+                    value={filters.eventStatus[ev.id] || 'any'}
+                    onChange={e => setEventStatus(ev.id, e.target.value as EventStatus)}
+                    className="flex-1 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+                  >
+                    <option value="any">Any / no filter</option>
+                    <option value="attended">Attended</option>
+                    <option value="no_show">Accepted but no-show</option>
+                    <option value="accepted">Accepted</option>
+                    <option value="submitted">Submitted (pending)</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="none">Didn't apply</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </Segment>
+
+          {/* Demographics */}
+          <Segment title="Demographics">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Year group</Label>
+                <ChipList
+                  options={yearGroupOptions.map(y => ({ value: y, label: y }))}
+                  selected={filters.yearGroups}
+                  onToggle={v => toggleArr('yearGroups', v)}
+                />
+              </div>
+              <div>
+                <Label>School contains</Label>
+                <input
+                  value={filters.schoolContains}
+                  onChange={e => setFilters(f => ({ ...f, schoolContains: e.target.value }))}
+                  placeholder="e.g. Bexley, Grammar, sixth…"
+                  className="w-full px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+                />
+              </div>
+              <div>
+                <Label>Free school meals</Label>
+                <TriToggle value={filters.fsm} onChange={v => setFilters(f => ({ ...f, fsm: v }))} />
+              </div>
+              <div>
+                <Label>First-gen university</Label>
+                <TriToggle value={filters.firstGen} onChange={v => setFilters(f => ({ ...f, firstGen: v }))} />
+              </div>
+              <div>
+                <Label>On mailing list</Label>
+                <TriToggle value={filters.mailing} onChange={v => setFilters(f => ({ ...f, mailing: v }))} />
+              </div>
+              <div>
+                <Label>Parental income band</Label>
+                <ChipList
+                  options={INCOME_BANDS.map(b => ({ value: b, label: b.replace(/_/g, ' ') }))}
+                  selected={filters.incomeBands}
+                  onToggle={v => toggleArr('incomeBands', v)}
+                />
+              </div>
+            </div>
+          </Segment>
+
+          {/* Attribution + thresholds */}
+          <Segment title="Source &amp; thresholds">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Attribution source (any application)</Label>
+                <ChipList
+                  options={ATTRIBUTION_SOURCES.map(s => ({ value: s.value, label: s.label }))}
+                  selected={filters.sources}
+                  onToggle={v => toggleArr('sources', v)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Min attended</Label>
+                  <input
+                    type="number" min={0}
+                    value={filters.minAttended}
+                    onChange={e => setFilters(f => ({ ...f, minAttended: Math.max(0, Number(e.target.value) || 0) }))}
+                    className="w-full px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label>Min engagement</Label>
+                  <input
+                    type="number"
+                    value={filters.minEngagement}
+                    onChange={e => setFilters(f => ({ ...f, minEngagement: Number(e.target.value) || 0 }))}
+                    className="w-full px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </Segment>
+
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              {filtered.length.toLocaleString()} of {students.length.toLocaleString()} students match
+            </div>
+            <button
+              onClick={() => setFilters(defaultFilters())}
+              className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              Clear all filters
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Legend */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-500 dark:text-gray-400">
+        <span className="font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Legend</span>
+        <LegendDot className="bg-emerald-500" label="Attended" />
+        <LegendDot className="bg-amber-400" label="Accepted (awaiting event / no-show if past)" />
+        <LegendDot className="bg-sky-400" label="Submitted (pending review)" />
+        <LegendDot className="bg-gray-400" label="Rejected" />
+        <span className="inline-flex items-center gap-1"><span className="text-gray-300 dark:text-gray-700">—</span> Didn't apply</span>
+        <span className="inline-flex items-center gap-1"><span className="text-amber-500">★</span> +1 bonus</span>
+        <span className="inline-flex items-center gap-1"><span className="text-red-500">▼</span> -1 bonus</span>
+      </div>
 
       {/* Table */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
@@ -203,7 +387,7 @@ export default function StudentsDashboard() {
             </table>
             {filtered.length > 500 && (
               <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/40 border-t border-gray-200 dark:border-gray-800">
-                Showing first 500 of {filtered.length} — refine the search to narrow.
+                Showing first 500 of {filtered.length} — refine filters to narrow.
               </div>
             )}
           </div>
@@ -211,6 +395,33 @@ export default function StudentsDashboard() {
       </div>
     </main>
   )
+}
+
+function matchTri(mode: TriBool, v: boolean | null): boolean {
+  if (mode === 'any') return true
+  if (mode === 'unknown') return v === null || v === undefined
+  if (mode === 'yes') return v === true
+  return v === false
+}
+
+function compareBy(key: SortKey, a: EnrichedStudent, b: EnrichedStudent): number {
+  switch (key) {
+    case 'engagement': return a.engagement_score - b.engagement_score
+    case 'attended': return a.attended_count - b.attended_count
+    case 'accepted': return a.accepted_count - b.accepted_count
+    case 'no_show': return a.no_show_count - b.no_show_count
+    case 'submitted': return a.submitted_count - b.submitted_count
+    case 'rejected': return a.rejected_count - b.rejected_count
+    case 'bonus': return a.bonus_total - b.bonus_total
+    case 'last_name': return (a.last_name || '').localeCompare(b.last_name || '')
+    case 'first_name': return (a.first_name || '').localeCompare(b.first_name || '')
+    case 'year': return (a.year_group || '').localeCompare(b.year_group || '')
+    case 'recent': {
+      const aMax = Math.max(0, ...a.applications.map(x => x.submitted_at ? Date.parse(x.submitted_at) : 0))
+      const bMax = Math.max(0, ...b.applications.map(x => x.submitted_at ? Date.parse(x.submitted_at) : 0))
+      return aMax - bMax
+    }
+  }
 }
 
 function renderEventCell(app: { status: string; attended: boolean | null; bonus_points?: number | null; bonus_reason?: string | null } | undefined) {
@@ -241,19 +452,72 @@ function Kpi({ label, value, accent, warn }: { label: string; value: number; acc
   )
 }
 
-function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function Th({ children, className = '' }: { children?: React.ReactNode; className?: string }) {
+  return <th className={`px-3 py-2 text-left text-xs font-medium uppercase tracking-wide ${className}`}>{children}</th>
+}
+
+function Segment({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-md text-sm border ${active
-        ? 'bg-indigo-600 text-white border-indigo-600'
-        : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-    >
+    <div>
+      <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{title}</div>
       {children}
-    </button>
+    </div>
   )
 }
 
-function Th({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <th className={`px-3 py-2 text-left text-xs font-medium uppercase tracking-wide ${className}`}>{children}</th>
+function Label({ children }: { children: React.ReactNode }) {
+  return <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{children}</div>
+}
+
+function TriToggle({ value, onChange }: { value: TriBool; onChange: (v: TriBool) => void }) {
+  const opts: { v: TriBool; label: string }[] = [
+    { v: 'any', label: 'Any' },
+    { v: 'yes', label: 'Yes' },
+    { v: 'no', label: 'No' },
+    { v: 'unknown', label: 'Unknown' },
+  ]
+  return (
+    <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
+      {opts.map((o, i) => (
+        <button
+          key={o.v}
+          onClick={() => onChange(o.v)}
+          className={`px-2.5 py-1 text-xs ${i > 0 ? 'border-l border-gray-200 dark:border-gray-700' : ''} ${value === o.v ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300'}`}
+        >{o.label}</button>
+      ))}
+    </div>
+  )
+}
+
+function ChipList({ options, selected, onToggle }: {
+  options: { value: string; label: string }[]
+  selected: string[]
+  onToggle: (v: string) => void
+}) {
+  if (options.length === 0) return <div className="text-xs text-gray-400">No options</div>
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map(o => {
+        const active = selected.includes(o.value)
+        return (
+          <button
+            key={o.value}
+            onClick={() => onToggle(o.value)}
+            className={`px-2 py-1 rounded-full text-xs border ${active
+              ? 'bg-indigo-600 text-white border-indigo-600'
+              : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+          >{o.label}</button>
+        )
+      })}
+    </div>
+  )
+}
+
+function LegendDot({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`inline-block w-2 h-2 rounded-full ${className}`} />
+      {label}
+    </span>
+  )
 }
