@@ -379,36 +379,26 @@ export default function StudentsDashboard() {
               <thead className="bg-gray-50 dark:bg-gray-800/80 backdrop-blur text-gray-600 dark:text-gray-400 sticky top-0 z-10 shadow-[0_1px_0_0_rgba(0,0,0,0.06)]">
                 <tr>
                   <Th>Name</Th>
-                  <Th>Email</Th>
                   <Th>School</Th>
                   <Th>Year</Th>
-                  <Th>Type</Th>
-                  <Th>Eligible</Th>
                   {EVENTS.map(e => <Th key={e.id} className="text-center">{e.short}</Th>)}
-                  <Th className="text-right">Att.</Th>
-                  <Th className="text-right">No-show</Th>
                   <Th className="text-right">Score</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {filtered.slice(0, 500).map(s => (
-                  <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                  <tr key={s.id} className={`${s.eligibility === 'ineligible' ? 'bg-red-50/70 dark:bg-red-900/10 hover:bg-red-100/70 dark:hover:bg-red-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40'}`}>
                     <td className="px-3 py-2">
                       <Link href={`/students/${s.id}`} className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
                         {s.first_name || ''} {s.last_name || ''}
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{s.personal_email}</td>
-                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400 truncate max-w-[200px]">{s.school_name_raw}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400 truncate max-w-[240px]">{s.school_name_raw}</td>
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{s.year_group}</td>
-                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400 capitalize">{s.school_type ?? <span className="text-gray-300">—</span>}{s.school_type === 'private' && s.bursary_90plus ? <span className="ml-1 text-[10px] text-emerald-600">+brsy</span> : null}</td>
-                    <td className="px-3 py-2"><EligibilityPill v={s.eligibility} /></td>
                     {EVENTS.map(e => {
                       const app = s.applications.find(a => a.event_id === e.id)
                       return <td key={e.id} className="px-3 py-2 text-center">{renderEventCell(app)}</td>
                     })}
-                    <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-gray-100">{s.attended_count}</td>
-                    <td className="px-3 py-2 text-right text-amber-600 dark:text-amber-400">{s.no_show_count || ''}</td>
                     <td className="px-3 py-2 text-right font-semibold text-gray-900 dark:text-gray-100">{s.engagement_score}</td>
                   </tr>
                 ))}
