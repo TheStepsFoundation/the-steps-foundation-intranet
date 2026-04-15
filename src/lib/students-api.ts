@@ -20,6 +20,9 @@ export const ATTRIBUTION_SOURCES: { value: string; label: string }[] = [
   { value: 'unknown',           label: 'Unknown' },
 ]
 
+export type SchoolType = 'state' | 'grammar' | 'private'
+export type Eligibility = 'eligible' | 'ineligible' | 'unknown'
+
 export type StudentRow = {
   id: string
   first_name: string | null
@@ -31,6 +34,8 @@ export type StudentRow = {
   parental_income_band: string | null
   first_generation_uni: boolean | null
   subscribed_to_mailing: boolean | null
+  school_type: SchoolType | null
+  bursary_90plus: boolean | null
   notes: string | null
   created_at: string
 }
@@ -56,11 +61,10 @@ export type EnrichedStudent = StudentRow & {
   rejected_count: number
   engagement_score: number
   bonus_total: number
+  smi_count: number
+  eligibility: Eligibility
 }
 
-// Legacy client-side enrichment kept for the profile page (and as a fallback).
-// The dashboard now uses the students_enriched SQL view which computes the
-// same values server-side.
 export function enrich(s: StudentRow, apps: ApplicationRow[]): EnrichedStudent {
   const mine = apps.filter(a => a.student_id === s.id)
   const today = new Date()
@@ -85,6 +89,18 @@ export function enrich(s: StudentRow, apps: ApplicationRow[]): EnrichedStudent {
     else if (a.status === 'accepted' && !passed) engagement_score += 1
     engagement_score += a.bonus_points || 0
   }
+  const smi_count =
+    (s.free_school_meals === true ? 1 : 0) +
+    (s.first_generation_uni === true ? 1 : 0) +
+    (s.parental_income_band === 'under_40k' ? 1 : 0)
+  const eligibility: Eligibility =
+    s.school_type === 'state' || s.school_type === 'grammar'
+      ? 'eligible'
+      : s.school_type === 'private' && s.bursary_90plus === true && smi_count >= 1
+        ? 'eligible'
+        : s.school_type === 'private'
+          ? 'ineligible'
+          : 'unknown'
   return {
     ...s,
     applications: mine,
@@ -95,12 +111,11 @@ export function enrich(s: StudentRow, apps: ApplicationRow[]): EnrichedStudent {
     rejected_count,
     engagement_score,
     bonus_total,
+    smi_count,
+    eligibility,
   }
 }
 
-// --- Module-level cache ------------------------------------------------------
-// The enriched dashboard query returns ~2k rows; cache for 60s and invalidate
-// on any write so repeated navigations feel instant.
 const CACHE_TTL_MS = 60_000
 let enrichedCache: { data: EnrichedStudent[]; at: number } | null = null
 
@@ -130,10 +145,9 @@ export async function fetchAllStudentsEnriched(opts?: { forceRefresh?: boolean }
   return rows
 }
 
-// Kept for backward compatibility; now delegates to the enriched view.
 export async function fetchAllStudentsAndApps(): Promise<{ students: StudentRow[]; applications: ApplicationRow[] }> {
   const enriched = await fetchAllStudentsEnriched()
-  const students: StudentRow[] = enriched.map(({ applications: _a, attended_count: _ac, accepted_count: _acc, no_show_count: _n, submitted_count: _s, rejected_count: _r, engagement_score: _es, bonus_total: _bt, ...s }) => s)
+  const students: StudentRow[] = enriched.map(({ applications: _a, attended_count: _ac, accepted_count: _acc, no_show_count: _n, submitted_count: _s, rejected_count: _r, engagement_score: _es, bonus_total: _bt, smi_count: _sm, eligibility: _el, ...s }) => s)
   const applications: ApplicationRow[] = enriched.flatMap(e => e.applications)
   return { students, applications }
 }
@@ -148,7 +162,7 @@ export async function updateStudent(id: string, patch: StudentUpdate): Promise<S
     .from('students')
     .update(patch)
     .eq('id', id)
-    .select('id,first_name,last_name,personal_email,school_name_raw,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,notes,created_at')
+    .select('id,first_name,last_name,personal_email,school_name_raw,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,school_type,bursary_90plus,notes,created_at')
     .single()
   if (error) throw error
   invalidateStudentsCache()
@@ -204,7 +218,7 @@ export async function fetchEnrichedStudent(id: string): Promise<EnrichedStudent 
 export async function fetchStudent(id: string): Promise<{ student: StudentRow | null; applications: ApplicationRow[] }> {
   const { data: sData, error: sErr } = await supabase
     .from('students')
-    .select('id,first_name,last_name,personal_email,school_name_raw,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,notes,created_at')
+    .select('id,first_name,last_name,personal_email,school_name_raw,year_group,free_school_meals,parental_income_band,first_generation_uni,subscribed_to_mailing,school_type,bursary_90plus,notes,created_at')
     .eq('id', id)
     .maybeSingle()
   if (sErr) throw sErr

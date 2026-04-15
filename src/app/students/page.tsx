@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
-import { EVENTS, EnrichedStudent, fetchAllStudentsEnriched } from '@/lib/students-api'
+import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched } from '@/lib/students-api'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -32,7 +32,6 @@ const INCOME_BANDS: { value: string; label: string }[] = [
 ]
 
 type SmiMin = 0 | 1 | 2 | 3
-// A student's social-mobility indicator count: free school meals + first-gen-uni + low-income (<£40k)
 function smiCount(s: { free_school_meals: boolean | null; first_generation_uni: boolean | null; parental_income_band: string | null }): number {
   let n = 0
   if (s.free_school_meals === true) n++
@@ -41,6 +40,18 @@ function smiCount(s: { free_school_meals: boolean | null; first_generation_uni: 
   return n
 }
 
+const SCHOOL_TYPES: { value: SchoolType; label: string }[] = [
+  { value: 'state', label: 'State' },
+  { value: 'grammar', label: 'Grammar' },
+  { value: 'private', label: 'Private' },
+]
+
+const ELIGIBILITY_OPTIONS: { value: Eligibility; label: string }[] = [
+  { value: 'eligible', label: 'Eligible' },
+  { value: 'ineligible', label: 'Ineligible' },
+  { value: 'unknown', label: 'Unknown' },
+]
+
 type Filters = {
   search: string
   yearGroups: string[]
@@ -48,6 +59,8 @@ type Filters = {
   firstGen: TriBool
   incomeBands: string[]
   smiMin: SmiMin
+  schoolTypes: SchoolType[]
+  eligibility: Eligibility[]
   eventStatus: Record<string, EventStatus>
   minAttended: number
   minEngagement: number
@@ -60,6 +73,8 @@ const defaultFilters = (): Filters => ({
   firstGen: 'any',
   incomeBands: [],
   smiMin: 0,
+  schoolTypes: [],
+  eligibility: [],
   eventStatus: Object.fromEntries(EVENTS.map(e => [e.id, 'any' as EventStatus])),
   minAttended: 0,
   minEngagement: 0,
@@ -95,6 +110,7 @@ export default function StudentsDashboard() {
     attended3plus: students.filter(s => s.attended_count >= 3).length,
     noshow2plus: students.filter(s => s.no_show_count >= 2).length,
     smi2plus: students.filter(s => smiCount(s) >= 2).length,
+    eligible: students.filter(s => s.eligibility === 'eligible').length,
   }), [students])
 
   const activeFilterCount = useMemo(() => {
@@ -105,6 +121,8 @@ export default function StudentsDashboard() {
     if (filters.firstGen !== 'any') n++
     if (filters.incomeBands.length) n++
     if (filters.smiMin > 0) n++
+    if (filters.schoolTypes.length) n++
+    if (filters.eligibility.length) n++
     for (const id of Object.keys(filters.eventStatus)) if (filters.eventStatus[id] !== 'any') n++
     if (filters.minAttended > 0) n++
     if (filters.minEngagement > 0) n++
@@ -124,6 +142,8 @@ export default function StudentsDashboard() {
       if (!matchTri(f.firstGen, s.first_generation_uni)) return false
       if (f.incomeBands.length && (!s.parental_income_band || !f.incomeBands.includes(s.parental_income_band))) return false
       if (f.smiMin > 0 && smiCount(s) < f.smiMin) return false
+      if (f.schoolTypes.length && (!s.school_type || !f.schoolTypes.includes(s.school_type))) return false
+      if (f.eligibility.length && !f.eligibility.includes(s.eligibility)) return false
       for (const ev of EVENTS) {
         const want = f.eventStatus[ev.id]
         if (!want || want === 'any') continue
@@ -152,6 +172,10 @@ export default function StudentsDashboard() {
     setFilters(f => ({ ...f, eventStatus: { ...f.eventStatus, [id]: v } }))
   const toggleArr = (key: 'yearGroups' | 'incomeBands', v: string) =>
     setFilters(f => ({ ...f, [key]: f[key].includes(v) ? f[key].filter(x => x !== v) : [...f[key], v] }))
+  const toggleSchoolType = (v: SchoolType) =>
+    setFilters(f => ({ ...f, schoolTypes: f.schoolTypes.includes(v) ? f.schoolTypes.filter(x => x !== v) : [...f.schoolTypes, v] }))
+  const toggleEligibility = (v: Eligibility) =>
+    setFilters(f => ({ ...f, eligibility: f.eligibility.includes(v) ? f.eligibility.filter(x => x !== v) : [...f.eligibility, v] }))
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -182,18 +206,17 @@ export default function StudentsDashboard() {
         </div>
       </div>
 
-      {/* KPI tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
         <Kpi label="Total students" value={totals.total} />
         <Kpi label="Attended 1+" value={totals.attended1plus} />
         <Kpi label="Attended 3+" value={totals.attended3plus} accent />
         <Kpi label="No-shows 2+" value={totals.noshow2plus} warn />
         <Kpi label="SMI 2+" value={totals.smi2plus} accent />
+        <Kpi label="Eligible" value={totals.eligible} accent />
       </div>
 
       {panelOpen && (
         <div className="mb-6 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-5">
-          {/* Sort */}
           <Segment title="Sort">
             <div className="flex flex-wrap items-center gap-2">
               <select
@@ -215,7 +238,6 @@ export default function StudentsDashboard() {
             </div>
           </Segment>
 
-          {/* Per-event */}
           <Segment title="By event">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {EVENTS.map(ev => (
@@ -239,7 +261,6 @@ export default function StudentsDashboard() {
             </div>
           </Segment>
 
-          {/* Demographics */}
           <Segment title="Demographics">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -266,6 +287,22 @@ export default function StudentsDashboard() {
                 <Label>First-gen university</Label>
                 <TriToggle value={filters.firstGen} onChange={v => setFilters(f => ({ ...f, firstGen: v }))} />
               </div>
+              <div>
+                <Label>School type</Label>
+                <ChipList
+                  options={SCHOOL_TYPES.map(t => ({ value: t.value, label: t.label }))}
+                  selected={filters.schoolTypes}
+                  onToggle={v => toggleSchoolType(v as SchoolType)}
+                />
+              </div>
+              <div>
+                <Label>Eligibility</Label>
+                <ChipList
+                  options={ELIGIBILITY_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+                  selected={filters.eligibility}
+                  onToggle={v => toggleEligibility(v as Eligibility)}
+                />
+              </div>
               <div className="md:col-span-2">
                 <Label>Social mobility indicators (FSM + first-gen + low income)</Label>
                 <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -281,7 +318,6 @@ export default function StudentsDashboard() {
             </div>
           </Segment>
 
-          {/* Thresholds */}
           <Segment title="Thresholds">
             <div className="grid grid-cols-2 gap-2 max-w-md">
               <div>
@@ -319,7 +355,6 @@ export default function StudentsDashboard() {
         </div>
       )}
 
-      {/* Legend */}
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-gray-500 dark:text-gray-400">
         <span className="font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">Legend</span>
         <LegendDot className="bg-emerald-500" label="Attended" />
@@ -331,7 +366,6 @@ export default function StudentsDashboard() {
         <span className="inline-flex items-center gap-1"><span className="text-red-500">▼</span> -1 bonus</span>
       </div>
 
-      {/* Table */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
         {loading ? (
           <div className="p-10 text-center text-gray-500 dark:text-gray-400">Loading students…</div>
@@ -348,6 +382,8 @@ export default function StudentsDashboard() {
                   <Th>Email</Th>
                   <Th>School</Th>
                   <Th>Year</Th>
+                  <Th>Type</Th>
+                  <Th>Eligible</Th>
                   {EVENTS.map(e => <Th key={e.id} className="text-center">{e.short}</Th>)}
                   <Th className="text-right">Att.</Th>
                   <Th className="text-right">No-show</Th>
@@ -365,6 +401,8 @@ export default function StudentsDashboard() {
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{s.personal_email}</td>
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-400 truncate max-w-[200px]">{s.school_name_raw}</td>
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{s.year_group}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-400 capitalize">{s.school_type ?? <span className="text-gray-300">—</span>}{s.school_type === 'private' && s.bursary_90plus ? <span className="ml-1 text-[10px] text-emerald-600">+brsy</span> : null}</td>
+                    <td className="px-3 py-2"><EligibilityPill v={s.eligibility} /></td>
                     {EVENTS.map(e => {
                       const app = s.applications.find(a => a.event_id === e.id)
                       return <td key={e.id} className="px-3 py-2 text-center">{renderEventCell(app)}</td>
@@ -430,6 +468,15 @@ function renderEventCell(app: { status: string; attended: boolean | null; bonus_
     ? <span title={tip} className="ml-0.5 text-[10px] leading-none text-amber-500">★</span>
     : <span title={tip} className="ml-0.5 text-[10px] leading-none text-red-500">▼</span>
   return <span className="inline-flex items-center">{dot}{mark}</span>
+}
+
+function EligibilityPill({ v }: { v: Eligibility }) {
+  const map: Record<Eligibility, string> = {
+    eligible: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    ineligible: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    unknown: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  }
+  return <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide ${map[v]}`}>{v}</span>
 }
 
 function Kpi({ label, value, accent, warn }: { label: string; value: number; accent?: boolean; warn?: boolean }) {

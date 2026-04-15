@@ -71,6 +71,8 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
       parental_income_band: student.parental_income_band,
       first_generation_uni: student.first_generation_uni,
       subscribed_to_mailing: student.subscribed_to_mailing,
+      school_type: student.school_type,
+      bursary_90plus: student.bursary_90plus,
       notes: student.notes,
     })
     setEditing(true)
@@ -176,6 +178,9 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
             <Field label="Free school meals" value={boolLabel(student.free_school_meals)} />
             <Field label="First-gen uni" value={boolLabel(student.first_generation_uni)} />
             <Field label="Mailing list" value={boolLabel(student.subscribed_to_mailing)} />
+            <Field label="School type" value={schoolTypeLabel(student.school_type)} />
+            <Field label="90%+ bursary" value={boolLabel(student.bursary_90plus)} />
+            <Field label="Eligibility" value={enriched.eligibility} />
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
@@ -200,6 +205,20 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
             <TriCheckbox label="Free school meals" value={draft.free_school_meals} onChange={v => setDraft(d => ({ ...d, free_school_meals: v }))} />
             <TriCheckbox label="First-gen uni" value={draft.first_generation_uni} onChange={v => setDraft(d => ({ ...d, first_generation_uni: v }))} />
             <TriCheckbox label="Mailing list" value={draft.subscribed_to_mailing} onChange={v => setDraft(d => ({ ...d, subscribed_to_mailing: v }))} />
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">School type</label>
+              <select
+                value={draft.school_type ?? ''}
+                onChange={e => setDraft(d => ({ ...d, school_type: (e.target.value || null) as any }))}
+                className="w-full px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+              >
+                <option value="">Unknown</option>
+                <option value="state">State</option>
+                <option value="grammar">Grammar</option>
+                <option value="private">Private</option>
+              </select>
+            </div>
+            <TriCheckbox label="90%+ bursary" value={draft.bursary_90plus} onChange={v => setDraft(d => ({ ...d, bursary_90plus: v }))} />
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Notes</label>
               <textarea
@@ -340,6 +359,14 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
 function boolLabel(v: boolean | null | undefined) {
   if (v === null || v === undefined) return '—'
   return v ? 'Yes' : 'No'
+}
+
+function schoolTypeLabel(v: string | null | undefined) {
+  if (!v) return null
+  if (v === 'state') return 'State'
+  if (v === 'grammar') return 'Grammar'
+  if (v === 'private') return 'Private'
+  return v
 }
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
