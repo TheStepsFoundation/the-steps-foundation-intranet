@@ -76,7 +76,7 @@ export default function StudentsDashboard() {
   const yearGroupOptions = useMemo(() => {
     const set = new Set<string>()
     for (const s of students) if (s.year_group) set.add(s.year_group)
-    return [...set].sort()
+    return Array.from(set).sort()
   }, [students])
 
   const totals = useMemo(() => ({
