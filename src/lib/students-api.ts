@@ -9,6 +9,17 @@ export const EVENTS: { id: string; name: string; short: string; date: string }[]
 
 export const EVENT_BY_ID = Object.fromEntries(EVENTS.map(e => [e.id, e]))
 
+export const ATTRIBUTION_SOURCES: { value: string; label: string }[] = [
+  { value: 'word_of_mouth',     label: 'Word of mouth' },
+  { value: 'tiktok',            label: 'TikTok' },
+  { value: 'linkedin',          label: 'LinkedIn' },
+  { value: 'instagram',         label: 'Instagram direct' },
+  { value: 'email',             label: 'Email' },
+  { value: 'teacher_newsletter',label: 'Teacher newsletter' },
+  { value: 'other',             label: 'Other' },
+  { value: 'unknown',           label: 'Unknown' },
+]
+
 export type StudentRow = {
   id: string
   first_name: string | null

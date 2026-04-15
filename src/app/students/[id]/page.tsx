@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import {
   EVENTS,
+  ATTRIBUTION_SOURCES,
   StudentRow,
   ApplicationRow,
   StudentUpdate,
@@ -253,16 +254,20 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
                     />
                   </td>
                   <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
-                    <input
-                      type="text"
-                      defaultValue={app?.attribution_source ?? ''}
-                      onBlur={ev => {
+                    <select
+                      value={app?.attribution_source ?? ''}
+                      onChange={ev => {
                         const v = ev.target.value
-                        if ((app?.attribution_source ?? '') !== v) saveRow(e.id, { attribution_source: v || null })
+                        saveRow(e.id, { attribution_source: v || null })
                       }}
-                      placeholder="—"
-                      className="rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs w-32"
-                    />
+                      className="rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs w-40"
+                    >
+                      <option value="">—</option>
+                      {ATTRIBUTION_SOURCES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                      {app?.attribution_source && !ATTRIBUTION_SOURCES.some(s => s.value === app.attribution_source) && (
+                        <option value={app.attribution_source}>{app.attribution_source} (legacy)</option>
+                      )}
+                    </select>
                   </td>
                   <td className="px-3 py-2">
                     <select
