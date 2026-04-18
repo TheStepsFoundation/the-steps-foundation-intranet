@@ -420,7 +420,7 @@ export default function EventDetailPage() {
           event_id: eventId,
           template_id: selectedTemplate || null,
           to_email: recipient.personal_email!,
-          from_email: 'hello@thestepsfoundation.com',
+          from_email: 'events@thestepsfoundation.com',
           subject: renderedSubject,
           body_html: renderedBody,
           status: 'pending',
