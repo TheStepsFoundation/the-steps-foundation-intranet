@@ -105,10 +105,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [checkTeamMembership])
 
   useEffect(() => {
-    // Get initial session — .catch ensures loading never stays true on failure
-    supabase.auth.getSession()
+    // Get initial session with a 8-second hard timeout.
+    // Supabase's GoTrue lock can orphan (especially on fast navigation or
+    // React Strict Mode), blocking getSession() forever. The timeout ensures
+    // we always fall through to the login page.
+    Promise.race([
+      supabase.auth.getSession(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('getSession timed out')), 8000)
+      ),
+    ])
       .then(({ data: { session } }) => handleAuthChange(session))
-      .catch(() => setLoading(false))
+      .catch((err) => {
+        console.warn('[auth] getSession failed:', err?.message)
+        setLoading(false)
+      })
 
     // Listen for auth changes (sign-in, sign-out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
