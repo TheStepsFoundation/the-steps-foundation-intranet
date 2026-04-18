@@ -66,39 +66,31 @@ export async function fetchEvent(id: string): Promise<EventRow | null> {
 
 /**
  * Fetch all events with per-event application status counts.
- * Does two queries (events + grouped application counts) and merges client-side
- * to avoid needing a DB view or RPC.
+ * Uses the event_application_stats() RPC to get counts server-side
+ * instead of pulling all application rows to the client.
  */
 export async function fetchEventsWithStats(): Promise<EventWithStats[]> {
-  // 1. All events
-  const events = await fetchAllEvents()
+  // Parallel: events + aggregated counts via RPC
+  const [events, statsResult] = await Promise.all([
+    fetchAllEvents(),
+    supabase.rpc('event_application_stats'),
+  ])
 
-  // 2. Application counts grouped by event_id + status
-  const { data: counts, error } = await supabase
-    .from('applications')
-    .select('event_id, status')
-    .is('deleted_at', null)
+  if (statsResult.error) throw statsResult.error
 
-  if (error) throw error
-
-  // Aggregate counts per event
   const statsMap: Record<string, {
     total: number; submitted: number; accepted: number
     rejected: number; waitlisted: number
   }> = {}
 
-  for (const row of counts ?? []) {
-    const eid = row.event_id as string
-    if (!statsMap[eid]) {
-      statsMap[eid] = { total: 0, submitted: 0, accepted: 0, rejected: 0, waitlisted: 0 }
+  for (const row of statsResult.data ?? []) {
+    statsMap[row.event_id] = {
+      total: row.total_count,
+      submitted: row.submitted_count,
+      accepted: row.accepted_count,
+      rejected: row.rejected_count,
+      waitlisted: row.waitlisted_count,
     }
-    const s = statsMap[eid]
-    s.total++
-    const st = row.status as string
-    if (st === 'submitted') s.submitted++
-    else if (st === 'accepted') s.accepted++
-    else if (st === 'rejected') s.rejected++
-    else if (st === 'waitlist') s.waitlisted++
   }
 
   return events.map(e => ({
