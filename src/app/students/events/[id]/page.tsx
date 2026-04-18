@@ -64,6 +64,15 @@ export default function EventDetailPage() {
   // Inline editing feedback
   const [saving, setSaving] = useState<Set<string>>(new Set())
 
+  // Email compose state
+  const [showCompose, setShowCompose] = useState(false)
+  const [templates, setTemplates] = useState<{ id: string; name: string; type: string; subject: string; body_html: string; event_id: string | null }[]>([])
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailBody, setEmailBody] = useState('')
+  const [emailStep, setEmailStep] = useState<'pick' | 'preview' | 'sending' | 'done'>('pick')
+  const [sendProgress, setSendProgress] = useState({ sent: 0, failed: 0, total: 0 })
+
   // Fetch event
   useEffect(() => {
     let active = true
@@ -272,6 +281,88 @@ export default function EventDetailPage() {
   }
 
   // ---------------------------------------------------------------------------
+  // Email compose helpers
+  // ---------------------------------------------------------------------------
+
+  const loadTemplates = useCallback(async () => {
+    const { data } = await supabase
+      .from('email_templates')
+      .select('id, name, type, subject, body_html, event_id')
+      .is('deleted_at', null)
+      .order('name')
+    setTemplates((data ?? []) as any[])
+  }, [])
+
+  const openCompose = () => {
+    loadTemplates()
+    setShowCompose(true)
+    setEmailStep('pick')
+    setSelectedTemplate('')
+    setEmailSubject('')
+    setEmailBody('')
+    setSendProgress({ sent: 0, failed: 0, total: 0 })
+  }
+
+  const applyTemplate = (templateId: string) => {
+    const tpl = templates.find(t => t.id === templateId)
+    if (!tpl) return
+    setSelectedTemplate(templateId)
+    // We'll fill merge fields in preview — just set raw template for now
+    setEmailSubject(tpl.subject)
+    setEmailBody(tpl.body_html)
+  }
+
+  const fillMergeFields = (text: string, applicant: Applicant) => {
+    return text
+      .replace(/\{\{first_name\}\}/g, applicant.first_name)
+      .replace(/\{\{last_name\}\}/g, applicant.last_name)
+      .replace(/\{\{event_name\}\}/g, event?.name ?? '')
+      .replace(/\{\{event_date\}\}/g, event?.event_date
+        ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+        : 'TBC')
+      .replace(/\{\{event_location\}\}/g, event?.location ?? 'TBC')
+      .replace(/\{\{event_time\}\}/g, [event?.time_start, event?.time_end].filter(Boolean).join(' – ') || 'TBC')
+  }
+
+  const getRecipients = () => {
+    return applicants.filter(a => selected.has(a.id) && a.personal_email)
+  }
+
+  const queueEmails = async () => {
+    const recipients = getRecipients()
+    if (recipients.length === 0) return
+
+    setEmailStep('sending')
+    setSendProgress({ sent: 0, failed: 0, total: recipients.length })
+
+    for (const recipient of recipients) {
+      const renderedSubject = fillMergeFields(emailSubject, recipient)
+      const renderedBody = fillMergeFields(emailBody, recipient)
+
+      try {
+        // Insert into email_log
+        await supabase.from('email_log').insert({
+          student_id: recipient.student_id,
+          event_id: eventId,
+          template_id: selectedTemplate || null,
+          to_email: recipient.personal_email!,
+          from_email: 'hello@thestepsfoundation.com',
+          subject: renderedSubject,
+          body_html: renderedBody,
+          status: 'queued',
+          sent_by: (teamMember as any)?.auth_uuid ?? null,
+        })
+
+        setSendProgress(prev => ({ ...prev, sent: prev.sent + 1 }))
+      } catch {
+        setSendProgress(prev => ({ ...prev, failed: prev.failed + 1 }))
+      }
+    }
+
+    setEmailStep('done')
+  }
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -393,6 +484,12 @@ export default function EventDetailPage() {
                   → {s.label}
                 </button>
               ))}
+              <button
+                onClick={openCompose}
+                className="px-2.5 py-1 rounded text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+              >
+                Email selected
+              </button>
               <button
                 onClick={() => setSelected(new Set())}
                 className="ml-2 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
@@ -530,6 +627,192 @@ export default function EventDetailPage() {
           </span>
         </div>
       </div>
+    {/* Email Compose Modal */}
+      {showCompose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-2xl max-h-[85vh] flex flex-col">
+            {/* Modal header */}
+            <div className="p-5 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  {emailStep === 'done' ? 'Emails queued' : emailStep === 'sending' ? 'Sending…' : 'Compose email'}
+                </h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {getRecipients().length} recipient{getRecipients().length !== 1 ? 's' : ''} selected
+                  {getRecipients().length < selected.size && (
+                    <span className="text-amber-600 dark:text-amber-400"> ({selected.size - getRecipients().length} without email — skipped)</span>
+                  )}
+                </p>
+              </div>
+              {emailStep !== 'sending' && (
+                <button onClick={() => setShowCompose(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {/* Modal body */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {emailStep === 'pick' && (
+                <>
+                  {/* Template picker */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Template</label>
+                    <select
+                      value={selectedTemplate}
+                      onChange={e => applyTemplate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                    >
+                      <option value="">— Select a template or write from scratch —</option>
+                      {templates
+                        .filter(t => !t.event_id || t.event_id === eventId)
+                        .map(t => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} ({t.type}){!t.event_id ? ' — Global' : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {/* Subject */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Subject</label>
+                    <input
+                      value={emailSubject}
+                      onChange={e => setEmailSubject(e.target.value)}
+                      placeholder="e.g. Your application to {{event_name}}"
+                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                    />
+                  </div>
+
+                  {/* Body */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Body (HTML)</label>
+                    <textarea
+                      value={emailBody}
+                      onChange={e => setEmailBody(e.target.value)}
+                      rows={8}
+                      placeholder="<p>Dear {{first_name}},</p>"
+                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"
+                    />
+                  </div>
+
+                  {/* Merge field hints */}
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Merge fields: </span>
+                    {['{{first_name}}', '{{last_name}}', '{{event_name}}', '{{event_date}}', '{{event_location}}', '{{event_time}}'].map((f, i) => (
+                      <span key={f}>
+                        <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{f}</code>
+                        {i < 5 ? ', ' : ''}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {emailStep === 'preview' && (
+                <>
+                  <div className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                    Preview with first recipient: <strong>{getRecipients()[0]?.first_name} {getRecipients()[0]?.last_name}</strong>
+                  </div>
+                  <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">From: hello@thestepsfoundation.com</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">To: {getRecipients()[0]?.personal_email}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
+                      {getRecipients()[0] ? fillMergeFields(emailSubject, getRecipients()[0]) : emailSubject}
+                    </div>
+                    <div
+                      className="prose dark:prose-invert prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{
+                        __html: getRecipients()[0] ? fillMergeFields(emailBody, getRecipients()[0]) : emailBody,
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {emailStep === 'sending' && (
+                <div className="text-center py-6">
+                  <div className="text-4xl mb-3">&#9993;</div>
+                  <div className="text-sm text-gray-600 dark:text-gray-300">
+                    Queuing {sendProgress.sent + sendProgress.failed} / {sendProgress.total}…
+                  </div>
+                  <div className="w-48 mx-auto mt-3 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-500 transition-all"
+                      style={{ width: `${sendProgress.total > 0 ? ((sendProgress.sent + sendProgress.failed) / sendProgress.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {emailStep === 'done' && (
+                <div className="text-center py-6">
+                  <div className="text-4xl mb-3">&#10003;</div>
+                  <div className="text-sm text-gray-900 dark:text-gray-100 font-medium">
+                    {sendProgress.sent} email{sendProgress.sent !== 1 ? 's' : ''} queued successfully
+                  </div>
+                  {sendProgress.failed > 0 && (
+                    <div className="text-sm text-red-600 dark:text-red-400 mt-1">
+                      {sendProgress.failed} failed to queue
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                    Emails are queued and will be sent from hello@thestepsfoundation.com
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal footer */}
+            <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end gap-2">
+              {emailStep === 'pick' && (
+                <>
+                  <button
+                    onClick={() => setShowCompose(false)}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => setEmailStep('preview')}
+                    disabled={!emailSubject.trim() || !emailBody.trim() || getRecipients().length === 0}
+                    className="px-4 py-1.5 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    Preview
+                  </button>
+                </>
+              )}
+              {emailStep === 'preview' && (
+                <>
+                  <button
+                    onClick={() => setEmailStep('pick')}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={queueEmails}
+                    className="px-4 py-1.5 text-sm rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
+                  >
+                    Send to {getRecipients().length} recipient{getRecipients().length !== 1 ? 's' : ''}
+                  </button>
+                </>
+              )}
+              {emailStep === 'done' && (
+                <button
+                  onClick={() => { setShowCompose(false); setSelected(new Set()) }}
+                  className="px-4 py-1.5 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                >
+                  Done
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }

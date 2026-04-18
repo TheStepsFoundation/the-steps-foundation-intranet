@@ -42,6 +42,7 @@ export default function StudentsLayout({ children }: { children: React.ReactNode
               <NavDropdown label="Students" active={pathname.startsWith('/students')} items={[
                 { href: '/students', label: 'Dashboard' },
                 { href: '/students/events', label: 'Events' },
+                { href: '/students/emails/templates', label: 'Email Templates' },
               ]} />
             </nav>
           </div>
