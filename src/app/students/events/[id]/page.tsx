@@ -454,7 +454,9 @@ export default function EventDetailPage() {
       const renderedBody = fillMergeFields(emailBody, recipient)
 
       try {
-        // Insert into email_log
+        const fullBody = renderedBody + EMAIL_SIGNATURE_HTML
+
+        // Insert into email_log with status pending
         const { data: logRow } = await supabase.from('email_log').insert({
           student_id: recipient.student_id,
           event_id: eventId,
@@ -462,17 +464,40 @@ export default function EventDetailPage() {
           to_email: recipient.personal_email!,
           from_email: 'events@thestepsfoundation.com',
           subject: renderedSubject,
-          body_html: renderedBody + EMAIL_SIGNATURE_HTML,
+          body_html: fullBody,
           status: 'pending',
           sent_by: (teamMember as any)?.auth_uuid ?? null,
         }).select('id').single()
 
+        // Actually send via server-side Gmail API
+        const sendRes = await fetch('/api/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            to: recipient.personal_email!,
+            subject: renderedSubject,
+            html: fullBody,
+          }),
+        })
+        const sendData = await sendRes.json()
+
         if (logRow) {
           emailLogIds.push({ appId: recipient.id, logId: logRow.id })
+          // Update email_log with send result
+          await supabase.from('email_log').update({
+            status: sendRes.ok ? 'sent' : 'failed',
+            gmail_message_id: sendData.messageId ?? null,
+            sent_at: sendRes.ok ? new Date().toISOString() : null,
+            error_message: sendRes.ok ? null : (sendData.error ?? 'Send failed'),
+          }).eq('id', logRow.id)
         }
 
-        setSendProgress(prev => ({ ...prev, sent: prev.sent + 1 }))
-      } catch {
+        if (sendRes.ok) {
+          setSendProgress(prev => ({ ...prev, sent: prev.sent + 1 }))
+        } else {
+          setSendProgress(prev => ({ ...prev, failed: prev.failed + 1 }))
+        }
+      } catch (err) {
         setSendProgress(prev => ({ ...prev, failed: prev.failed + 1 }))
       }
     }
