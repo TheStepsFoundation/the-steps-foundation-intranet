@@ -44,16 +44,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check if authenticated user is in team_members table.
   // This is the single source of truth — no hardcoded allowlist.
+  // Wrapped in a 5-second timeout so a hanging Supabase request
+  // can never cause an infinite loading screen.
   const checkTeamMembership = useCallback(async (email: string | undefined): Promise<TeamMember | null> => {
     if (!email) return null
-    const { data, error } = await supabase
-      .from('team_members')
-      .select('id, name, role, email, auth_uuid')
-      .eq('email', email.toLowerCase())
-      .limit(1)
-      .maybeSingle()
-    if (error || !data) return null
-    return data as TeamMember
+    try {
+      const result = await Promise.race([
+        supabase
+          .from('team_members')
+          .select('id, name, role, email, auth_uuid')
+          .eq('email', email.toLowerCase())
+          .limit(1)
+          .maybeSingle(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Team membership check timed out')), 5000)
+        ),
+      ])
+      const { data, error } = result
+      if (error || !data) return null
+      return data as TeamMember
+    } catch {
+      console.warn('[auth] checkTeamMembership failed or timed out')
+      return null
+    }
   }, [])
 
   // Handle auth state changes — runs on initial load and every sign-in/out
