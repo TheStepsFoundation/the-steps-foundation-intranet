@@ -61,7 +61,7 @@ const EMAIL_SIGNATURE_HTML = `
 <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;line-height:1.15;color:rgb(0,0,0)">
 <tbody><tr>
 <td style="vertical-align:top;padding:0.01px 14px 0.01px 1px;width:65px;text-align:center">
-<img width="96" height="96" src="https://ci3.googleusercontent.com/mail-sig/AIorK4zj566SIaXg19TJPc3shozm3sXpXOj_fPHpzZfHvj1ymT04MAL1OKZD5_1pWWw0Uh_eZDVMNq2oQAyz" alt="The Steps Foundation">
+<img width="96" height="96" src="https://stepsfoundationintranet.vercel.app/tsf-logo.png" alt="The Steps Foundation">
 </td>
 <td valign="top" style="padding:0.01px 0.01px 0.01px 14px;vertical-align:top;border-left:1px solid rgb(189,189,189)">
 <table cellpadding="0" cellspacing="0" style="border-collapse:collapse">
