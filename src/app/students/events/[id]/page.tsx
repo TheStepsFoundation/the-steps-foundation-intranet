@@ -86,22 +86,36 @@ export default function EventDetailPage() {
     return () => { active = false }
   }, [eventId])
 
-  // Fetch applicants
+  // Fetch applicants (batched to avoid Supabase's 1000-row default limit)
   const loadApplicants = useCallback(async () => {
     setAppLoading(true)
-    const { data, error } = await supabase
-      .from('applications')
-      .select(`
-        id, student_id, status, submitted_at, attended, reviewed_by, reviewed_at,
-        students!inner(first_name, last_name, personal_email, year_group, school_id,
-          schools(name)
-        )
-      `)
-      .eq('event_id', eventId)
-      .is('deleted_at', null)
-      .order('submitted_at', { ascending: false })
 
-    if (error) { setAppLoading(false); return }
+    const BATCH = 1000
+    let allRows: any[] = []
+    let from = 0
+    let hasMore = true
+
+    while (hasMore) {
+      const { data: batch, error } = await supabase
+        .from('applications')
+        .select(`
+          id, student_id, status, submitted_at, attended, reviewed_by, reviewed_at,
+          students!inner(first_name, last_name, personal_email, year_group, school_id,
+            schools(name)
+          )
+        `)
+        .eq('event_id', eventId)
+        .is('deleted_at', null)
+        .order('submitted_at', { ascending: false })
+        .range(from, from + BATCH - 1)
+
+      if (error) { setAppLoading(false); return }
+      allRows = allRows.concat(batch ?? [])
+      hasMore = (batch?.length ?? 0) === BATCH
+      from += BATCH
+    }
+
+    const data = allRows
 
     // Also fetch reviewer names
     const reviewerIds = [...new Set((data ?? []).map((r: any) => r.reviewed_by).filter(Boolean))]
