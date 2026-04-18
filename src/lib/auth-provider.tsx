@@ -9,6 +9,7 @@ import { supabase } from './supabase'
 // ---------------------------------------------------------------------------
 
 type TeamMember = {
+  auth_uuid: string
   id: number
   name: string
   role: string
@@ -47,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!email) return null
     const { data, error } = await supabase
       .from('team_members')
-      .select('id, name, role, email')
+      .select('id, name, role, email, auth_uuid')
       .eq('email', email.toLowerCase())
       .limit(1)
       .maybeSingle()

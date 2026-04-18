@@ -2,15 +2,69 @@
 
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { EventRow, fetchEvent } from '@/lib/events-api'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/auth-provider'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type Applicant = {
+  id: string
+  student_id: string
+  first_name: string
+  last_name: string
+  personal_email: string | null
+  school_name: string | null
+  year_group: number | null
+  status: string
+  submitted_at: string
+  attended: boolean
+  reviewed_by: string | null
+  reviewer_name: string | null
+  reviewed_at: string | null
+}
+
+const STATUSES = [
+  { code: 'submitted', label: 'Submitted', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  { code: 'shortlisted', label: 'Shortlisted', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
+  { code: 'accepted', label: 'Accepted', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { code: 'waitlist', label: 'Waitlist', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  { code: 'rejected', label: 'Rejected', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
+  { code: 'withdrew', label: 'Withdrew', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+]
+
+const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.code, s]))
+
+type StatusFilter = 'all' | string
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function EventDetailPage() {
   const params = useParams()
   const eventId = params.id as string
-  const [event, setEvent] = useState<EventRow | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { teamMember } = useAuth()
 
+  const [event, setEvent] = useState<EventRow | null>(null)
+  const [applicants, setApplicants] = useState<Applicant[]>([])
+  const [loading, setLoading] = useState(true)
+  const [appLoading, setAppLoading] = useState(true)
+
+  // Filters
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [search, setSearch] = useState('')
+
+  // Selection for bulk actions
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  // Inline editing feedback
+  const [saving, setSaving] = useState<Set<string>>(new Set())
+
+  // Fetch event
   useEffect(() => {
     let active = true
     fetchEvent(eventId)
@@ -18,6 +72,208 @@ export default function EventDetailPage() {
       .catch(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [eventId])
+
+  // Fetch applicants
+  const loadApplicants = useCallback(async () => {
+    setAppLoading(true)
+    const { data, error } = await supabase
+      .from('applications')
+      .select(`
+        id, student_id, status, submitted_at, attended, reviewed_by, reviewed_at,
+        students!inner(first_name, last_name, personal_email, year_group, school_id,
+          schools(name)
+        )
+      `)
+      .eq('event_id', eventId)
+      .is('deleted_at', null)
+      .order('submitted_at', { ascending: false })
+
+    if (error) { setAppLoading(false); return }
+
+    // Also fetch reviewer names
+    const reviewerIds = [...new Set((data ?? []).map((r: any) => r.reviewed_by).filter(Boolean))]
+    let reviewerMap: Record<string, string> = {}
+    if (reviewerIds.length > 0) {
+      const { data: reviewers } = await supabase
+        .from('team_members')
+        .select('auth_uuid, name')
+        .in('auth_uuid', reviewerIds)
+      for (const r of reviewers ?? []) {
+        reviewerMap[r.auth_uuid] = r.name
+      }
+    }
+
+    const mapped: Applicant[] = (data ?? []).map((row: any) => {
+      const s = row.students
+      return {
+        id: row.id,
+        student_id: row.student_id,
+        first_name: s.first_name,
+        last_name: s.last_name,
+        personal_email: s.personal_email,
+        school_name: s.schools?.name ?? null,
+        year_group: s.year_group,
+        status: row.status,
+        submitted_at: row.submitted_at,
+        attended: row.attended ?? false,
+        reviewed_by: row.reviewed_by,
+        reviewer_name: row.reviewed_by ? (reviewerMap[row.reviewed_by] ?? null) : null,
+        reviewed_at: row.reviewed_at,
+      }
+    })
+
+    setApplicants(mapped)
+    setAppLoading(false)
+  }, [eventId])
+
+  useEffect(() => { loadApplicants() }, [loadApplicants])
+
+  // ---------------------------------------------------------------------------
+  // Filtering
+  // ---------------------------------------------------------------------------
+
+  const filtered = useMemo(() => {
+    let list = applicants
+    if (statusFilter !== 'all') {
+      list = list.filter(a => a.status === statusFilter)
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(a =>
+        `${a.first_name} ${a.last_name}`.toLowerCase().includes(q) ||
+        (a.personal_email?.toLowerCase().includes(q) ?? false) ||
+        (a.school_name?.toLowerCase().includes(q) ?? false)
+      )
+    }
+    return list
+  }, [applicants, statusFilter, search])
+
+  const statusCounts = useMemo(() => {
+    const c: Record<string, number> = { all: applicants.length }
+    for (const a of applicants) c[a.status] = (c[a.status] || 0) + 1
+    return c
+  }, [applicants])
+
+  // ---------------------------------------------------------------------------
+  // Actions
+  // ---------------------------------------------------------------------------
+
+  const updateStatus = async (appId: string, newStatus: string) => {
+    setSaving(prev => new Set(prev).add(appId))
+    const old = applicants.find(a => a.id === appId)
+    const now = new Date().toISOString()
+
+    await supabase
+      .from('applications')
+      .update({
+        status: newStatus,
+        reviewed_by: teamMember?.auth_uuid ?? null,
+        reviewed_at: now,
+        updated_by: teamMember?.auth_uuid ?? null,
+        updated_at: now,
+      } as any)
+      .eq('id', appId)
+
+    // Log status change
+    if (old) {
+      await supabase.from('application_status_history').insert({
+        application_id: appId,
+        old_status: old.status,
+        new_status: newStatus,
+        changed_by: teamMember?.auth_uuid ?? null,
+      })
+    }
+
+    // Optimistic update
+    setApplicants(prev => prev.map(a =>
+      a.id === appId ? {
+        ...a,
+        status: newStatus,
+        reviewed_by: teamMember?.auth_uuid ?? null,
+        reviewer_name: teamMember?.name ?? null,
+        reviewed_at: now,
+      } : a
+    ))
+    setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
+  }
+
+  const toggleAttended = async (appId: string) => {
+    const app = applicants.find(a => a.id === appId)
+    if (!app) return
+    const newVal = !app.attended
+
+    setSaving(prev => new Set(prev).add(appId))
+    await supabase
+      .from('applications')
+      .update({ attended: newVal, updated_at: new Date().toISOString() } as any)
+      .eq('id', appId)
+
+    setApplicants(prev => prev.map(a =>
+      a.id === appId ? { ...a, attended: newVal } : a
+    ))
+    setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
+  }
+
+  const bulkUpdateStatus = async (newStatus: string) => {
+    if (selected.size === 0) return
+    const ids = [...selected]
+    const now = new Date().toISOString()
+
+    // Log history for each
+    for (const id of ids) {
+      const old = applicants.find(a => a.id === id)
+      if (old && old.status !== newStatus) {
+        await supabase.from('application_status_history').insert({
+          application_id: id,
+          old_status: old.status,
+          new_status: newStatus,
+          changed_by: teamMember?.auth_uuid ?? null,
+        })
+      }
+    }
+
+    await supabase
+      .from('applications')
+      .update({
+        status: newStatus,
+        reviewed_by: teamMember?.auth_uuid ?? null,
+        reviewed_at: now,
+        updated_by: teamMember?.auth_uuid ?? null,
+        updated_at: now,
+      } as any)
+      .in('id', ids)
+
+    setApplicants(prev => prev.map(a =>
+      selected.has(a.id) ? {
+        ...a,
+        status: newStatus,
+        reviewed_by: teamMember?.auth_uuid ?? null,
+        reviewer_name: teamMember?.name ?? null,
+        reviewed_at: now,
+      } : a
+    ))
+    setSelected(new Set())
+  }
+
+  // Select helpers
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
+    })
+  }
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(filtered.map(a => a.id)))
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   if (loading) {
     return (
@@ -44,6 +300,9 @@ export default function EventDetailPage() {
       })
     : 'Date TBC'
 
+  const attendedCount = applicants.filter(a => a.attended).length
+  const acceptedCount = applicants.filter(a => a.status === 'accepted').length
+
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Breadcrumb */}
@@ -55,24 +314,221 @@ export default function EventDetailPage() {
 
       {/* Event header */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{event.name}</h1>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-          <span>{formattedDate}</span>
-          {event.time_start && <span>{event.time_start}{event.time_end ? ` – ${event.time_end}` : ''}</span>}
-          {event.location && <span>{event.location}</span>}
-          {event.capacity != null && <span>Capacity: {event.capacity}</span>}
-          {event.dress_code && <span>Dress code: {event.dress_code}</span>}
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{event.name}</h1>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+              <span>{formattedDate}</span>
+              {event.time_start && <span>{event.time_start}{event.time_end ? ` – ${event.time_end}` : ''}</span>}
+              {event.location && <span>{event.location}</span>}
+              {event.capacity != null && <span>Capacity: {event.capacity}</span>}
+              {event.dress_code && <span>Dress code: {event.dress_code}</span>}
+            </div>
+          </div>
+          {/* Quick stats */}
+          <div className="hidden sm:flex items-center gap-4 text-sm">
+            <div className="text-center">
+              <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{applicants.length}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Applicants</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">{acceptedCount}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Accepted</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-semibold text-indigo-600 dark:text-indigo-400">{attendedCount}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Attended</div>
+            </div>
+          </div>
         </div>
         {event.description && (
           <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">{event.description}</p>
         )}
       </div>
 
-      {/* Placeholder for Phase 2: Applicant Manager */}
-      <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 p-10 text-center">
-        <p className="text-gray-500 dark:text-gray-400 text-sm">
-          Applicant manager coming in Phase 2 — bulk actions, filters, email sending, and audit trail.
-        </p>
+      {/* Applicant Manager */}
+      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+        {/* Toolbar */}
+        <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Status filter tabs */}
+            <div className="flex items-center gap-1 flex-wrap">
+              {[{ code: 'all', label: 'All' }, ...STATUSES].map(s => (
+                <button
+                  key={s.code}
+                  onClick={() => { setStatusFilter(s.code); setSelected(new Set()) }}
+                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                    statusFilter === s.code
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {s.label}
+                  <span className="ml-1 opacity-70">{statusCounts[s.code] ?? 0}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Search */}
+            <input
+              type="text"
+              placeholder="Search name, email, school…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="ml-auto px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 w-64"
+            />
+          </div>
+
+          {/* Bulk actions */}
+          {selected.size > 0 && (
+            <div className="mt-3 flex items-center gap-2 text-sm">
+              <span className="text-gray-600 dark:text-gray-400">{selected.size} selected</span>
+              <span className="text-gray-300 dark:text-gray-600">|</span>
+              {STATUSES.filter(s => s.code !== 'withdrew').map(s => (
+                <button
+                  key={s.code}
+                  onClick={() => bulkUpdateStatus(s.code)}
+                  className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+                >
+                  → {s.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setSelected(new Set())}
+                className="ml-2 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Table */}
+        {appLoading ? (
+          <div className="p-10 text-center text-gray-500 dark:text-gray-400 text-sm">Loading applicants…</div>
+        ) : filtered.length === 0 ? (
+          <div className="p-10 text-center text-gray-500 dark:text-gray-400 text-sm">
+            {applicants.length === 0 ? 'No applications yet.' : 'No applicants match your filters.'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="p-3 w-8">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                  </th>
+                  <th className="p-3">Name</th>
+                  <th className="p-3 hidden md:table-cell">Email</th>
+                  <th className="p-3 hidden lg:table-cell">School</th>
+                  <th className="p-3 hidden lg:table-cell">Year</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3 hidden md:table-cell">Submitted</th>
+                  <th className="p-3">Attended</th>
+                  <th className="p-3 hidden lg:table-cell">Reviewer</th>
+                  <th className="p-3 hidden lg:table-cell">Reviewed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(app => {
+                  const badge = STATUS_MAP[app.status] ?? STATUS_MAP.submitted
+                  return (
+                    <tr
+                      key={app.id}
+                      className={`border-b border-gray-100 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors ${
+                        selected.has(app.id) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''
+                      }`}
+                    >
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(app.id)}
+                          onChange={() => toggleSelect(app.id)}
+                          className="rounded border-gray-300 dark:border-gray-600"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <Link
+                          href={`/students/${app.student_id}`}
+                          className="font-medium text-gray-900 dark:text-gray-100 hover:text-indigo-600 dark:hover:text-indigo-400"
+                        >
+                          {app.first_name} {app.last_name}
+                        </Link>
+                      </td>
+                      <td className="p-3 hidden md:table-cell text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
+                        {app.personal_email ?? '—'}
+                      </td>
+                      <td className="p-3 hidden lg:table-cell text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
+                        {app.school_name ?? '—'}
+                      </td>
+                      <td className="p-3 hidden lg:table-cell text-gray-500 dark:text-gray-400">
+                        {app.year_group ?? '—'}
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={app.status}
+                          onChange={e => updateStatus(app.id, e.target.value)}
+                          disabled={saving.has(app.id)}
+                          className={`text-xs font-medium rounded-full px-2.5 py-0.5 border-0 cursor-pointer ${badge.color} ${
+                            saving.has(app.id) ? 'opacity-50' : ''
+                          }`}
+                        >
+                          {STATUSES.map(s => (
+                            <option key={s.code} value={s.code}>{s.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="p-3 hidden md:table-cell text-gray-500 dark:text-gray-400">
+                        {new Date(app.submitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
+                      </td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => toggleAttended(app.id)}
+                          disabled={saving.has(app.id)}
+                          className={`w-5 h-5 rounded border-2 inline-flex items-center justify-center transition-colors ${
+                            app.attended
+                              ? 'bg-emerald-500 border-emerald-500 text-white'
+                              : 'border-gray-300 dark:border-gray-600 hover:border-emerald-400'
+                          } ${saving.has(app.id) ? 'opacity-50' : ''}`}
+                          title={app.attended ? 'Attended' : 'Not attended (no-show)'}
+                        >
+                          {app.attended && (
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </button>
+                      </td>
+                      <td className="p-3 hidden lg:table-cell text-gray-500 dark:text-gray-400 truncate max-w-[120px]">
+                        {app.reviewer_name ?? '—'}
+                      </td>
+                      <td className="p-3 hidden lg:table-cell text-gray-500 dark:text-gray-400">
+                        {app.reviewed_at
+                          ? new Date(app.reviewed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })
+                          : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="p-3 border-t border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
+          <span>
+            Showing {filtered.length} of {applicants.length} applicant{applicants.length !== 1 ? 's' : ''}
+          </span>
+          <span>
+            {attendedCount} attended · {applicants.length - attendedCount} no-show
+          </span>
+        </div>
       </div>
     </main>
   )
