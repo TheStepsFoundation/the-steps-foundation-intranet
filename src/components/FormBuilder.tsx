@@ -18,23 +18,23 @@ type FieldTypeMeta = {
 const FIELD_TYPES: FieldTypeMeta[] = [
   // Basic
   { value: "text",     label: "Short text",    desc: "Single line input",            icon: "Aa",  category: "basic" },
-  { value: "textarea", label: "Long text",     desc: "Multi-line paragraph",         icon: "¶",   category: "basic" },
+  { value: "textarea", label: "Long text",     desc: "Multi-line paragraph",         icon: "≡",   category: "basic" },
   { value: "number",   label: "Number",        desc: "Numeric value",                icon: "#",   category: "basic" },
   { value: "email",    label: "Email",         desc: "Email with @ validation",      icon: "@",   category: "basic" },
   { value: "phone",    label: "Phone",         desc: "Phone number input",           icon: "📞",  category: "basic" },
   { value: "date",     label: "Date",          desc: "Calendar date picker",         icon: "📅",  category: "basic" },
   { value: "url",      label: "URL / Link",    desc: "Website or profile link",      icon: "🔗",  category: "basic" },
   // Choice
-  { value: "dropdown",        label: "Dropdown",        desc: "Pick one from a list",              icon: "▾",    category: "choice" },
-  { value: "radio",           label: "Radio buttons",   desc: "Pick one, all options visible",     icon: "◉",    category: "choice" },
-  { value: "checkbox_list",   label: "Checkbox list",   desc: "Pick multiple from a list",         icon: "☑",    category: "choice" },
+  { value: "dropdown",        label: "Dropdown",        desc: "Pick one from a list",              icon: "▼",    category: "choice" },
+  { value: "radio",           label: "Single select",   desc: "Pick one, all options visible",     icon: "◎",    category: "choice" },
+  { value: "checkbox_list",   label: "Checkbox list",   desc: "Pick multiple from a list",         icon: "☑️",    category: "choice" },
   { value: "yes_no",          label: "Yes / No",        desc: "Binary toggle buttons",             icon: "Y/N",  category: "choice" },
-  { value: "ranked_dropdown", label: "Ranked choice",   desc: "1st, 2nd, 3rd preference",          icon: "🥇",   category: "choice" },
+  { value: "ranked_dropdown", label: "Ranked choice",   desc: "1st, 2nd, 3rd preference",          icon: "1·2·3",   category: "choice" },
   // Advanced
-  { value: "scale",           label: "Scale",           desc: "Rate on a 1–5 or 1–10 scale",      icon: "1…5",  category: "advanced" },
-  { value: "paired_dropdown", label: "Paired dropdowns", desc: "Two linked dropdowns (e.g. Subject ↔ Grade)", icon: "⇄",    category: "advanced" },
-  { value: "matrix",          label: "Matrix / Grid",   desc: "Rows × columns rating grid",       icon: "▦",    category: "advanced" },
-  { value: "repeatable_group",label: "Repeatable group", desc: "Set of fields students can repeat", icon: "⊕",   category: "advanced" },
+  { value: "scale",           label: "Scale",           desc: "Rate on a 1–5 or 1–10 scale",      icon: "①—⑤",  category: "advanced" },
+  { value: "paired_dropdown", label: "Paired dropdowns", desc: "Two linked dropdowns (e.g. Subject ↔ Grade)", icon: "▾▾",    category: "advanced" },
+  { value: "matrix",          label: "Matrix / Grid",   desc: "Rows × columns rating grid",       icon: "⊞",    category: "advanced" },
+  { value: "repeatable_group",label: "Repeatable group", desc: "Set of fields students can repeat", icon: "↻",   category: "advanced" },
   // Layout
   { value: "section_heading", label: "Section heading", desc: "Visual break with title + description", icon: "H",  category: "layout" },
 ]
@@ -746,7 +746,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
                   {types.map(ft => (
                     <button key={ft.value} onClick={() => addField(ft.value)}
                       className="text-left p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-indigo-400 dark:hover:border-indigo-500 transition flex items-start gap-2">
-                      <span className="w-7 h-7 shrink-0 flex items-center justify-center text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 rounded">
+                      <span className="w-9 h-9 shrink-0 flex items-center justify-center text-sm font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 rounded">
                         {ft.icon}
                       </span>
                       <div className="min-w-0">
