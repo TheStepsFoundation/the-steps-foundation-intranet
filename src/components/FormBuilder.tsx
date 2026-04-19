@@ -414,10 +414,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
       )}
 
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-        {
-          ? `Fields on "${activePageObj?.title ?? "this page"}" — students see these after the standard questions.`
-          : "These fields appear on the application form after the standard questions."
-        }
+        {`Fields on "${activePageObj?.title ?? "this page"}" — students see these after the standard questions.`}
       </p>
 
       {/* Existing fields */}
