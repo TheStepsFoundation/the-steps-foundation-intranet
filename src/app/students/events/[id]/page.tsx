@@ -109,7 +109,7 @@ const EMAIL_SIGNATURE_HTML = `
 <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;line-height:1.15;color:rgb(0,0,0)">
 <tbody><tr>
 <td style="vertical-align:top;padding:0.01px 14px 0.01px 1px;width:65px;text-align:center">
-<img width="96" height="96" src="https://drive.google.com/uc?export=view&id=1opsHkt2hbBhGdYHVQrWpNjK8lGZnydjS" alt="The Steps Foundation">
+<img width="96" height="96" src="https://the-steps-foundation-intranet.vercel.app/tsf-logo.png" alt="The Steps Foundation">
 </td>
 <td valign="top" style="padding:0.01px 0.01px 0.01px 14px;vertical-align:top;border-left:1px solid rgb(189,189,189)">
 <table cellpadding="0" cellspacing="0" style="border-collapse:collapse">
@@ -169,6 +169,52 @@ function looksLikeHtml(s: string): boolean {
   return /<[a-z!\/]/i.test(s)
 }
 
+// ---------------------------------------------------------------------------
+// Merge-tag chip rendering — while editing we display {{first_name}} as a
+// pretty blue pill via a contenteditable=false span. On serialise we collapse
+// the span back to its {{tag}} token so saved templates / sent emails stay
+// the same plain-text format. Keep this list in sync with the chip palette
+// rendered above the editor.
+// ---------------------------------------------------------------------------
+const MERGE_TAG_LABELS: Record<string, string> = {
+  first_name: 'First Name',
+  last_name: 'Last Name',
+  full_name: 'Full Name',
+  email: 'Email',
+  event_name: 'Event Name',
+  event_date: 'Event Date',
+  event_time: 'Event Time',
+  event_location: 'Location',
+  dress_code: 'Dress Code',
+  rsvp_link: 'RSVP Link',
+  portal_link: 'Portal Link',
+}
+
+function makeChipHtml(tag: string, label?: string): string {
+  const safeTag = tag.replace(/[^a-zA-Z0-9_]/g, '')
+  const text = (label ?? MERGE_TAG_LABELS[safeTag] ?? safeTag).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // inline styles so the chip renders correctly inside the contenteditable
+  // surface regardless of whether tailwind classes hydrate; user-select:all
+  // keeps chips atomic when the user drags or backspaces.
+  return `<span class="merge-tag-chip" contenteditable="false" data-tag="${safeTag}" style="display:inline-block;padding:1px 8px;margin:0 2px;border-radius:9999px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:500;line-height:18px;vertical-align:baseline;user-select:all;white-space:nowrap;">${text}</span>`
+}
+
+function tokensToChips(html: string): string {
+  return html.replace(/\{\{(\w+)\}\}/g, (_m, tag) => makeChipHtml(tag))
+}
+
+function chipsToTokens(html: string): string {
+  if (typeof document === 'undefined') return html
+  const tpl = document.createElement('template')
+  tpl.innerHTML = html
+  tpl.content.querySelectorAll('span.merge-tag-chip').forEach(span => {
+    const tag = span.getAttribute('data-tag') || ''
+    span.replaceWith(document.createTextNode(`{{${tag}}}`))
+  })
+  return tpl.innerHTML
+}
+
+
 // Available sortable columns
 type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at'
 type SortDir = 'asc' | 'desc'
@@ -197,6 +243,7 @@ type StatusFilter = 'all' | string
 
 type RichTextEditorHandle = {
   insertText: (text: string) => void
+  insertMergeTag: (tag: string, label?: string) => void
   focus: () => void
 }
 
@@ -219,10 +266,13 @@ const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEditorProp
   const [isEmpty, setIsEmpty] = useState(!initialHtml || initialHtml === '<br>' || initialHtml === '<p><br></p>')
 
   // Seed the div on mount / when initialHtml identity changes (new template).
+  // initialHtml is in token form ({{first_name}}); we hydrate to chip spans
+  // for display, then collapse back to tokens on every change.
   useEffect(() => {
     if (!divRef.current) return
-    if (divRef.current.innerHTML !== initialHtml) {
-      divRef.current.innerHTML = initialHtml || ''
+    const seeded = tokensToChips(initialHtml || '')
+    if (divRef.current.innerHTML !== seeded) {
+      divRef.current.innerHTML = seeded
       setIsEmpty(!divRef.current.textContent)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,7 +295,7 @@ const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEditorProp
 
   const emitChange = () => {
     if (!divRef.current) return
-    onChange(divRef.current.innerHTML)
+    onChange(chipsToTokens(divRef.current.innerHTML))
     setIsEmpty(!divRef.current.textContent)
   }
 
@@ -262,8 +312,33 @@ const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEditorProp
     emitChange()
   }
 
+  // Insert a chip + trailing space at the caret. Uses execCommand insertHTML
+  // so the contenteditable=false span is treated as a single atomic node.
+  const insertChipAtCaret = (tag: string, label?: string) => {
+    restoreSelection()
+    divRef.current?.focus()
+    const html = makeChipHtml(tag, label) + '&nbsp;'
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('insertHTML', false, html)
+    } catch {
+      // Fallback for any browser that's stripped insertHTML.
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0 && divRef.current) {
+        const range = sel.getRangeAt(0)
+        const tplEl = document.createElement('template')
+        tplEl.innerHTML = html
+        range.deleteContents()
+        range.insertNode(tplEl.content)
+      }
+    }
+    saveSelection()
+    emitChange()
+  }
+
   React.useImperativeHandle(forwardedRef, () => ({
     insertText: (text: string) => exec('insertText', text),
+    insertMergeTag: (tag: string, label?: string) => insertChipAtCaret(tag, label),
     focus: () => divRef.current?.focus(),
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [onChange])
@@ -942,6 +1017,68 @@ export default function EventDetailPage() {
     setEmailBody(tpl.body_html)
     setTemplateDirty(false)
     setBodySeedCounter(c => c + 1)
+  }
+
+  // Rename the currently-selected template. Prompts for the new name,
+  // updates the row in email_templates, then refreshes the local cache so
+  // the dropdown / header strip reflect the change.
+  const renameSelectedTemplate = async () => {
+    if (!selectedTemplate) return
+    const current = templates.find(t => t.id === selectedTemplate)
+    if (!current) return
+    const next = window.prompt('Rename this template', current.name)
+    if (!next || next.trim() === '' || next.trim() === current.name) return
+    setSavingTemplate(true)
+    try {
+      await supabase.from('email_templates').update({
+        name: next.trim(),
+        updated_at: new Date().toISOString(),
+        updated_by: teamMember?.auth_uuid ?? null,
+      }).eq('id', selectedTemplate)
+      const { data } = await supabase
+        .from('email_templates')
+        .select('id, name, type, subject, body_html, event_id')
+        .is('deleted_at', null)
+        .order('name')
+      setTemplates((data ?? []) as any[])
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  // Soft-delete the selected template via deleted_at. Confirms first, and
+  // refuses to delete the last template of a given type so the auto-load
+  // effect for Accept/Reject/Waitlist still has something to fall back to.
+  const deleteSelectedTemplate = async () => {
+    if (!selectedTemplate) return
+    const current = templates.find(t => t.id === selectedTemplate)
+    if (!current) return
+    const remainingOfType = templates.filter(t => t.type === current.type && t.id !== selectedTemplate)
+    if (remainingOfType.length === 0) {
+      window.alert(`Can't delete — this is the only ${current.type} template. Create a replacement first.`)
+      return
+    }
+    if (!window.confirm(`Delete the template "${current.name}"? You can recreate it later.`)) return
+    setSavingTemplate(true)
+    try {
+      await supabase.from('email_templates').update({
+        deleted_at: new Date().toISOString(),
+      }).eq('id', selectedTemplate)
+      // Reset selection and refresh the cache
+      setSelectedTemplate('')
+      setEmailSubject('')
+      setEmailBody('')
+      setTemplateDirty(false)
+      setBodySeedCounter(c => c + 1)
+      const { data } = await supabase
+        .from('email_templates')
+        .select('id, name, type, subject, body_html, event_id')
+        .is('deleted_at', null)
+        .order('name')
+      setTemplates((data ?? []) as any[])
+    } finally {
+      setSavingTemplate(false)
+    }
   }
 
   // Persist subject/body edits back to the selected template so the next
@@ -1988,23 +2125,57 @@ export default function EventDetailPage() {
             <div className="p-5 overflow-y-auto flex-1 space-y-4">
               {emailStep === 'pick' && (
                 <>
-                  {/* Template picker */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Template</label>
-                    <select
-                      value={selectedTemplate}
-                      onChange={e => applyTemplate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
-                    >
-                      <option value="">&mdash; Select a template or write from scratch &mdash;</option>
-                      {templates
-                        .filter(t => !t.event_id || t.event_id === eventId)
-                        .map(t => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({t.type}){!t.event_id ? ' — Global' : ''}
-                          </option>
-                        ))}
-                    </select>
+                  {/* Template controls header strip */}
+                  <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] uppercase tracking-wide text-gray-400">Template</span>
+                      {selectedTemplate ? (
+                        <>
+                          <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate max-w-[220px]" title={templates.find(t => t.id === selectedTemplate)?.name}>
+                            {templates.find(t => t.id === selectedTemplate)?.name ?? 'Untitled'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={renameSelectedTemplate}
+                            disabled={savingTemplate}
+                            title="Rename template"
+                            className="inline-flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-steps-blue-600 hover:bg-steps-blue-50 dark:hover:bg-steps-blue-900/20 disabled:opacity-40"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={deleteSelectedTemplate}
+                            disabled={savingTemplate}
+                            title="Delete template"
+                            className="inline-flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3" />
+                            </svg>
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-sm text-gray-500 italic">No template &mdash; writing from scratch</span>
+                      )}
+                      <div className="flex-1" />
+                      <select
+                        value={selectedTemplate}
+                        onChange={e => applyTemplate(e.target.value)}
+                        className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 max-w-[220px]"
+                      >
+                        <option value="">Change template…</option>
+                        {templates
+                          .filter(t => !t.event_id || t.event_id === eventId)
+                          .map(t => (
+                            <option key={t.id} value={t.id}>
+                              {t.name} ({t.type}){!t.event_id ? ' — Global' : ''}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
                   </div>
 
                   {/* Subject */}
@@ -2022,7 +2193,7 @@ export default function EventDetailPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Body</label>
-                      <span className="text-[10px] text-gray-400">Signature is auto-appended</span>
+                      <span className="text-[10px] text-gray-400">Tags show as pills here — sent as values. Signature is auto-appended.</span>
                     </div>
 
                     {/* Merge-tag insert chips */}
@@ -2045,7 +2216,7 @@ export default function EventDetailPage() {
                           type="button"
                           onMouseDown={e => e.preventDefault()}
                           onClick={() => {
-                            bodyEditorRef.current?.insertText(`{{${tag}}}`)
+                            bodyEditorRef.current?.insertMergeTag(tag, label)
                             if (selectedTemplate) setTemplateDirty(true)
                           }}
                           className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
