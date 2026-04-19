@@ -90,6 +90,18 @@ export async function verifyOtp(
   return { error: null }
 }
 
+export async function signInWithPassword(
+  email: string,
+  password: string,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.auth.signInWithPassword({
+    email: email.toLowerCase().trim(),
+    password,
+  })
+  if (error) return { error: error.message }
+  return { error: null }
+}
+
 export async function upgradeToPassword(
   password: string,
 ): Promise<{ error: string | null }> {

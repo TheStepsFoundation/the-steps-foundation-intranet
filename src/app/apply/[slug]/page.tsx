@@ -6,7 +6,7 @@ import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
 import DynamicFormField, { type FieldValue } from '@/components/DynamicFormField'
 import type { FormFieldConfig } from '@/lib/events-api'
 import {
-  sendOtp, verifyOtp, lookupSelf, hasExistingApplication, getExistingSession,
+  sendOtp, verifyOtp, signInWithPassword, lookupSelf, hasExistingApplication, getExistingSession,
   submitApplication, upgradeToPassword, signOutStudent,
   fetchEventFormConfig,
   type StudentSelf, type ApplicationSubmission,
@@ -196,6 +196,8 @@ export default function ApplyPage() {
 
   const [step, setStep] = useState<Step>('email')
   const [email, setEmail] = useState('')
+  const [loginMode, setLoginMode] = useState<'password' | 'otp'>('password')
+  const [loginPassword, setLoginPassword] = useState('')
   const [otpCode, setOtpCode] = useState('')
   const [existingStudent, setExistingStudent] = useState<StudentSelf | null>(null)
   const [alreadyApplied, setAlreadyApplied] = useState(false)
@@ -389,6 +391,32 @@ export default function ApplyPage() {
     setStep('otp')
   }
 
+
+  const handlePasswordLogin = async () => {
+    if (!email.trim() || !loginPassword) return
+    setLoading(true)
+    setError(null)
+    const { error: err } = await signInWithPassword(email, loginPassword)
+    if (err) {
+      setLoading(false)
+      setError(err)
+      return
+    }
+    // Re-fetch form config with auth
+    fetchEventFormConfig(event.id).then(config => {
+      setFormFields(config.fields ?? [])
+    })
+    const student = await lookupSelf()
+    if (student) {
+      setExistingStudent(student)
+      prefill(student)
+      const applied = await hasExistingApplication(event.id)
+      if (applied) setAlreadyApplied(true)
+    }
+    setLoading(false)
+    setStep('details')
+  }
+
   const handleVerifyOtp = async () => {
     if (otpCode.length < 6) return
     setLoading(true)
@@ -571,32 +599,88 @@ export default function ApplyPage() {
       {/* ================================================================= */}
       {step === 'email' && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-2">Let&apos;s get started</h2>
-          <p className="text-gray-500 text-sm mb-6">
-            Enter your email address. We&apos;ll send you a verification code.
-            {' '}If you&apos;ve applied to a Steps event before, we&apos;ll pre-fill your details.
-          </p>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-            Email address
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
-            placeholder="you@example.com"
-            autoFocus
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition mb-4"
-          />
-          <button
-            onClick={handleSendOtp}
-            disabled={loading || !email.trim()}
-            className="w-full py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {loading ? <Spinner /> : null}
-            {loading ? 'Sending code...' : 'Continue'}
-          </button>
+          {loginMode === 'password' ? (
+            <>
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Sign in</h2>
+              <p className="text-gray-500 text-sm mb-6">
+                Enter your email and password to continue.
+                {' '}If you&apos;ve applied before, we&apos;ll pre-fill your details.
+              </p>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email address
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoFocus
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition mb-3"
+              />
+              <label htmlFor="loginPw" className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <input
+                id="loginPw"
+                type="password"
+                value={loginPassword}
+                onChange={e => setLoginPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handlePasswordLogin()}
+                placeholder="Your password"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition mb-4"
+              />
+              <button
+                onClick={handlePasswordLogin}
+                disabled={loading || !email.trim() || !loginPassword}
+                className="w-full py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? <Spinner /> : null}
+                {loading ? 'Signing in...' : 'Sign in'}
+              </button>
+              <button
+                onClick={() => { setLoginMode('otp'); setError(null) }}
+                className="w-full mt-3 py-2 text-sm text-purple-600 hover:text-purple-700 font-medium"
+              >
+                First time? Send a verification code instead
+              </button>
+            </>
+          ) : (
+            <>
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Let&apos;s get started</h2>
+              <p className="text-gray-500 text-sm mb-6">
+                Enter your email address. We&apos;ll send you a verification code.
+                {' '}If you&apos;ve applied to a Steps event before, we&apos;ll pre-fill your details.
+              </p>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email address
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
+                placeholder="you@example.com"
+                autoFocus
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition mb-4"
+              />
+              <button
+                onClick={handleSendOtp}
+                disabled={loading || !email.trim()}
+                className="w-full py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? <Spinner /> : null}
+                {loading ? 'Sending code...' : 'Send verification code'}
+              </button>
+              <button
+                onClick={() => { setLoginMode('password'); setError(null) }}
+                className="w-full mt-3 py-2 text-sm text-purple-600 hover:text-purple-700 font-medium"
+              >
+                Already have a password? Sign in instead
+              </button>
+            </>
+          )}
         </div>
       )}
 
