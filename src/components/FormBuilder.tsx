@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import type { FormFieldConfig, FormFieldType, FormPage, ConditionalRule } from "@/lib/events-api"
 
 // ---------------------------------------------------------------------------
@@ -104,56 +104,55 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
   const inputClass = "w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
 
   // ---------------------------------------------------------------------------
-  // Multi-page helpers
+  // Multi-page helpers — always ensure at least page 1 exists
   // ---------------------------------------------------------------------------
 
-  const isMultiPage = !!pages && pages.length > 0
+  // Auto-initialize page 1 on mount if no pages exist yet
+  const hasPages = !!pages && pages.length > 0
+  useEffect(() => {
+    if (!hasPages) {
+      const page1: FormPage = {
+        id: `page_${Date.now()}`,
+        title: "Page 1",
+        fields: fields,
+      }
+      onChange([], [page1])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasPages])
+
+  const effectivePages = hasPages ? pages! : [{ id: "page_init", title: "Page 1", fields }]
 
   // Get fields for active context
-  const activeFields = isMultiPage ? (pages![activePage]?.fields ?? []) : fields
-  const activePageObj = isMultiPage ? pages![activePage] : null
+  const activeFields = effectivePages[activePage]?.fields ?? []
+  const activePageObj = effectivePages[activePage] ?? null
 
   const setActiveFields = (newFields: FormFieldConfig[]) => {
-    if (isMultiPage && pages) {
-      const updated = pages.map((p, i) => i === activePage ? { ...p, fields: newFields } : p)
-      onChange(fields, updated)
-    } else {
-      onChange(newFields)
-    }
+    const updated = effectivePages.map((p, i) => i === activePage ? { ...p, fields: newFields } : p)
+    onChange([], updated)
   }
 
   const addPage = () => {
     const newPage: FormPage = {
       id: `page_${Date.now()}`,
-      title: `Page ${(pages?.length ?? 0) + 2}`,
+      title: `Page ${effectivePages.length + 1}`,
       fields: [],
     }
-    const updated = [...(pages ?? []), newPage]
-    // If first time adding pages, move existing fields to page 1
-    if (!pages || pages.length === 0) {
-      const page1: FormPage = {
-        id: `page_${Date.now() - 1}`,
-        title: "Page 1",
-        fields: fields,
-      }
-      onChange([], [page1, newPage])
-    } else {
-      onChange(fields, updated)
-    }
+    const updated = [...effectivePages, newPage]
+    onChange([], updated)
     setActivePage(updated.length - 1)
   }
 
   const removePage = (idx: number) => {
-    if (!pages || pages.length <= 1) return
-    const updated = pages.filter((_, i) => i !== idx)
-    onChange(fields, updated)
+    if (effectivePages.length <= 1) return
+    const updated = effectivePages.filter((_, i) => i !== idx)
+    onChange([], updated)
     setActivePage(Math.min(activePage, updated.length - 1))
   }
 
   const updatePageMeta = (idx: number, patch: Partial<FormPage>) => {
-    if (!pages) return
-    const updated = pages.map((p, i) => i === idx ? { ...p, ...patch } : p)
-    onChange(fields, updated)
+    const updated = effectivePages.map((p, i) => i === idx ? { ...p, ...patch } : p)
+    onChange([], updated)
   }
 
   // ---------------------------------------------------------------------------
@@ -206,9 +205,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
   // All fields across all pages (for conditional routing references)
   // ---------------------------------------------------------------------------
 
-  const allFields: FormFieldConfig[] = isMultiPage
-    ? (pages ?? []).flatMap(p => p.fields)
-    : fields
+  const allFields: FormFieldConfig[] = effectivePages.flatMap(p => p.fields)
 
   // ---------------------------------------------------------------------------
   // Option list editor (reusable)
@@ -323,9 +320,8 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
       )}
 
       {/* ---- Page tabs ---- */}
-      {isMultiPage && (
-        <div className="flex items-center gap-1 mb-3 overflow-x-auto pb-1">
-          {pages!.map((page, pi) => (
+      <div className="flex items-center gap-1 mb-3 overflow-x-auto pb-1">
+          {effectivePages.map((page, pi) => (
             <button key={page.id}
               onClick={() => setActivePage(pi)}
               className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition flex items-center gap-1.5 ${
@@ -334,17 +330,16 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
                   : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 border border-transparent"
               }`}>
               {page.title}
-              {pages!.length > 1 && (
+              {effectivePages.length > 1 && (
                 <span onClick={e => { e.stopPropagation(); removePage(pi) }}
                   className="text-red-400 hover:text-red-600 font-bold ml-0.5 text-[10px]">×</span>
               )}
             </button>
           ))}
         </div>
-      )}
 
-      {/* ---- Page title/description (multi-page) ---- */}
-      {isMultiPage && activePageObj && (
+      {/* ---- Page title/description ---- */}
+      {activePageObj && (
         <div className="mb-3 p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div>
@@ -399,7 +394,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
                         }}
                         className={`mt-0.5 ${inputClass}`}>
                         <option value="">Select page…</option>
-                        {pages!.filter((_, i) => i !== activePage).map(p => (
+                        {effectivePages.filter((_, i) => i !== activePage).map(p => (
                           <option key={p.id} value={p.id}>{p.title}</option>
                         ))}
                         <option value="__submit">→ Skip to submit</option>
@@ -419,7 +414,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
       )}
 
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-        {isMultiPage
+        {
           ? `Fields on "${activePageObj?.title ?? "this page"}" — students see these after the standard questions.`
           : "These fields appear on the application form after the standard questions."
         }
