@@ -224,6 +224,8 @@ export default function ApplyPage() {
   // Draft restore guard
   const restoringRef = useRef(false)
   const draftRestoredRef = useRef(false)
+  const originalFormSnapshot = useRef<string>('')
+  const [showExitPrompt, setShowExitPrompt] = useState(false)
 
   // Success step
   const [password, setPassword] = useState('')
@@ -270,6 +272,21 @@ export default function ApplyPage() {
 
 
   // Restore full application data (GCSEs, qualifications, custom fields, etc.)
+  // Snapshot of form values to detect changes when editing
+  const getFormSnapshot = useCallback(() => {
+    return JSON.stringify({
+      firstName, lastName, school, yearGroup, schoolType, freeSchoolMeals,
+      householdIncome, additionalContext, gcseResults, qualifications,
+      attribution, customFieldValues,
+    })
+  }, [firstName, lastName, school, yearGroup, schoolType, freeSchoolMeals,
+      householdIncome, additionalContext, gcseResults, qualifications,
+      attribution, customFieldValues])
+
+  const hasFormChanges = alreadyApplied && originalFormSnapshot.current
+    ? getFormSnapshot() !== originalFormSnapshot.current
+    : true  // new applications always allow submit
+
   const restoreApplication = useCallback(async (eventId: string) => {
     const app = await fetchExistingApplication(eventId)
     if (!app?.raw_response) return
@@ -311,6 +328,8 @@ export default function ApplyPage() {
           setAlreadyApplied(true)
           await restoreApplication(event!.id)
           draftRestoredRef.current = true
+          // Snapshot after next render so state is settled
+          setTimeout(() => { originalFormSnapshot.current = getFormSnapshot() }, 200)
           if (!cancelled) setStep(editMode ? 'details' : 'applied')
           return
         }
@@ -444,7 +463,11 @@ export default function ApplyPage() {
       setExistingStudent(student)
       prefill(student)
       const applied = await hasExistingApplication(event!.id)
-      if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true; setLoading(false); setStep(editMode ? 'details' : 'applied'); return }
+      if (applied) {
+          setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true
+          setTimeout(() => { originalFormSnapshot.current = getFormSnapshot() }, 200)
+          setLoading(false); setStep(editMode ? 'details' : 'applied'); return
+        }
     }
     if (student) draftRestoredRef.current = true
     setLoading(false)
@@ -468,7 +491,11 @@ export default function ApplyPage() {
       setExistingStudent(student)
       prefill(student)
       const applied = await hasExistingApplication(event!.id)
-      if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true; setLoading(false); setStep(editMode ? 'details' : 'applied'); return }
+      if (applied) {
+          setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true
+          setTimeout(() => { originalFormSnapshot.current = getFormSnapshot() }, 200)
+          setLoading(false); setStep(editMode ? 'details' : 'applied'); return
+        }
     }
     if (student) draftRestoredRef.current = true
     setLoading(false)
@@ -680,6 +707,51 @@ export default function ApplyPage() {
       {/* ================================================================= */}
       {/* STEP 1: Email */}
       {/* ================================================================= */}
+
+      {/* Back to Student Hub — shown on all form steps */}
+      {(step === 'email' || step === 'otp' || step === 'details' || step === 'application') && (
+        <div className="flex justify-end mb-2">
+          <button
+            onClick={() => {
+              if ((step === 'details' || step === 'application') && alreadyApplied && hasFormChanges) {
+                setShowExitPrompt(true)
+              } else {
+                window.location.href = '/my'
+              }
+            }}
+            className="text-sm text-gray-400 hover:text-purple-600 transition"
+          >
+            ← Back to Student Hub
+          </button>
+        </div>
+      )}
+
+      {/* Exit prompt modal */}
+      {showExitPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Unsaved changes</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              You have unsaved changes to your application. Are you sure you want to leave?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowExitPrompt(false)}
+                className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-xl hover:bg-gray-50 transition"
+              >
+                Keep editing
+              </button>
+              <button
+                onClick={() => { window.location.href = '/my' }}
+                className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-xl hover:bg-red-600 transition"
+              >
+                Discard & leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {step === 'loading' && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 flex items-center justify-center min-h-[200px]">
           <Spinner large />
@@ -1199,8 +1271,9 @@ export default function ApplyPage() {
               Back
             </button>
             <button onClick={handleSubmit}
+              disabled={alreadyApplied && !hasFormChanges}
               className="flex-1 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
-              {alreadyApplied ? 'Update application' : 'Submit application'}
+              {alreadyApplied ? (hasFormChanges ? 'Update application' : 'No changes to update') : 'Submit application'}
             </button>
           </div>
         </div>
