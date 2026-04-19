@@ -205,6 +205,8 @@ export default function EventDetailPage() {
 
   // Selection for bulk actions
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; mode: 'soft' | 'hard' | null }>({ open: false, mode: null })
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   // Inline editing feedback
   const [saving, setSaving] = useState<Set<string>>(new Set())
@@ -572,6 +574,31 @@ export default function EventDetailPage() {
       } : a
     ))
     setSelected(new Set())
+  }
+
+  // Delete handlers
+  const handleDeleteApplications = async (mode: 'soft' | 'hard') => {
+    if (selected.size === 0) return
+    setDeleteLoading(true)
+    const ids = [...selected]
+
+    if (mode === 'soft') {
+      await supabase
+        .from('applications')
+        .update({ deleted_at: new Date().toISOString() })
+        .in('id', ids)
+    } else {
+      await supabase
+        .from('applications')
+        .delete()
+        .in('id', ids)
+    }
+
+    // Remove from local state
+    setApplicants(prev => prev.filter(a => !selected.has(a.id)))
+    setSelected(new Set())
+    setDeleteLoading(false)
+    setDeleteModal({ open: false, mode: null })
   }
 
   // Select helpers
@@ -1343,6 +1370,15 @@ export default function EventDetailPage() {
                 className="px-2.5 py-1 rounded text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
               >
                 Email only
+              </button>
+
+              <span className="text-gray-300 dark:text-gray-600">|</span>
+
+              <button
+                onClick={() => setDeleteModal({ open: true, mode: null })}
+                className="px-2.5 py-1 rounded text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+              >
+                Delete
               </button>
               <button
                 onClick={() => setSelected(new Set())}

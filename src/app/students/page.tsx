@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched } from '@/lib/students-api'
+import { supabase } from '@/lib/supabase'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -85,6 +86,9 @@ export default function StudentsDashboard() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filters, setFilters] = useState<Filters>(defaultFilters())
   const [panelOpen, setPanelOpen] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [deleteModal, setDeleteModal] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -171,6 +175,46 @@ export default function StudentsDashboard() {
     setFilters(f => ({ ...f, schoolTypes: f.schoolTypes.includes(v) ? f.schoolTypes.filter(x => x !== v) : [...f.schoolTypes, v] }))
   const toggleEligibility = (v: Eligibility) =>
     setFilters(f => ({ ...f, eligibility: f.eligibility.includes(v) ? f.eligibility.filter(x => x !== v) : [...f.eligibility, v] }))
+
+  // --- Selection helpers ---
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const n = new Set(prev)
+      n.has(id) ? n.delete(id) : n.add(id)
+      return n
+    })
+  }
+
+  const visibleIds = useMemo(() => filtered.slice(0, 500).map(s => s.id), [filtered])
+
+  const toggleSelectAll = () => {
+    const allSelected = visibleIds.every(id => selected.has(id))
+    if (allSelected) {
+      setSelected(prev => { const n = new Set(prev); visibleIds.forEach(id => n.delete(id)); return n })
+    } else {
+      setSelected(prev => { const n = new Set(prev); visibleIds.forEach(id => n.add(id)); return n })
+    }
+  }
+
+  const handleDeleteStudents = async (mode: 'soft' | 'hard') => {
+    if (selected.size === 0) return
+    setDeleteLoading(true)
+    const ids = [...selected]
+
+    if (mode === 'soft') {
+      const now = new Date().toISOString()
+      await supabase.from('students').update({ deleted_at: now }).in('id', ids)
+      await supabase.from('applications').update({ deleted_at: now }).in('student_id', ids)
+    } else {
+      await supabase.from('applications').delete().in('student_id', ids)
+      await supabase.from('students').delete().in('id', ids)
+    }
+
+    setStudents(prev => prev.filter(s => !selected.has(s.id)))
+    setSelected(new Set())
+    setDeleteLoading(false)
+    setDeleteModal(false)
+  }
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -365,6 +409,25 @@ export default function StudentsDashboard() {
         <span className="inline-flex items-center gap-1"><span className="text-red-500">▼</span> -1 bonus</span>
       </div>
 
+      {/* Bulk actions */}
+      {selected.size > 0 && (
+        <div className="mb-3 flex items-center gap-3 text-sm">
+          <span className="text-gray-600 dark:text-gray-400 font-medium">{selected.size} selected</span>
+          <button
+            onClick={() => setDeleteModal(true)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+          >
+            Delete
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
         {loading ? (
           <div className="p-10 text-center text-gray-500 dark:text-gray-400">Loading students…</div>
@@ -377,6 +440,14 @@ export default function StudentsDashboard() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800/80 backdrop-blur text-gray-600 dark:text-gray-400 sticky top-0 z-10 shadow-[0_1px_0_0_rgba(0,0,0,0.06)]">
                 <tr>
+                  <th className="px-2 py-2.5 w-8">
+                    <input
+                      type="checkbox"
+                      checked={visibleIds.length > 0 && visibleIds.every(id => selected.has(id))}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 dark:border-gray-600 accent-indigo-600"
+                    />
+                  </th>
                   <Th>Name</Th>
                   <Th>School</Th>
                   <Th>Year</Th>
@@ -386,7 +457,15 @@ export default function StudentsDashboard() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {filtered.slice(0, 500).map(s => (
-                  <tr key={s.id} className={`${s.eligibility === 'ineligible' ? 'bg-red-50/70 dark:bg-red-900/10 hover:bg-red-100/70 dark:hover:bg-red-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40'}`}>
+                  <tr key={s.id} className={`${selected.has(s.id) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : s.eligibility === 'ineligible' ? 'bg-red-50/70 dark:bg-red-900/10 hover:bg-red-100/70 dark:hover:bg-red-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40'}`}>
+                    <td className="px-2 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(s.id)}
+                        onChange={() => toggleSelect(s.id)}
+                        className="rounded border-gray-300 dark:border-gray-600 accent-indigo-600"
+                      />
+                    </td>
                     <td className="px-3 py-2">
                       <Link href={`/students/${s.id}`} className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
                         {s.first_name || ''} {s.last_name || ''}
@@ -411,6 +490,52 @@ export default function StudentsDashboard() {
           </div>
         )}
       </div>
+      {/* Delete confirmation modal */}
+      {deleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+              Delete {selected.size} student{selected.size !== 1 ? 's' : ''}?
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              This will remove the student record{selected.size !== 1 ? 's' : ''} and all associated applications.
+            </p>
+            <div className="space-y-3 mb-6">
+              <button
+                onClick={() => handleDeleteStudents('soft')}
+                disabled={deleteLoading}
+                className="w-full text-left p-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/10 transition group disabled:opacity-50"
+              >
+                <div className="font-medium text-gray-900 dark:text-gray-100 text-sm group-hover:text-amber-700 dark:group-hover:text-amber-400">
+                  {deleteLoading ? 'Deleting\u2026' : 'Archive (soft delete)'}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Hides the student and their applications from view. Data is preserved and can be restored.
+                </div>
+              </button>
+              <button
+                onClick={() => handleDeleteStudents('hard')}
+                disabled={deleteLoading}
+                className="w-full text-left p-3 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-red-300 hover:bg-red-50 dark:hover:bg-red-900/10 transition group disabled:opacity-50"
+              >
+                <div className="font-medium text-gray-900 dark:text-gray-100 text-sm group-hover:text-red-700 dark:group-hover:text-red-400">
+                  {deleteLoading ? 'Deleting\u2026' : 'Permanently delete'}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Removes the student and all their applications permanently. This cannot be undone.
+                </div>
+              </button>
+            </div>
+            <button
+              onClick={() => setDeleteModal(false)}
+              disabled={deleteLoading}
+              className="w-full py-2 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 font-medium disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
