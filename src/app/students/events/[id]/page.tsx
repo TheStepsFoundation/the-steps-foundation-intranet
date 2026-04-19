@@ -178,7 +178,7 @@ export default function EventDetailPage() {
       setEditDraft({})
     } catch (err) {
       console.error('Failed to save event:', err)
-      alert('Failed to save: ' + (err instanceof Error ? err.message : String(err)))
+      alert('Failed to save: ' + JSON.stringify(err, null, 2))
     } finally {
       setEditSaving(false)
     }
