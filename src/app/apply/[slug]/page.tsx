@@ -229,6 +229,15 @@ export default function ApplyPage() {
   const [passwordSaved, setPasswordSaved] = useState(false)
   const [passwordError, setPasswordError] = useState<string | null>(null)
 
+  // Fetch event by slug on mount
+  useEffect(() => {
+    let active = true
+    fetchEventBySlug(slug)
+      .then(data => { if (active) { setEvent(data); setEventLoading(false) } })
+      .catch(() => { if (active) setEventLoading(false) })
+    return () => { active = false }
+  }, [slug])
+
   // Fetch form config from DB when event is known
   useEffect(() => {
     if (!event?.id) return
