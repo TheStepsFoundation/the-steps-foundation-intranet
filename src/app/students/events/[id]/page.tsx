@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EventRow, fetchEvent, updateEvent } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-provider'
@@ -188,6 +188,175 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
 type StatusFilter = 'all' | string
 
 // ---------------------------------------------------------------------------
+// Rich-text editor — contenteditable with a small formatting toolbar.
+// Uses document.execCommand; deprecated but still the most reliable
+// cross-browser way to get Gmail-style inline formatting without pulling
+// in a full editor dep. Emits HTML via onChange; accepts any merge-tag
+// inserts via the insertText imperative handle exposed on the ref.
+// ---------------------------------------------------------------------------
+
+type RichTextEditorHandle = {
+  insertText: (text: string) => void
+  focus: () => void
+}
+
+type RichTextEditorProps = {
+  /** HTML to seed the editor with. Re-keyed when template changes so the
+   *  contenteditable isn't overwritten on every keystroke. */
+  initialHtml: string
+  /** Called whenever the user edits — receives current innerHTML. */
+  onChange: (html: string) => void
+  /** Placeholder shown when the editor is empty. */
+  placeholder?: string
+}
+
+const RichTextEditor = React.forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
+  { initialHtml, onChange, placeholder },
+  forwardedRef,
+) {
+  const divRef = useRef<HTMLDivElement | null>(null)
+  const savedRange = useRef<Range | null>(null)
+  const [isEmpty, setIsEmpty] = useState(!initialHtml || initialHtml === '<br>' || initialHtml === '<p><br></p>')
+
+  // Seed the div on mount / when initialHtml identity changes (new template).
+  useEffect(() => {
+    if (!divRef.current) return
+    if (divRef.current.innerHTML !== initialHtml) {
+      divRef.current.innerHTML = initialHtml || ''
+      setIsEmpty(!divRef.current.textContent)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialHtml])
+
+  const saveSelection = () => {
+    const sel = typeof window !== 'undefined' ? window.getSelection() : null
+    if (sel && sel.rangeCount > 0 && divRef.current?.contains(sel.anchorNode)) {
+      savedRange.current = sel.getRangeAt(0).cloneRange()
+    }
+  }
+
+  const restoreSelection = () => {
+    if (!savedRange.current || !divRef.current) return
+    const sel = window.getSelection()
+    if (!sel) return
+    sel.removeAllRanges()
+    sel.addRange(savedRange.current)
+  }
+
+  const emitChange = () => {
+    if (!divRef.current) return
+    onChange(divRef.current.innerHTML)
+    setIsEmpty(!divRef.current.textContent)
+  }
+
+  const exec = (cmd: string, value?: string) => {
+    restoreSelection()
+    divRef.current?.focus()
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand(cmd, false, value)
+    } catch {
+      // Old browsers / disabled execCommand — silently no-op.
+    }
+    saveSelection()
+    emitChange()
+  }
+
+  React.useImperativeHandle(forwardedRef, () => ({
+    insertText: (text: string) => exec('insertText', text),
+    focus: () => divRef.current?.focus(),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [onChange])
+
+  return (
+    <div className="rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60">
+        <ToolbarBtn title="Bold (Ctrl+B)" onClick={() => exec('bold')}>
+          <span className="font-bold">B</span>
+        </ToolbarBtn>
+        <ToolbarBtn title="Italic (Ctrl+I)" onClick={() => exec('italic')}>
+          <span className="italic">I</span>
+        </ToolbarBtn>
+        <ToolbarBtn title="Underline (Ctrl+U)" onClick={() => exec('underline')}>
+          <span className="underline">U</span>
+        </ToolbarBtn>
+        <ToolbarBtn title="Strikethrough" onClick={() => exec('strikeThrough')}>
+          <span className="line-through">S</span>
+        </ToolbarBtn>
+        <div className="w-px h-4 mx-1 bg-gray-300 dark:bg-gray-600" />
+        <label className="relative inline-flex items-center justify-center w-7 h-7 rounded hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer" title="Text colour">
+          <span className="text-xs font-bold" style={{ color: 'currentColor' }}>A</span>
+          <span className="absolute bottom-0.5 left-1 right-1 h-0.5 bg-gradient-to-r from-red-500 via-amber-500 to-steps-blue-500 rounded" />
+          <input
+            type="color"
+            onMouseDown={saveSelection}
+            onChange={e => exec('foreColor', e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+          />
+        </label>
+        <ToolbarBtn title="Numbered list" onClick={() => exec('insertOrderedList')}>
+          <span className="text-xs">1.</span>
+        </ToolbarBtn>
+        <ToolbarBtn title="Bulleted list" onClick={() => exec('insertUnorderedList')}>
+          <span className="text-xs">•</span>
+        </ToolbarBtn>
+        <div className="w-px h-4 mx-1 bg-gray-300 dark:bg-gray-600" />
+        <ToolbarBtn
+          title="Insert link"
+          onClick={() => {
+            const url = window.prompt('Link URL')
+            if (url) exec('createLink', url)
+          }}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+        </ToolbarBtn>
+        <ToolbarBtn title="Clear formatting" onClick={() => exec('removeFormat')}>
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </ToolbarBtn>
+      </div>
+
+      {/* Editor surface */}
+      <div className="relative">
+        {isEmpty && placeholder && (
+          <div className="absolute top-2.5 left-3 text-sm text-gray-400 pointer-events-none whitespace-pre-line">
+            {placeholder}
+          </div>
+        )}
+        <div
+          ref={divRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={emitChange}
+          onBlur={saveSelection}
+          onKeyUp={saveSelection}
+          onMouseUp={saveSelection}
+          className="min-h-[180px] max-h-[420px] overflow-y-auto px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none"
+          style={{ lineHeight: 1.5 }}
+        />
+      </div>
+    </div>
+  )
+})
+
+function ToolbarBtn(
+  { title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }
+) {
+  return (
+    <button
+      type="button"
+      title={title}
+      // preventDefault on mousedown stops the contenteditable from losing focus
+      onMouseDown={e => e.preventDefault()}
+      onClick={onClick}
+      className="inline-flex items-center justify-center w-7 h-7 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+    >
+      {children}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -370,6 +539,17 @@ export default function EventDetailPage() {
   const [emailStep, setEmailStep] = useState<'pick' | 'preview' | 'sending' | 'done'>('pick')
   const [templateDirty, setTemplateDirty] = useState(false)
   const [savingTemplate, setSavingTemplate] = useState(false)
+
+  // Rich-text editor ref — used to inject merge tags at the caret.
+  const bodyEditorRef = useRef<RichTextEditorHandle | null>(null)
+  // HTML snapshot that seeds the editor — captured once per template load so
+  // the contenteditable isn't overwritten on every keystroke. When a new
+  // template is picked we bump a counter to re-seed with that body.
+  const [bodySeedCounter, setBodySeedCounter] = useState(0)
+  const bodyEditorSeed = useMemo(() => {
+    return looksLikeHtml(emailBody) ? emailBody : plainTextToHtml(emailBody)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTemplate, bodySeedCounter])
   const [sendProgress, setSendProgress] = useState({ sent: 0, failed: 0, total: 0 })
 
   // Combined action: status to apply after emails are queued
@@ -732,6 +912,7 @@ export default function EventDetailPage() {
     setEmailSubject('')
     setEmailBody('')
     setTemplateDirty(false)
+    setBodySeedCounter(c => c + 1)
     setSendProgress({ sent: 0, failed: 0, total: 0 })
   }
 
@@ -749,6 +930,7 @@ export default function EventDetailPage() {
       setEmailSubject(match.subject)
       setEmailBody(match.body_html)
       setTemplateDirty(false)
+      setBodySeedCounter(c => c + 1)
     }
   }, [templates, notifyAction, eventId, selectedTemplate])
 
@@ -759,6 +941,7 @@ export default function EventDetailPage() {
     setEmailSubject(tpl.subject)
     setEmailBody(tpl.body_html)
     setTemplateDirty(false)
+    setBodySeedCounter(c => c + 1)
   }
 
   // Persist subject/body edits back to the selected template so the next
@@ -1839,7 +2022,7 @@ export default function EventDetailPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Body</label>
-                      <span className="text-[10px] text-gray-400">Plain text &mdash; signature is auto-appended</span>
+                      <span className="text-[10px] text-gray-400">Signature is auto-appended</span>
                     </div>
 
                     {/* Merge-tag insert chips */}
@@ -1860,21 +2043,10 @@ export default function EventDetailPage() {
                         <button
                           key={tag}
                           type="button"
+                          onMouseDown={e => e.preventDefault()}
                           onClick={() => {
-                            setEmailBody(prev => {
-                              const el = document.getElementById('notify-body-textarea') as HTMLTextAreaElement | null
-                              const insert = `{{${tag}}}`
-                              if (el) {
-                                const start = el.selectionStart
-                                const end = el.selectionEnd
-                                const next = prev.slice(0, start) + insert + prev.slice(end)
-                                setTimeout(() => { el.selectionStart = el.selectionEnd = start + insert.length; el.focus() }, 0)
-                                if (selectedTemplate) setTemplateDirty(true)
-                                return next
-                              }
-                              if (selectedTemplate) setTemplateDirty(true)
-                              return prev + insert
-                            })
+                            bodyEditorRef.current?.insertText(`{{${tag}}}`)
+                            if (selectedTemplate) setTemplateDirty(true)
                           }}
                           className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
                         >
@@ -1883,13 +2055,11 @@ export default function EventDetailPage() {
                       ))}
                     </div>
 
-                    <textarea
-                      id="notify-body-textarea"
-                      value={emailBody}
-                      onChange={e => { setEmailBody(e.target.value); if (selectedTemplate) setTemplateDirty(true) }}
-                      rows={10}
+                    <RichTextEditor
+                      ref={bodyEditorRef}
+                      initialHtml={bodyEditorSeed}
+                      onChange={html => { setEmailBody(html); if (selectedTemplate) setTemplateDirty(true) }}
                       placeholder={`Hi {{first_name}},\n\n...\n\nVirtus non origo,\nThe Steps Foundation Team`}
-                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
                     />
 
                     {/* Save-back-to-template CTA */}
