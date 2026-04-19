@@ -26,6 +26,13 @@ export type StudentSelf = {
   parental_income_band: string | null
 }
 
+export type QualificationEntry = {
+  qualType: string        // 'a_level' | 'ib' | 'btec' | 't_level' | 'pre_u'
+  subject: string
+  level?: string          // IB: 'HL' | 'SL'; BTEC size, etc.
+  grade: string           // A*–U for A-Level, 7–1 for IB, D*/D/M/P for BTEC, etc.
+}
+
 export type ApplicationSubmission = {
   // Student identity (upserted)
   firstName: string
@@ -42,12 +49,9 @@ export type ApplicationSubmission = {
   additionalContext: string
   // Academics
   gcseResults: string
-  aLevelSubjects: string[]
-  predictedGrades: string
-  ibPredictions: string
-  // Man Group specific
-  manGroupInterests: string[]
-  questionForProfessional: string
+  qualifications: QualificationEntry[]
+  // Custom form fields (configured per event via form_config)
+  customFields: Record<string, unknown>
   // Attribution
   attributionSource: string
   // Consent
@@ -145,6 +149,24 @@ export async function hasExistingApplication(eventId: string): Promise<boolean> 
   return !!data
 }
 
+
+// ---------------------------------------------------------------------------
+// Fetch Event Form Config (public — for application form)
+// ---------------------------------------------------------------------------
+
+export async function fetchEventFormConfig(
+  eventId: string,
+): Promise<{ fields: import('@/lib/events-api').FormFieldConfig[] }> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('form_config')
+    .eq('id', eventId)
+    .maybeSingle()
+
+  if (error || !data || !data.form_config) return { fields: [] }
+  return data.form_config as { fields: import('@/lib/events-api').FormFieldConfig[] }
+}
+
 // ---------------------------------------------------------------------------
 // Submit Application
 // ---------------------------------------------------------------------------
@@ -213,11 +235,8 @@ export async function submitApplication(
   // --- Step 2: Create application ---
   const rawResponse = {
     gcse_results: submission.gcseResults,
-    a_level_subjects: submission.aLevelSubjects,
-    predicted_grades: submission.predictedGrades,
-    ib_predictions: submission.ibPredictions,
-    man_group_interests: submission.manGroupInterests,
-    question_for_professional: submission.questionForProfessional,
+    qualifications: submission.qualifications,
+    custom_fields: submission.customFields,
     additional_context: submission.additionalContext,
     household_income_under_40k: submission.householdIncomeUnder40k,
     free_school_meals_raw: submission.freeSchoolMealsRaw,

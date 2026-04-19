@@ -3,10 +3,14 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
+import DynamicFormField, { type FieldValue } from '@/components/DynamicFormField'
+import type { FormFieldConfig } from '@/lib/events-api'
 import {
   sendOtp, verifyOtp, lookupSelf, hasExistingApplication,
   submitApplication, upgradeToPassword, signOutStudent,
+  fetchEventFormConfig,
   type StudentSelf, type ApplicationSubmission,
+  type QualificationEntry,
 } from '@/lib/apply-api'
 
 // ---------------------------------------------------------------------------
@@ -26,22 +30,74 @@ const EVENTS: Record<string, {
   },
 }
 
-const A_LEVEL_SUBJECTS = [
-  'Mathematics', 'Further Mathematics', 'Biology', 'Chemistry', 'Physics',
-  'Computer Science', 'Economics', 'Business Studies', 'Politics', 'History',
-  'Geography', 'Psychology', 'Sociology', 'Religious Studies',
-  'English Literature', 'English Language', 'Spanish', 'French',
-  'Art/Design', 'Drama', 'Physical Education', 'Media/Film Studies',
+// ---------------------------------------------------------------------------
+// Qualification constants
+// ---------------------------------------------------------------------------
+
+const QUAL_TYPES = [
+  { value: 'a_level', label: 'A-Level' },
+  { value: 'ib', label: 'IB (International Baccalaureate)' },
+  { value: 'btec', label: 'BTEC' },
+  { value: 't_level', label: 'T-Level' },
+  { value: 'pre_u', label: 'Cambridge Pre-U' },
 ]
 
-const MAN_GROUP_INTERESTS = [
-  { value: 'quant_investing', label: 'Quantitative Investing — using maths, data and computers to trade (Man AHL / Numeric)' },
-  { value: 'discretionary_investing', label: 'Discretionary Investing — expert humans researching companies and markets (Man GLG)' },
-  { value: 'private_markets', label: 'Private Markets — investing in companies and lending directly (Man Varagon / GPM)' },
-  { value: 'tech_engineering', label: 'Technology & Engineering — the software, systems and infrastructure behind it all' },
-  { value: 'research_data_science', label: 'Research & Data Science — analysing markets, economics and alternative data' },
-  { value: 'business_operations', label: 'Business Operations & Corporate Functions — risk, compliance, legal, HR, operations' },
-]
+const SUBJECTS: Record<string, string[]> = {
+  a_level: [
+    'Mathematics', 'Further Mathematics', 'Biology', 'Chemistry', 'Physics',
+    'Computer Science', 'Economics', 'Business Studies', 'Politics', 'History',
+    'Geography', 'Psychology', 'Sociology', 'Religious Studies',
+    'English Literature', 'English Language', 'Spanish', 'French', 'German',
+    'Art/Design', 'Drama', 'Physical Education', 'Media/Film Studies',
+    'Music', 'Philosophy', 'Law', 'Accounting',
+  ],
+  ib: [
+    'Mathematics: Analysis and Approaches', 'Mathematics: Applications and Interpretation',
+    'Biology', 'Chemistry', 'Physics', 'Computer Science',
+    'Economics', 'Business Management', 'History', 'Geography',
+    'Psychology', 'Philosophy', 'Global Politics',
+    'English A: Language and Literature', 'English A: Literature',
+    'Spanish B', 'French B', 'German B', 'Mandarin B',
+    'Visual Arts', 'Music', 'Theatre',
+    'Environmental Systems and Societies',
+    'Theory of Knowledge',
+  ],
+  btec: [
+    'Applied Science', 'Business', 'Health and Social Care', 'IT',
+    'Engineering', 'Sport', 'Art and Design', 'Media',
+    'Performing Arts', 'Travel and Tourism', 'Construction',
+    'Computing', 'Hospitality', 'Music',
+  ],
+  t_level: [
+    'Accounting', 'Agriculture, Land Management and Production',
+    'Building Services Engineering', 'Business and Administration',
+    'Catering', 'Craft and Design', 'Design and Development for Engineering',
+    'Design, Surveying and Planning for Construction',
+    'Digital Business Services', 'Digital Production, Design and Development',
+    'Digital Support Services', 'Education and Early Years',
+    'Engineering, Manufacturing, Processing and Control',
+    'Finance', 'Health', 'Healthcare Science', 'Legal Services',
+    'Maintenance, Installation and Repair for Engineering',
+    'Management and Administration', 'Media, Broadcast and Production',
+    'Onsite Construction', 'Science',
+  ],
+  pre_u: [
+    'Mathematics', 'Further Mathematics', 'Biology', 'Chemistry', 'Physics',
+    'Economics', 'History', 'Geography', 'Philosophy and Theology',
+    'English Literature', 'French', 'Spanish', 'German', 'Mandarin Chinese',
+    'Art and Design', 'Music', 'Global Perspectives',
+  ],
+}
+
+const GRADES: Record<string, string[]> = {
+  a_level: ['A*', 'A', 'B', 'C', 'D', 'E'],
+  ib: ['7', '6', '5', '4', '3', '2', '1'],
+  btec: ['D* (Distinction*)', 'D (Distinction)', 'M (Merit)', 'P (Pass)'],
+  t_level: ['A*', 'A', 'B', 'C', 'D', 'E'],
+  pre_u: ['D1', 'D2', 'D3', 'M1', 'M2', 'M3', 'P1', 'P2', 'P3'],
+}
+
+const IB_LEVELS = ['HL (Higher Level)', 'SL (Standard Level)']
 
 const ATTRIBUTION_OPTIONS = [
   { value: 'email_invite', label: 'Email invite' },
@@ -96,21 +152,31 @@ export default function ApplyPage() {
   const [householdIncome, setHouseholdIncome] = useState('')
   const [additionalContext, setAdditionalContext] = useState('')
 
-  // Form state — application step
+  // Form state — application step (fixed fields)
   const [gcseResults, setGcseResults] = useState('')
-  const [aLevelSubjects, setALevelSubjects] = useState<string[]>([])
-  const [predictedGrades, setPredictedGrades] = useState('')
-  const [ibPredictions, setIbPredictions] = useState('')
-  const [manGroupInterests, setManGroupInterests] = useState<string[]>([])
-  const [questionForPro, setQuestionForPro] = useState('')
+  const [qualifications, setQualifications] = useState<QualificationEntry[]>([
+    { qualType: 'a_level', subject: '', grade: '' },
+  ])
   const [attribution, setAttribution] = useState('')
   const [consentGiven, setConsentGiven] = useState(false)
+
+  // Form state — custom fields (from form_config)
+  const [formFields, setFormFields] = useState<FormFieldConfig[]>([])
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, FieldValue>>({})
 
   // Success step
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [passwordSaved, setPasswordSaved] = useState(false)
   const [passwordError, setPasswordError] = useState<string | null>(null)
+
+  // Fetch form config from DB when event is known
+  useEffect(() => {
+    if (!event?.id) return
+    fetchEventFormConfig(event.id).then(config => {
+      setFormFields(config.fields ?? [])
+    })
+  }, [event?.id])
 
   // Pre-fill form when we get existing student data
   const prefill = useCallback((s: StudentSelf) => {
@@ -120,14 +186,9 @@ export default function ApplyPage() {
       setSchool({ schoolId: s.school_id, schoolNameRaw: s.school_name_raw })
     }
     if (s.year_group) setYearGroup(s.year_group)
-    if (s.school_type) {
-      // Map back: if independent + bursary, use independent_bursary
-      setSchoolType(s.school_type)
-    }
+    if (s.school_type) setSchoolType(s.school_type)
     if (s.free_school_meals === true) setFreeSchoolMeals('yes')
     else if (s.free_school_meals === false) setFreeSchoolMeals('no')
-    // Note: 'previously' is stored as true in the DB — granularity is lost on re-prefill.
-    // This is acceptable for Phase 1; the raw_response JSONB preserves the original answer.
     if (s.first_generation_uni !== null) setFirstGenUni(s.first_generation_uni ? 'yes' : 'no')
     if (s.parental_income_band) {
       if (['under_20k', '20_40k'].includes(s.parental_income_band)) setHouseholdIncome('yes')
@@ -135,6 +196,28 @@ export default function ApplyPage() {
       else setHouseholdIncome('no')
     }
   }, [])
+
+  // --- Qualification row helpers ---
+  const addQualification = () => {
+    setQualifications(prev => [...prev, { qualType: 'a_level', subject: '', grade: '' }])
+  }
+  const removeQualification = (index: number) => {
+    setQualifications(prev => prev.filter((_, i) => i !== index))
+  }
+  const updateQualification = (index: number, field: keyof QualificationEntry, value: string) => {
+    setQualifications(prev => prev.map((q, i) => {
+      if (i !== index) return q
+      const updated = { ...q, [field]: value }
+      if (field === 'qualType') { updated.subject = ''; updated.grade = ''; updated.level = undefined }
+      if (field === 'subject') { updated.grade = '' }
+      return updated
+    }))
+  }
+
+  // --- Custom field handler ---
+  const handleCustomFieldChange = (fieldId: string, value: FieldValue) => {
+    setCustomFieldValues(prev => ({ ...prev, [fieldId]: value }))
+  }
 
   // --- Handlers ---
 
@@ -155,16 +238,12 @@ export default function ApplyPage() {
     const { error: err } = await verifyOtp(email, otpCode)
     if (err) { setLoading(false); setError(err); return }
 
-    // Lookup existing student
     const student = await lookupSelf()
     if (student) {
       setExistingStudent(student)
       prefill(student)
-      // Check if already applied to this event
       const applied = await hasExistingApplication(event.id)
-      if (applied) {
-        setAlreadyApplied(true)
-      }
+      if (applied) setAlreadyApplied(true)
     }
     setLoading(false)
     setStep('details')
@@ -172,45 +251,60 @@ export default function ApplyPage() {
 
   const handleDetailsNext = () => {
     setError(null)
-    if (!firstName.trim() || !lastName.trim()) {
-      setError('Please enter your first and last name.')
-      return
-    }
-    if (!school.schoolId && !school.schoolNameRaw) {
-      setError('Please select or enter your school.')
-      return
-    }
-    if (!yearGroup) {
-      setError('Please select your year group.')
-      return
-    }
-    if (!schoolType) {
-      setError('Please select your school type.')
-      return
-    }
-    if (!freeSchoolMeals) {
-      setError('Please answer the Free School Meals question.')
-      return
-    }
-    if (!firstGenUni) {
-      setError('Please answer the first generation question.')
-      return
-    }
-    if (!householdIncome) {
-      setError('Please answer the household income question.')
-      return
-    }
+    if (!firstName.trim() || !lastName.trim()) { setError('Please enter your first and last name.'); return }
+    if (!school.schoolId && !school.schoolNameRaw) { setError('Please select or enter your school.'); return }
+    if (!yearGroup) { setError('Please select your year group.'); return }
+    if (!schoolType) { setError('Please select your school type.'); return }
+    if (!freeSchoolMeals) { setError('Please answer the Free School Meals question.'); return }
+    if (!firstGenUni) { setError('Please answer the first generation question.'); return }
+    if (!householdIncome) { setError('Please answer the household income question.'); return }
     setStep('application')
   }
 
   const handleSubmit = async () => {
     setError(null)
+
+    // Validate GCSE
     if (!gcseResults.trim()) { setError('Please enter your GCSE results.'); return }
-    if (aLevelSubjects.length === 0) { setError('Please select at least one A-Level subject.'); return }
-    if (!predictedGrades.trim()) { setError('Please enter your predicted grades.'); return }
-    if (manGroupInterests.length === 0) { setError('Please select at least one area of interest.'); return }
-    if (manGroupInterests.length > 3) { setError('Please select up to 3 areas of interest.'); return }
-    if (!questionForPro.trim()) { setError('Please enter a question for Man Group professionals.'); return }
+    if (!/^\d+$/.test(gcseResults.trim())) { setError('GCSE results should contain only numbers (e.g. 999887766).'); return }
+
+    // Validate qualifications
+    const filledQuals = qualifications.filter(q => q.subject && q.grade)
+    if (filledQuals.length === 0) { setError('Please add at least one subject with a grade.'); return }
+    const incompleteQuals = qualifications.filter(q => (q.subject && !q.grade) || (!q.subject && q.grade))
+    if (incompleteQuals.length > 0) { setError('Please complete all subject rows — each needs both a subject and a grade.'); return }
+    const ibMissingLevel = qualifications.filter(q => q.qualType === 'ib' && q.subject && !q.level)
+    if (ibMissingLevel.length > 0) { setError('Please select HL or SL for each IB subject.'); return }
+
+    // Validate custom fields
+    for (const field of formFields) {
+      if (!field.required) continue
+      const val = customFieldValues[field.id]
+      if (val === undefined || val === '' || val === null) {
+        setError(`Please complete: ${field.label}`); return
+      }
+      // Check ranked_dropdown — all ranks must be filled
+      if (field.type === 'ranked_dropdown' && typeof val === 'object' && !Array.isArray(val)) {
+        const ranks = field.config?.ranks ?? 3
+        const entries = val as Record<string, string>
+        const rankKeys = Array.from({ length: ranks }, (_, i) =>
+          i === 0 ? 'first' : i === 1 ? 'second' : i === 2 ? 'third' : `choice_${i + 1}`
+        )
+        for (const key of rankKeys) {
+          if (!entries[key]) { setError(`Please complete all choices for: ${field.label}`); return }
+        }
+      }
+      // Check checkbox_list — at least one selected
+      if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
+        setError(`Please select at least one option for: ${field.label}`); return
+      }
+      // Check paired_dropdown — at least one complete row
+      if (field.type === 'paired_dropdown' && Array.isArray(val)) {
+        const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
+        if (completeRows.length === 0) { setError(`Please complete at least one row for: ${field.label}`); return }
+      }
+    }
+
     if (!attribution) { setError('Please tell us how you heard about this opportunity.'); return }
     if (!consentGiven) { setError('Please accept the privacy notice to continue.'); return }
 
@@ -229,11 +323,8 @@ export default function ApplyPage() {
       householdIncomeUnder40k: householdIncome,
       additionalContext,
       gcseResults,
-      aLevelSubjects,
-      predictedGrades,
-      ibPredictions,
-      manGroupInterests,
-      questionForProfessional: questionForPro,
+      qualifications: filledQuals,
+      customFields: customFieldValues,
       attributionSource: attribution,
       consentGiven: true,
       freeSchoolMealsRaw: freeSchoolMeals,
@@ -416,37 +507,25 @@ export default function ApplyPage() {
               <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
                 First name <span className="text-red-400">*</span>
               </label>
-              <input
-                id="firstName"
-                type="text"
-                value={firstName}
+              <input id="firstName" type="text" value={firstName}
                 onChange={e => setFirstName(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-              />
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition" />
             </div>
             <div>
               <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
                 Last name <span className="text-red-400">*</span>
               </label>
-              <input
-                id="lastName"
-                type="text"
-                value={lastName}
+              <input id="lastName" type="text" value={lastName}
                 onChange={e => setLastName(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-              />
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition" />
             </div>
           </div>
 
           {/* Email (read-only) */}
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              disabled
-              className="w-full px-4 py-2.5 border border-gray-100 rounded-xl bg-gray-50 text-gray-500 cursor-not-allowed"
-            />
+            <input type="email" value={email} disabled
+              className="w-full px-4 py-2.5 border border-gray-100 rounded-xl bg-gray-50 text-gray-500 cursor-not-allowed" />
           </div>
 
           {/* School */}
@@ -454,12 +533,7 @@ export default function ApplyPage() {
             <label htmlFor="school" className="block text-sm font-medium text-gray-700 mb-1">
               Current school / sixth form college <span className="text-red-400">*</span>
             </label>
-            <SchoolPicker
-              value={school}
-              onChange={setSchool}
-              placeholder="Search for your school…"
-              id="school"
-            />
+            <SchoolPicker value={school} onChange={setSchool} placeholder="Search for your school…" id="school" />
           </div>
 
           {/* Year group */}
@@ -467,12 +541,9 @@ export default function ApplyPage() {
             <label htmlFor="yearGroup" className="block text-sm font-medium text-gray-700 mb-1">
               Year group <span className="text-red-400">*</span>
             </label>
-            <select
-              id="yearGroup"
-              value={yearGroup}
+            <select id="yearGroup" value={yearGroup}
               onChange={e => setYearGroup(e.target.value ? Number(e.target.value) : '')}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition bg-white"
-            >
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition bg-white">
               <option value="">Select…</option>
               <option value={12}>Year 12</option>
               <option value={13}>Year 13</option>
@@ -487,27 +558,21 @@ export default function ApplyPage() {
               This helps us ensure our events reach students from underrepresented backgrounds.
             </p>
 
-            {/* School type */}
             <fieldset className="mb-4">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
                 What type of school do you currently attend? <span className="text-red-400">*</span>
               </legend>
               {SCHOOL_TYPE_OPTIONS.map(opt => (
                 <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="schoolType"
-                    value={opt.value}
+                  <input type="radio" name="schoolType" value={opt.value}
                     checked={schoolType === opt.value}
                     onChange={e => setSchoolType(e.target.value)}
-                    className="mt-0.5 accent-purple-600"
-                  />
+                    className="mt-0.5 accent-purple-600" />
                   <span className="text-sm text-gray-700">{opt.label}</span>
                 </label>
               ))}
             </fieldset>
 
-            {/* First gen */}
             <fieldset className="mb-4">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
                 Are you in the first generation of your family to attend university? <span className="text-red-400">*</span>
@@ -521,7 +586,6 @@ export default function ApplyPage() {
               ))}
             </fieldset>
 
-            {/* Household income */}
             <fieldset className="mb-4">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
                 Is your average household income less than £40,000? <span className="text-red-400">*</span>
@@ -535,7 +599,6 @@ export default function ApplyPage() {
               ))}
             </fieldset>
 
-            {/* FSM */}
             <fieldset className="mb-4">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
                 Are you eligible for Free School Meals? <span className="text-red-400">*</span>
@@ -555,7 +618,6 @@ export default function ApplyPage() {
               ))}
             </fieldset>
 
-            {/* Additional context */}
             <div>
               <label htmlFor="additionalContext" className="block text-sm font-medium text-gray-700 mb-1">
                 Any additional contextual information?
@@ -563,21 +625,14 @@ export default function ApplyPage() {
               <p className="text-xs text-gray-400 mb-2">
                 E.g. young carer, extenuating circumstances, school disruption, etc.
               </p>
-              <textarea
-                id="additionalContext"
-                value={additionalContext}
-                onChange={e => setAdditionalContext(e.target.value)}
-                rows={3}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition resize-none"
-              />
+              <textarea id="additionalContext" value={additionalContext}
+                onChange={e => setAdditionalContext(e.target.value)} rows={3}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition resize-none" />
             </div>
           </div>
 
-          <button
-            onClick={handleDetailsNext}
-            disabled={alreadyApplied}
-            className="w-full py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
+          <button onClick={handleDetailsNext} disabled={alreadyApplied}
+            className="w-full py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
             {alreadyApplied ? 'Already applied' : 'Continue'}
           </button>
         </div>
@@ -590,124 +645,126 @@ export default function ApplyPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-6">Your application</h2>
 
-          {/* --- Academic section --- */}
+          {/* --- Academic section (fixed) --- */}
           <h3 className="text-base font-semibold text-gray-900 mb-1">Academic information</h3>
           <p className="text-gray-500 text-xs mb-4">
             Don&apos;t worry — lower grades don&apos;t hurt at all. We want to help you reach your potential.
           </p>
 
-          <div className="mb-4">
+          {/* GCSE results — digits only */}
+          <div className="mb-6">
             <label htmlFor="gcse" className="block text-sm font-medium text-gray-700 mb-1">
-              Achieved GCSE results (grades only, e.g. 99876…) <span className="text-red-400">*</span>
+              Achieved GCSE results <span className="text-red-400">*</span>
             </label>
+            <p className="text-xs text-gray-400 mb-2">
+              Enter your grades as numbers only, highest to lowest (e.g. 999887766).
+            </p>
             <input
               id="gcse"
               type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={gcseResults}
-              onChange={e => setGcseResults(e.target.value)}
+              onChange={e => setGcseResults(e.target.value.replace(/\D/g, ''))}
               placeholder="e.g. 999887766"
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition font-mono tracking-wider"
             />
           </div>
 
-          {/* A-Level subjects */}
-          <fieldset className="mb-4">
-            <legend className="block text-sm font-medium text-gray-700 mb-2">
-              Which A-Level subjects do you study? <span className="text-red-400">*</span>
-            </legend>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              {A_LEVEL_SUBJECTS.map(subj => (
-                <label key={subj} className="flex items-center gap-2 py-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={aLevelSubjects.includes(subj)}
-                    onChange={e => {
-                      if (e.target.checked) setALevelSubjects(prev => [...prev, subj])
-                      else setALevelSubjects(prev => prev.filter(s => s !== subj))
-                    }}
-                    className="accent-purple-600"
-                  />
-                  <span className="text-sm text-gray-700">{subj}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-
-          <div className="mb-4">
-            <label htmlFor="predicted" className="block text-sm font-medium text-gray-700 mb-1">
-              Current predicted A-Level grades (e.g. A*AB) <span className="text-red-400">*</span>
-            </label>
-            <input
-              id="predicted"
-              type="text"
-              value={predictedGrades}
-              onChange={e => setPredictedGrades(e.target.value)}
-              placeholder="e.g. A*AB"
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-            />
-          </div>
-
+          {/* --- Qualifications --- */}
           <div className="mb-6">
-            <label htmlFor="ib" className="block text-sm font-medium text-gray-700 mb-1">
-              If you do the IB, share your HL and SL predictions
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Subjects and predicted/achieved grades <span className="text-red-400">*</span>
             </label>
-            <textarea
-              id="ib"
-              value={ibPredictions}
-              onChange={e => setIbPredictions(e.target.value)}
-              rows={2}
-              placeholder="Optional"
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition resize-none"
-            />
-          </div>
-
-          {/* --- Interests section --- */}
-          <div className="border-t border-gray-100 pt-6 mb-6">
-            <h3 className="text-base font-semibold text-gray-900 mb-1">Your interests</h3>
-            <p className="text-gray-500 text-xs mb-4">
-              Man Group will use this section to tailor the speaker lineup and Q&amp;As to what you most want to learn.
+            <p className="text-xs text-gray-400 mb-3">
+              Add each subject you study. Select your qualification type, subject, and current predicted (or achieved) grade.
             </p>
 
-            <fieldset className="mb-4">
-              <legend className="block text-sm font-medium text-gray-700 mb-2">
-                Which parts of Man Group&apos;s work interest you most? (up to 3) <span className="text-red-400">*</span>
-              </legend>
-              {MAN_GROUP_INTERESTS.map(opt => (
-                <label key={opt.value} className="flex items-start gap-3 py-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={manGroupInterests.includes(opt.value)}
-                    onChange={e => {
-                      if (e.target.checked && manGroupInterests.length < 3) {
-                        setManGroupInterests(prev => [...prev, opt.value])
-                      } else if (!e.target.checked) {
-                        setManGroupInterests(prev => prev.filter(v => v !== opt.value))
-                      }
-                    }}
-                    disabled={!manGroupInterests.includes(opt.value) && manGroupInterests.length >= 3}
-                    className="mt-0.5 accent-purple-600"
-                  />
-                  <span className="text-sm text-gray-700">{opt.label}</span>
-                </label>
-              ))}
-            </fieldset>
+            <div className="space-y-3">
+              {qualifications.map((q, idx) => (
+                <div key={idx} className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-gray-500">Subject {idx + 1}</span>
+                    {qualifications.length > 1 && (
+                      <button type="button" onClick={() => removeQualification(idx)}
+                        className="text-xs text-red-400 hover:text-red-600 font-medium">Remove</button>
+                    )}
+                  </div>
 
-            <div className="mb-4">
-              <label htmlFor="question" className="block text-sm font-medium text-gray-700 mb-1">
-                What&apos;s one question you&apos;d love a Man Group professional to answer? <span className="text-red-400">*</span>
-              </label>
-              <p className="text-xs text-gray-400 mb-2">
-                Specific and honest beats clever. The best questions will be shared with Man Group to shape the sessions.
-              </p>
-              <textarea
-                id="question"
-                value={questionForPro}
-                onChange={e => setQuestionForPro(e.target.value)}
-                rows={3}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition resize-none"
-              />
+                  <select value={q.qualType}
+                    onChange={e => updateQualification(idx, 'qualType', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition mb-2">
+                    {QUAL_TYPES.map(qt => (
+                      <option key={qt.value} value={qt.value}>{qt.label}</option>
+                    ))}
+                  </select>
+
+                  <div className={`grid gap-2 ${q.qualType === 'ib' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                    <select value={q.subject}
+                      onChange={e => updateQualification(idx, 'subject', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition">
+                      <option value="">Select subject…</option>
+                      {(SUBJECTS[q.qualType] ?? []).map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                      <option value="__other">Other (not listed)</option>
+                    </select>
+
+                    {q.qualType === 'ib' && (
+                      <select value={q.level ?? ''}
+                        onChange={e => updateQualification(idx, 'level', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition">
+                        <option value="">Level…</option>
+                        {IB_LEVELS.map(l => (
+                          <option key={l} value={l}>{l}</option>
+                        ))}
+                      </select>
+                    )}
+
+                    <select value={q.grade}
+                      onChange={e => updateQualification(idx, 'grade', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition">
+                      <option value="">Grade…</option>
+                      {(GRADES[q.qualType] ?? []).map(g => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {q.subject === '__other' && (
+                    <input type="text" placeholder="Type your subject name…"
+                      className="w-full mt-2 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
+                      onChange={e => {
+                        const val = e.target.value
+                        setQualifications(prev => prev.map((qq, i) =>
+                          i === idx ? { ...qq, subject: val || '__other' } : qq
+                        ))
+                      }}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
+
+            <button type="button" onClick={addQualification}
+              className="mt-3 w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-sm text-purple-600 font-medium hover:border-purple-300 hover:bg-purple-50 transition">
+              + Add another subject
+            </button>
           </div>
+
+          {/* --- Custom form fields from form_config --- */}
+          {formFields.length > 0 && (
+            <div className="border-t border-gray-100 pt-6 mb-6">
+              {formFields.map(field => (
+                <DynamicFormField
+                  key={field.id}
+                  field={field}
+                  value={customFieldValues[field.id]}
+                  onChange={handleCustomFieldChange}
+                />
+              ))}
+            </div>
+          )}
 
           {/* --- Attribution + consent --- */}
           <div className="border-t border-gray-100 pt-6 mb-6">
@@ -726,14 +783,10 @@ export default function ApplyPage() {
               ))}
             </fieldset>
 
-            {/* Consent */}
             <label className="flex items-start gap-3 p-4 bg-gray-50 rounded-xl cursor-pointer">
-              <input
-                type="checkbox"
-                checked={consentGiven}
+              <input type="checkbox" checked={consentGiven}
                 onChange={e => setConsentGiven(e.target.checked)}
-                className="mt-0.5 accent-purple-600"
-              />
+                className="mt-0.5 accent-purple-600" />
               <span className="text-sm text-gray-600">
                 I consent to The Steps Foundation processing my data for the purpose of
                 delivering this event and for aggregate impact reporting. I understand I can
@@ -744,26 +797,19 @@ export default function ApplyPage() {
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={() => { setStep('details'); setError(null) }}
-              className="px-6 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition"
-            >
+            <button onClick={() => { setStep('details'); setError(null) }}
+              className="px-6 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition">
               Back
             </button>
-            <button
-              onClick={handleSubmit}
-              disabled={!consentGiven}
-              className="flex-1 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <button onClick={handleSubmit} disabled={!consentGiven}
+              className="flex-1 py-3 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
               Submit application
             </button>
           </div>
         </div>
       )}
 
-      {/* ================================================================= */}
       {/* SUBMITTING */}
-      {/* ================================================================= */}
       {step === 'submitting' && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 text-center">
           <Spinner large />
@@ -771,9 +817,7 @@ export default function ApplyPage() {
         </div>
       )}
 
-      {/* ================================================================= */}
       {/* STEP 5: Success + Password Upgrade */}
-      {/* ================================================================= */}
       {step === 'success' && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
           <div className="text-center mb-6">
@@ -789,52 +833,28 @@ export default function ApplyPage() {
             </p>
           </div>
 
-          {/* Password upgrade */}
           {!passwordSaved ? (
             <div className="border-t border-gray-100 pt-6">
-              <h3 className="text-base font-semibold text-gray-900 mb-1">
-                Speed up future applications
-              </h3>
+              <h3 className="text-base font-semibold text-gray-900 mb-1">Speed up future applications</h3>
               <p className="text-gray-500 text-sm mb-4">
-                Create a password so you can sign in instantly next time — no verification code needed.
-                This is completely optional.
+                Create a password so you can sign in instantly next time — no verification code needed. This is completely optional.
               </p>
-
               {passwordError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-                  {passwordError}
-                </div>
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">{passwordError}</div>
               )}
-
               <div className="space-y-3 mb-4">
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)}
                   placeholder="Create a password (min 6 characters)"
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-                />
-                <input
-                  type="password"
-                  value={passwordConfirm}
-                  onChange={e => setPasswordConfirm(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition" />
+                <input type="password" value={passwordConfirm} onChange={e => setPasswordConfirm(e.target.value)}
                   placeholder="Confirm password"
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition"
-                />
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition" />
               </div>
-
               <div className="flex gap-3">
-                <button
-                  onClick={() => signOutStudent()}
-                  className="px-6 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium"
-                >
-                  No thanks
-                </button>
-                <button
-                  onClick={handlePasswordUpgrade}
-                  disabled={loading || password.length < 6}
-                  className="flex-1 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
+                <button onClick={() => signOutStudent()}
+                  className="px-6 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium">No thanks</button>
+                <button onClick={handlePasswordUpgrade} disabled={loading || password.length < 6}
+                  className="flex-1 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
                   {loading ? <Spinner /> : null}
                   Save password
                 </button>
@@ -852,7 +872,6 @@ export default function ApplyPage() {
         </div>
       )}
 
-      {/* Footer */}
       <p className="text-center text-xs text-gray-400 mt-8">
         <em>Virtus non origo</em> — Character, not origin
       </p>

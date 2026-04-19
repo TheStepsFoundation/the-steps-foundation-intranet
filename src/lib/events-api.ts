@@ -4,6 +4,27 @@ import { supabase } from './supabase'
 // Types
 // =============================================================================
 
+// Form builder field config type
+export type FormFieldConfig = {
+  id: string
+  type: 'text' | 'textarea' | 'dropdown' | 'checkbox_list' | 'radio' | 'number' | 'ranked_dropdown' | 'paired_dropdown'
+  label: string
+  description?: string
+  required: boolean
+  options?: { value: string; label: string }[]
+  config?: {
+    maxSelections?: number
+    ranks?: number
+    primaryOptions?: { value: string; label: string }[]
+    secondaryOptions?: { value: string; label: string }[]
+    primaryLabel?: string
+    secondaryLabel?: string
+    placeholder?: string
+    min?: number
+    max?: number
+  }
+}
+
 export type EventRow = {
   id: string
   name: string
@@ -19,6 +40,8 @@ export type EventRow = {
   status: 'draft' | 'open' | 'closed' | 'completed'
   applications_open_at: string | null
   applications_close_at: string | null
+  interest_options: { value: string; label: string }[]
+  form_config: { fields: FormFieldConfig[] }
   created_at: string
 }
 
@@ -36,7 +59,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,created_at'
+  'id,name,slug,event_date,location,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
@@ -113,7 +136,7 @@ export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
     'name' | 'slug' | 'location' | 'format' | 'time_start' | 'time_end' | 'dress_code' |
-    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at'
+    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config'
   >>,
 ): Promise<EventRow> {
   const { data, error } = await supabase

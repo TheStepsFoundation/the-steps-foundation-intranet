@@ -7,6 +7,8 @@ import { EventRow, fetchEvent, updateEvent } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
+import FormBuilder from "@/components/FormBuilder"
+import type { FormFieldConfig } from "@/lib/events-api"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -143,6 +145,7 @@ export default function EventDetailPage() {
       status: event.status,
       applications_open_at: event.applications_open_at ? event.applications_open_at.slice(0, 16) : '',
       applications_close_at: event.applications_close_at ? event.applications_close_at.slice(0, 16) : '',
+      form_config: event.form_config ?? { fields: [] },
     })
     setEditing(true)
   }
@@ -169,6 +172,11 @@ export default function EventDetailPage() {
       const closeAt = editDraft.applications_close_at ? new Date(editDraft.applications_close_at as string).toISOString() : null
       if (openAt !== (event.applications_open_at ?? null)) patch.applications_open_at = openAt
       if (closeAt !== (event.applications_close_at ?? null)) patch.applications_close_at = closeAt
+
+      // Always include form_config if it was edited
+      const currentFormConfig = JSON.stringify(event.form_config ?? { fields: [] })
+      const draftFormConfig = JSON.stringify(editDraft.form_config ?? { fields: [] })
+      if (draftFormConfig !== currentFormConfig) patch.form_config = editDraft.form_config
 
       if (Object.keys(patch).length > 0) {
         const updated = await updateEvent(event.id, patch as any)
@@ -753,6 +761,14 @@ export default function EventDetailPage() {
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
               <textarea rows={3} value={editDraft.description ?? ''} onChange={e => setEditDraft(d => ({ ...d, description: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 resize-y" />
+            </div>
+
+            {/* Row 6: Custom form fields */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <FormBuilder
+                fields={(editDraft.form_config as { fields: FormFieldConfig[] })?.fields ?? []}
+                onChange={(fields) => setEditDraft(d => ({ ...d, form_config: { fields } }))}
+              />
             </div>
           </div>
         ) : (
