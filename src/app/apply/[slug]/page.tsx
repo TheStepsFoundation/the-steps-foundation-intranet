@@ -232,7 +232,7 @@ export default function ApplyPage() {
   // Fetch form config from DB when event is known
   useEffect(() => {
     if (!event?.id) return
-    fetchEventFormConfig(event.id).then(config => {
+    fetchEventFormConfig(event!.id).then(config => {
       setFormFields(config.fields ?? [])
       setFormPages(config.pages ?? [])
     })
@@ -264,14 +264,14 @@ export default function ApplyPage() {
       if (cancelled || !session) return
       setEmail(session.email)
       // Re-fetch form config with auth
-      fetchEventFormConfig(event.id).then(config => {
+      fetchEventFormConfig(event!.id).then(config => {
         setFormFields(config.fields ?? [])
       })
       const student = await lookupSelf()
       if (student) {
         setExistingStudent(student)
         prefill(student)
-        const applied = await hasExistingApplication(event.id)
+        const applied = await hasExistingApplication(event!.id)
         if (applied) setAlreadyApplied(true)
       }
       if (!cancelled) setStep('details')
@@ -284,7 +284,7 @@ export default function ApplyPage() {
   useEffect(() => {
     if (!event?.id || !email || step === 'email' || step === 'otp' || step === 'success') return
     if (draftRestoredRef.current) return
-    const draft = loadDraft(event.id, email)
+    const draft = loadDraft(event!.id, email)
     if (!draft) { draftRestoredRef.current = true; return }
     draftRestoredRef.current = true
     restoringRef.current = true
@@ -344,7 +344,7 @@ export default function ApplyPage() {
     if (step === 'email' || step === 'otp' || step === 'success' || step === 'submitting') return
 
     const t = setTimeout(() => {
-      saveDraft(event.id, email, {
+      saveDraft(event!.id, email, {
         step,
         firstName, lastName, school, yearGroup, schoolType,
         freeSchoolMeals, householdIncome, additionalContext,
@@ -393,7 +393,7 @@ export default function ApplyPage() {
       return
     }
     // Re-fetch form config with auth
-    fetchEventFormConfig(event.id).then(config => {
+    fetchEventFormConfig(event!.id).then(config => {
       setFormFields(config.fields ?? [])
       setFormPages(config.pages ?? [])
     })
@@ -401,7 +401,7 @@ export default function ApplyPage() {
     if (student) {
       setExistingStudent(student)
       prefill(student)
-      const applied = await hasExistingApplication(event.id)
+      const applied = await hasExistingApplication(event!.id)
       if (applied) setAlreadyApplied(true)
     }
     setLoading(false)
@@ -416,7 +416,7 @@ export default function ApplyPage() {
     if (err) { setLoading(false); setError(err); return }
 
     // Re-fetch form config now that student is authenticated
-    fetchEventFormConfig(event.id).then(config => {
+    fetchEventFormConfig(event!.id).then(config => {
       setFormFields(config.fields ?? [])
       setFormPages(config.pages ?? [])
     })
@@ -424,7 +424,7 @@ export default function ApplyPage() {
     if (student) {
       setExistingStudent(student)
       prefill(student)
-      const applied = await hasExistingApplication(event.id)
+      const applied = await hasExistingApplication(event!.id)
       if (applied) setAlreadyApplied(true)
     }
     setLoading(false)
@@ -508,13 +508,13 @@ export default function ApplyPage() {
       freeSchoolMealsRaw: freeSchoolMeals,
     }
 
-    const result = await submitApplication(event.id, submission)
+    const result = await submitApplication(event!.id, submission)
     if (result.error) {
       setError(result.error)
       setStep('application')
       return
     }
-    clearDraft(event.id, email)
+    clearDraft(event!.id, email)
     setStep('success')
   }
 
