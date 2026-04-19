@@ -197,7 +197,7 @@ export default function LoginPage() {
         {/* Student Portal Link — prominent so students on the wrong page can't miss it */}
         <div className="mt-6">
           <Link
-            href="/student-portal"
+            href="/my/sign-in"
             className="group block rounded-xl border-2 border-steps-blue-300 bg-steps-blue-50/70 hover:bg-steps-blue-50 hover:border-steps-blue-500 transition-colors px-4 py-3.5 text-center"
           >
             <div className="text-xs uppercase tracking-wider text-steps-blue-700 font-semibold mb-0.5">Are you a student?</div>

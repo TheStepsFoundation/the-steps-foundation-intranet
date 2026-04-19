@@ -15,7 +15,7 @@ interface TopNavProps {
 
 function resolveHomeHref(pathname: string | null): string {
   if (!pathname) return '/hub'
-  if (pathname.startsWith('/my') || pathname.startsWith('/apply') || pathname.startsWith('/student-portal')) {
+  if (pathname.startsWith('/my') || pathname.startsWith('/apply')) {
     return '/my'
   }
   return '/hub'

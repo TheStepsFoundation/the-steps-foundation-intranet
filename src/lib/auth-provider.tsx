@@ -81,11 +81,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTeamMember(tm)
 
         // If someone signs in (Google or otherwise) and they're NOT a team member,
-        // AND we're on an admin page (not /apply or /student-portal), sign them out immediately.
-        // The /apply and /student-portal pages handle their own auth via OTP.
+        // AND we're on an admin page (not /apply or /my), sign them out immediately.
+        // The /apply and /my pages handle their own student auth.
         if (!tm && typeof window !== 'undefined'
             && !window.location.pathname.startsWith('/apply')
-            && !window.location.pathname.startsWith('/student-portal')) {
+            && !window.location.pathname.startsWith('/my')) {
           await supabase.auth.signOut()
           setUser(null)
           setSession(null)

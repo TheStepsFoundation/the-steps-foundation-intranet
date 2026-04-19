@@ -686,8 +686,8 @@ export default function EventDetailPage() {
       .replace(/\{\{event_location\}\}/g, event?.location ?? 'TBC')
       .replace(/\{\{event_time\}\}/g, [event?.time_start, event?.time_end].filter(Boolean).join(' – ') || 'TBC')
       .replace(/\{\{dress_code\}\}/g, event?.dress_code ?? '')
-      .replace(/\{\{portal_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/student-portal')
-      .replace(/\{\{rsvp_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/student-portal')
+      .replace(/\{\{portal_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
+      .replace(/\{\{rsvp_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
   }
 
   const getRecipients = () => {
