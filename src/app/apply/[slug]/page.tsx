@@ -194,6 +194,7 @@ export default function ApplyPage() {
   const [existingStudent, setExistingStudent] = useState<StudentSelf | null>(null)
   const [alreadyApplied, setAlreadyApplied] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
 
   // Form state — details step
@@ -404,8 +405,33 @@ export default function ApplyPage() {
   }
 
   // --- Custom field handler ---
+  // Per-field error helpers: inline messages + scroll to the first one.
+  const clearFieldError = (key: string) => {
+    setFieldErrors(prev => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
+  const scrollToFirstError = (errs: Record<string, string>, order?: string[]) => {
+    const keys = order ? order.filter(k => errs[k]) : Object.keys(errs)
+    const firstKey = keys[0]
+    if (!firstKey) return
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-error-key="${firstKey}"]`)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        const focusable = el.querySelector<HTMLElement>('input, select, textarea, button')
+        if (focusable) setTimeout(() => focusable.focus({ preventScroll: true }), 350)
+      }
+    })
+  }
+
   const handleCustomFieldChange = (fieldId: string, value: FieldValue) => {
     setCustomFieldValues(prev => ({ ...prev, [fieldId]: value }))
+    clearFieldError(`customField:${fieldId}`)
   }
 
 
@@ -512,62 +538,83 @@ export default function ApplyPage() {
   }
 
   const handleDetailsNext = () => {
+    const errs: Record<string, string> = {}
+    if (!firstName.trim()) errs.firstName = 'Please enter your first name.'
+    if (!lastName.trim()) errs.lastName = 'Please enter your last name.'
+    if (!school.schoolId && !school.schoolNameRaw) errs.school = 'Please select or enter your school.'
+    if (!yearGroup) errs.yearGroup = 'Please select your year group.'
+    if (!schoolType) errs.schoolType = 'Please answer this question.'
+    if (!freeSchoolMeals) errs.freeSchoolMeals = 'Please answer the Free School Meals question.'
+    if (!householdIncome) errs.householdIncome = 'Please answer the household income question.'
+    setFieldErrors(errs)
+    const n = Object.keys(errs).length
+    if (n > 0) {
+      setError(`Please fix ${n} issue${n > 1 ? 's' : ''} below before continuing.`)
+      scrollToFirstError(errs, ['firstName','lastName','school','yearGroup','schoolType','freeSchoolMeals','householdIncome'])
+      return
+    }
     setError(null)
-    if (!firstName.trim() || !lastName.trim()) { setError('Please enter your first and last name.'); return }
-    if (!school.schoolId && !school.schoolNameRaw) { setError('Please select or enter your school.'); return }
-    if (!yearGroup) { setError('Please select your year group.'); return }
-    if (!schoolType) { setError('Please select your school type.'); return }
-    if (!freeSchoolMeals) { setError('Please answer the Free School Meals question.'); return }
-    if (!householdIncome) { setError('Please answer the household income question.'); return }
     setStep('application')
   }
 
   const handleSubmit = async () => {
-    setError(null)
+    const errs: Record<string, string> = {}
+    const order: string[] = []
 
-    // Validate GCSE
-    if (!gcseResults.trim()) { setError('Please enter your GCSE results.'); return }
-    if (!/^\d+$/.test(gcseResults.trim())) { setError('GCSE results should contain only numbers (e.g. 999887766).'); return }
+    // GCSE
+    if (!gcseResults.trim()) { errs.gcseResults = 'Please enter your GCSE results.'; order.push('gcseResults') }
+    else if (!/^\d+$/.test(gcseResults.trim())) { errs.gcseResults = 'GCSE results should contain only numbers (e.g. 999887766).'; order.push('gcseResults') }
 
-    // Validate qualifications
+    // Qualifications
     const filledQuals = qualifications.filter(q => q.subject && q.grade)
-    if (filledQuals.length === 0) { setError('Please add at least one subject with a grade.'); return }
     const incompleteQuals = qualifications.filter(q => (q.subject && !q.grade) || (!q.subject && q.grade))
-    if (incompleteQuals.length > 0) { setError('Please complete all subject rows — each needs both a subject and a grade.'); return }
     const ibMissingLevel = qualifications.filter(q => q.qualType === 'ib' && q.subject && !q.level)
-    if (ibMissingLevel.length > 0) { setError('Please select HL or SL for each IB subject.'); return }
+    if (filledQuals.length === 0) { errs.qualifications = 'Please add at least one subject with a grade.'; order.push('qualifications') }
+    else if (incompleteQuals.length > 0) { errs.qualifications = 'Please complete all subject rows — each needs both a subject and a grade.'; order.push('qualifications') }
+    else if (ibMissingLevel.length > 0) { errs.qualifications = 'Please select HL or SL for each IB subject.'; order.push('qualifications') }
 
-    // Validate custom fields
+    // Custom fields
     for (const field of formFields) {
       if (!field.required) continue
       const val = customFieldValues[field.id]
+      const key = `customField:${field.id}`
       if (val === undefined || val === '' || val === null) {
-        setError(`Please complete: ${field.label}`); return
+        errs[key] = `Please complete: ${field.label}`
+        order.push(key)
+        continue
       }
-      // Check ranked_dropdown — all ranks must be filled
       if (field.type === 'ranked_dropdown' && typeof val === 'object' && !Array.isArray(val)) {
         const ranks = field.config?.ranks ?? 3
         const entries = val as Record<string, string>
         const rankKeys = Array.from({ length: ranks }, (_, i) =>
           i === 0 ? 'first' : i === 1 ? 'second' : i === 2 ? 'third' : `choice_${i + 1}`
         )
-        for (const key of rankKeys) {
-          if (!entries[key]) { setError(`Please complete all choices for: ${field.label}`); return }
+        for (const rk of rankKeys) {
+          if (!entries[rk]) { errs[key] = `Please complete all choices for: ${field.label}`; order.push(key); break }
         }
       }
-      // Check checkbox_list — at least one selected
       if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
-        setError(`Please select at least one option for: ${field.label}`); return
+        errs[key] = `Please select at least one option for: ${field.label}`
+        order.push(key)
       }
-      // Check paired_dropdown — at least one complete row
       if (field.type === 'paired_dropdown' && Array.isArray(val)) {
         const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
-        if (completeRows.length === 0) { setError(`Please complete at least one row for: ${field.label}`); return }
+        if (completeRows.length === 0) { errs[key] = `Please complete at least one row for: ${field.label}`; order.push(key) }
       }
     }
 
-    if (!attribution) { setError('Please tell us how you heard about this opportunity.'); return }
+    // Attribution
+    if (!attribution) { errs.attribution = 'Please tell us how you heard about this opportunity.'; order.push('attribution') }
 
+    setFieldErrors(errs)
+    const n = Object.keys(errs).length
+    if (n > 0) {
+      setError(`Please fix ${n} issue${n > 1 ? 's' : ''} below to submit your application.`)
+      scrollToFirstError(errs, order)
+      return
+    }
+
+    setError(null)
     setStep('submitting')
 
     const submission: ApplicationSubmission = {
@@ -708,8 +755,9 @@ export default function ApplyPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-          {error}
+        <div className="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-xl text-red-800 text-sm flex items-start gap-3 shadow-sm" role="alert" aria-live="polite">
+          <svg className="w-5 h-5 flex-shrink-0 text-red-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+          <div><strong className="block mb-0.5">There’s a problem with your form</strong>{error}</div>
         </div>
       )}
 
@@ -914,21 +962,23 @@ export default function ApplyPage() {
 
           {/* Name */}
           <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
+            <div data-error-key="firstName">
               <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
                 First name <span className="text-red-400">*</span>
               </label>
               <input id="firstName" type="text" value={firstName}
-                onChange={e => setFirstName(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition" />
+                onChange={e => { setFirstName(e.target.value); clearFieldError('firstName') }}
+                className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition ${fieldErrors.firstName ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`} />
+              {fieldErrors.firstName && <p className="mt-1 text-xs text-red-600">{fieldErrors.firstName}</p>}
             </div>
-            <div>
+            <div data-error-key="lastName">
               <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
                 Last name <span className="text-red-400">*</span>
               </label>
               <input id="lastName" type="text" value={lastName}
-                onChange={e => setLastName(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition" />
+                onChange={e => { setLastName(e.target.value); clearFieldError('lastName') }}
+                className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition ${fieldErrors.lastName ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`} />
+              {fieldErrors.lastName && <p className="mt-1 text-xs text-red-600">{fieldErrors.lastName}</p>}
             </div>
           </div>
 
@@ -940,26 +990,28 @@ export default function ApplyPage() {
           </div>
 
           {/* School */}
-          <div className="mb-4">
+          <div className="mb-4" data-error-key="school">
             <label htmlFor="school" className="block text-sm font-medium text-gray-700 mb-1">
               Current school / sixth form college <span className="text-red-400">*</span>
             </label>
-            <SchoolPicker value={school} onChange={setSchool} placeholder="Search for your school…" id="school" />
+            <SchoolPicker value={school} onChange={v => { setSchool(v); clearFieldError('school') }} placeholder="Search for your school…" id="school" />
+            {fieldErrors.school && <p className="mt-1 text-xs text-red-600">{fieldErrors.school}</p>}
           </div>
 
           {/* Year group */}
-          <div className="mb-6">
+          <div className="mb-6" data-error-key="yearGroup">
             <label htmlFor="yearGroup" className="block text-sm font-medium text-gray-700 mb-1">
               Year group <span className="text-red-400">*</span>
             </label>
             <select id="yearGroup" value={yearGroup}
-              onChange={e => setYearGroup(e.target.value ? Number(e.target.value) : '')}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
+              onChange={e => { setYearGroup(e.target.value ? Number(e.target.value) : ''); clearFieldError('yearGroup') }}
+              className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white ${fieldErrors.yearGroup ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}>
               <option value="">Select…</option>
               <option value={12}>Year 12</option>
               <option value={13}>Year 13</option>
               <option value={14}>Gap year</option>
             </select>
+            {fieldErrors.yearGroup && <p className="mt-1 text-xs text-red-600">{fieldErrors.yearGroup}</p>}
           </div>
 
           {/* --- Contextual & Socioeconomic --- */}
@@ -970,7 +1022,7 @@ export default function ApplyPage() {
             </p>
 
             {isIndependentSchool(school.typeGroup) ? (
-              <fieldset className="mb-4">
+              <fieldset className="mb-4" data-error-key="schoolType">
                 <legend className="block text-sm font-medium text-gray-700 mb-2">
                   Does your school provide you with a bursary or scholarship covering 90%+ of fees? <span className="text-red-400">*</span>
                 </legend>
@@ -984,14 +1036,15 @@ export default function ApplyPage() {
                   <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
                     <input type="radio" name="schoolType" value={opt.value}
                       checked={schoolType === opt.value}
-                      onChange={e => setSchoolType(e.target.value)}
+                      onChange={e => { setSchoolType(e.target.value); clearFieldError('schoolType') }}
                       className="mt-0.5 accent-steps-blue-600" />
                     <span className="text-sm text-gray-700">{opt.label}</span>
                   </label>
                 ))}
+                {fieldErrors.schoolType && <p className="mt-1 text-xs text-red-600">{fieldErrors.schoolType}</p>}
               </fieldset>
             ) : (
-              <fieldset className="mb-4">
+              <fieldset className="mb-4" data-error-key="schoolType">
                 <legend className="block text-sm font-medium text-gray-700 mb-2">
                   What type of school do you currently attend? <span className="text-red-400">*</span>
                 </legend>
@@ -999,28 +1052,30 @@ export default function ApplyPage() {
                   <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
                     <input type="radio" name="schoolType" value={opt.value}
                       checked={schoolType === opt.value}
-                      onChange={e => setSchoolType(e.target.value)}
+                      onChange={e => { setSchoolType(e.target.value); clearFieldError('schoolType') }}
                       className="mt-0.5 accent-steps-blue-600" />
                     <span className="text-sm text-gray-700">{opt.label}</span>
                   </label>
                 ))}
+                {fieldErrors.schoolType && <p className="mt-1 text-xs text-red-600">{fieldErrors.schoolType}</p>}
               </fieldset>
             )}
 
-            <fieldset className="mb-4">
+            <fieldset className="mb-4" data-error-key="householdIncome">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
                 Is your average household income less than £40,000? <span className="text-red-400">*</span>
               </legend>
               {[{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }, { v: 'prefer_not_to_say', l: 'Prefer not to say' }].map(opt => (
                 <label key={opt.v} className="flex items-center gap-3 py-1.5 cursor-pointer">
                   <input type="radio" name="income" value={opt.v} checked={householdIncome === opt.v}
-                    onChange={e => setHouseholdIncome(e.target.value)} className="accent-steps-blue-600" />
+                    onChange={e => { setHouseholdIncome(e.target.value); clearFieldError('householdIncome') }} className="accent-steps-blue-600" />
                   <span className="text-sm text-gray-700">{opt.l}</span>
                 </label>
               ))}
+              {fieldErrors.householdIncome && <p className="mt-1 text-xs text-red-600">{fieldErrors.householdIncome}</p>}
             </fieldset>
 
-            <fieldset className="mb-4">
+            <fieldset className="mb-4" data-error-key="freeSchoolMeals">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
                 Are you eligible for Free School Meals? <span className="text-red-400">*</span>
               </legend>
@@ -1032,11 +1087,12 @@ export default function ApplyPage() {
                 <label key={opt.v} className="flex items-center gap-3 py-1.5 cursor-pointer">
                   <input type="radio" name="fsm" value={opt.v}
                     checked={freeSchoolMeals === opt.v}
-                    onChange={e => setFreeSchoolMeals(e.target.value)}
+                    onChange={e => { setFreeSchoolMeals(e.target.value); clearFieldError('freeSchoolMeals') }}
                     className="accent-steps-blue-600" />
                   <span className="text-sm text-gray-700">{opt.l}</span>
                 </label>
               ))}
+              {fieldErrors.freeSchoolMeals && <p className="mt-1 text-xs text-red-600">{fieldErrors.freeSchoolMeals}</p>}
             </fieldset>
 
             <div>
@@ -1073,7 +1129,7 @@ export default function ApplyPage() {
           </p>
 
           {/* GCSE results — digits only */}
-          <div className="mb-6">
+          <div className="mb-6" data-error-key="gcseResults">
             <label htmlFor="gcse" className="block text-sm font-medium text-gray-700 mb-1">
               Achieved GCSE results <span className="text-red-400">*</span>
             </label>
@@ -1086,14 +1142,15 @@ export default function ApplyPage() {
               inputMode="numeric"
               pattern="[0-9]*"
               value={gcseResults}
-              onChange={e => setGcseResults(e.target.value.replace(/\D/g, ''))}
+              onChange={e => { setGcseResults(e.target.value.replace(/\D/g, '')); clearFieldError('gcseResults') }}
               placeholder="e.g. 999887766"
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition font-mono tracking-wider"
+              className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition font-mono tracking-wider ${fieldErrors.gcseResults ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}
             />
+            {fieldErrors.gcseResults && <p className="mt-1 text-xs text-red-600">{fieldErrors.gcseResults}</p>}
           </div>
 
           {/* --- Qualifications --- */}
-          <div className="mb-6">
+          <div className="mb-6" data-error-key="qualifications">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Subjects and predicted/achieved grades <span className="text-red-400">*</span>
             </label>
@@ -1113,7 +1170,7 @@ export default function ApplyPage() {
                   </div>
 
                   <select value={q.qualType}
-                    onChange={e => updateQualification(idx, 'qualType', e.target.value)}
+                    onChange={e => { updateQualification(idx, 'qualType', e.target.value); clearFieldError('qualifications') }}
                     className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition mb-2">
                     {QUAL_TYPES.map(qt => (
                       <option key={qt.value} value={qt.value}>{qt.label}</option>
@@ -1122,7 +1179,7 @@ export default function ApplyPage() {
 
                   <div className={`grid gap-2 ${q.qualType === 'ib' ? 'grid-cols-3' : 'grid-cols-2'}`}>
                     <select value={q.subject}
-                      onChange={e => updateQualification(idx, 'subject', e.target.value)}
+                      onChange={e => { updateQualification(idx, 'subject', e.target.value); clearFieldError('qualifications') }}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition">
                       <option value="">Select subject…</option>
                       {(SUBJECTS[q.qualType] ?? []).map(s => (
@@ -1133,7 +1190,7 @@ export default function ApplyPage() {
 
                     {q.qualType === 'ib' && (
                       <select value={q.level ?? ''}
-                        onChange={e => updateQualification(idx, 'level', e.target.value)}
+                        onChange={e => { updateQualification(idx, 'level', e.target.value); clearFieldError('qualifications') }}
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition">
                         <option value="">Level…</option>
                         {IB_LEVELS.map(l => (
@@ -1143,7 +1200,7 @@ export default function ApplyPage() {
                     )}
 
                     <select value={q.grade}
-                      onChange={e => updateQualification(idx, 'grade', e.target.value)}
+                      onChange={e => { updateQualification(idx, 'grade', e.target.value); clearFieldError('qualifications') }}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition">
                       <option value="">Grade…</option>
                       {(GRADES[q.qualType] ?? []).map(g => (
@@ -1171,6 +1228,7 @@ export default function ApplyPage() {
               className="mt-3 w-full py-2.5 border-2 border-dashed border-gray-200 rounded-xl text-sm text-steps-blue-600 font-medium hover:border-steps-blue-300 hover:bg-steps-blue-50 transition">
               + Add another subject
             </button>
+            {fieldErrors.qualifications && <p className="mt-2 text-xs text-red-600">{fieldErrors.qualifications}</p>}
           </div>
 
           {/* --- Custom form fields from form_config --- */}
@@ -1198,13 +1256,17 @@ export default function ApplyPage() {
 
               {/* Page fields */}
               {(formPages[customPageIdx]?.fields ?? []).map(field => (
-                <DynamicFormField
-                  key={field.id}
-                  field={field}
-                  value={customFieldValues[field.id]}
-                  onChange={handleCustomFieldChange}
-                  allValues={customFieldValues}
-                />
+                <div key={field.id} data-error-key={`customField:${field.id}`}>
+                  <DynamicFormField
+                    field={field}
+                    value={customFieldValues[field.id]}
+                    onChange={handleCustomFieldChange}
+                    allValues={customFieldValues}
+                  />
+                  {fieldErrors[`customField:${field.id}`] && (
+                    <p className="-mt-3 mb-4 text-xs text-red-600">{fieldErrors[`customField:${field.id}`]}</p>
+                  )}
+                </div>
               ))}
 
               {/* Page navigation */}
@@ -1243,20 +1305,24 @@ export default function ApplyPage() {
             /* Single-page mode (backward compat) */
             <div className="border-t border-gray-100 pt-6 mb-6">
               {formFields.map(field => (
-                <DynamicFormField
-                  key={field.id}
-                  field={field}
-                  value={customFieldValues[field.id]}
-                  onChange={handleCustomFieldChange}
-                  allValues={customFieldValues}
-                />
+                <div key={field.id} data-error-key={`customField:${field.id}`}>
+                  <DynamicFormField
+                    field={field}
+                    value={customFieldValues[field.id]}
+                    onChange={handleCustomFieldChange}
+                    allValues={customFieldValues}
+                  />
+                  {fieldErrors[`customField:${field.id}`] && (
+                    <p className="-mt-3 mb-4 text-xs text-red-600">{fieldErrors[`customField:${field.id}`]}</p>
+                  )}
+                </div>
               ))}
             </div>
           ) : null}
 
           {/* --- Attribution + consent --- */}
           <div className="border-t border-gray-100 pt-6 mb-6">
-            <fieldset className="mb-6">
+            <fieldset className="mb-6" data-error-key="attribution">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
                 How did you hear about this opportunity? <span className="text-red-400">*</span>
               </legend>
@@ -1264,11 +1330,12 @@ export default function ApplyPage() {
                 <label key={opt.value} className="flex items-center gap-3 py-1.5 cursor-pointer">
                   <input type="radio" name="attribution" value={opt.value}
                     checked={attribution === opt.value}
-                    onChange={e => setAttribution(e.target.value)}
+                    onChange={e => { setAttribution(e.target.value); clearFieldError('attribution') }}
                     className="accent-steps-blue-600" />
                   <span className="text-sm text-gray-700">{opt.label}</span>
                 </label>
               ))}
+              {fieldErrors.attribution && <p className="mt-1 text-xs text-red-600">{fieldErrors.attribution}</p>}
             </fieldset>
 
 
