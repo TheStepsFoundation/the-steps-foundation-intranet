@@ -198,10 +198,10 @@ export default function LoginPage() {
         <div className="mt-6">
           <Link
             href="/student-portal"
-            className="group block rounded-xl border-2 border-steps-berry-200 bg-steps-berry-50/60 hover:bg-steps-berry-50 hover:border-steps-berry-400 transition-colors px-4 py-3.5 text-center"
+            className="group block rounded-xl border-2 border-steps-blue-300 bg-steps-blue-50/70 hover:bg-steps-blue-50 hover:border-steps-blue-500 transition-colors px-4 py-3.5 text-center"
           >
-            <div className="text-xs uppercase tracking-wider text-steps-berry-700 font-semibold mb-0.5">Are you a student?</div>
-            <div className="text-base font-bold text-steps-dark flex items-center justify-center gap-1.5">
+            <div className="text-xs uppercase tracking-wider text-steps-blue-700 font-semibold mb-0.5">Are you a student?</div>
+            <div className="text-base font-bold text-steps-blue-800 flex items-center justify-center gap-1.5">
               Go to the Student Portal
               <span className="transition-transform group-hover:translate-x-0.5">→</span>
             </div>
