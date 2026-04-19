@@ -5,23 +5,69 @@ import { supabase } from './supabase'
 // =============================================================================
 
 // Form builder field config type
+export type FormFieldType =
+  | 'text' | 'textarea' | 'number' | 'email' | 'phone' | 'date' | 'url'
+  | 'dropdown' | 'radio' | 'checkbox_list' | 'ranked_dropdown' | 'yes_no'
+  | 'scale' | 'paired_dropdown' | 'matrix' | 'repeatable_group'
+  | 'section_heading'
+
+export type ConditionalRule = {
+  fieldId: string
+  operator: 'equals' | 'not_equals' | 'contains' | 'is_empty' | 'is_not_empty'
+  value?: string
+}
+
+export type FormPage = {
+  id: string
+  title: string
+  description?: string
+  fields: FormFieldConfig[]
+  routing?: {
+    rules: {
+      conditions: ConditionalRule[]
+      goToPageId: string
+    }[]
+    defaultNextPageId?: string
+  }
+}
+
 export type FormFieldConfig = {
   id: string
-  type: 'text' | 'textarea' | 'dropdown' | 'checkbox_list' | 'radio' | 'number' | 'ranked_dropdown' | 'paired_dropdown'
+  type: FormFieldType
   label: string
   description?: string
   required: boolean
   options?: { value: string; label: string }[]
   config?: {
+    // Text / number
+    placeholder?: string
+    min?: number
+    max?: number
+    // Checkbox list
     maxSelections?: number
+    // Ranked dropdown
     ranks?: number
+    // Paired dropdown
     primaryOptions?: { value: string; label: string }[]
     secondaryOptions?: { value: string; label: string }[]
     primaryLabel?: string
     secondaryLabel?: string
-    placeholder?: string
-    min?: number
-    max?: number
+    // Scale
+    scaleMin?: number
+    scaleMax?: number
+    scaleMinLabel?: string
+    scaleMaxLabel?: string
+    // Matrix
+    matrixRows?: { value: string; label: string }[]
+    matrixColumns?: { value: string; label: string }[]
+    matrixType?: 'single' | 'multi'  // single = radio per row, multi = checkbox per row
+    // Repeatable group
+    subFields?: FormFieldConfig[]
+    minEntries?: number
+    maxEntries?: number
+    addButtonLabel?: string
+    // Conditional visibility
+    showIf?: ConditionalRule[]
   }
 }
 
@@ -41,7 +87,7 @@ export type EventRow = {
   applications_open_at: string | null
   applications_close_at: string | null
   interest_options: { value: string; label: string }[]
-  form_config: { fields: FormFieldConfig[] }
+  form_config: { fields: FormFieldConfig[]; pages?: FormPage[] }
   created_at: string
 }
 

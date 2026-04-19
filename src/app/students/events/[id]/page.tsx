@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
-import type { FormFieldConfig } from "@/lib/events-api"
+import type { FormFieldConfig, FormPage } from "@/lib/events-api"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -766,8 +766,9 @@ export default function EventDetailPage() {
             {/* Row 6: Custom form fields */}
             <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
               <FormBuilder
-                fields={(editDraft.form_config as { fields: FormFieldConfig[] })?.fields ?? []}
-                onChange={(fields) => setEditDraft(d => ({ ...d, form_config: { fields } }))}
+                fields={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[] })?.fields ?? []}
+                pages={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[] })?.pages}
+                onChange={(fields, pages) => setEditDraft(d => ({ ...d, form_config: { fields, ...(pages ? { pages } : {}) } }))}
               />
             </div>
           </div>

@@ -172,7 +172,7 @@ export async function hasExistingApplication(eventId: string): Promise<boolean> 
 
 export async function fetchEventFormConfig(
   eventId: string,
-): Promise<{ fields: import('@/lib/events-api').FormFieldConfig[] }> {
+): Promise<{ fields: import('@/lib/events-api').FormFieldConfig[]; pages?: import('@/lib/events-api').FormPage[] }> {
   const { data, error } = await supabase
     .from('events')
     .select('form_config')
@@ -180,7 +180,7 @@ export async function fetchEventFormConfig(
     .maybeSingle()
 
   if (error || !data || !data.form_config) return { fields: [] }
-  return data.form_config as { fields: import('@/lib/events-api').FormFieldConfig[] }
+  return data.form_config as { fields: import('@/lib/events-api').FormFieldConfig[]; pages?: import('@/lib/events-api').FormPage[] }
 }
 
 // ---------------------------------------------------------------------------

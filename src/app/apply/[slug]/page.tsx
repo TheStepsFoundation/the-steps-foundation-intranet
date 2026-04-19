@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
-import DynamicFormField, { type FieldValue } from '@/components/DynamicFormField'
-import type { FormFieldConfig } from '@/lib/events-api'
+import DynamicFormField, { type FieldValue, evaluateConditions } from '@/components/DynamicFormField'
+import type { FormFieldConfig, FormPage } from '@/lib/events-api'
 import {
   sendOtp, verifyOtp, signInWithPassword, lookupSelf, hasExistingApplication, getExistingSession,
   submitApplication, upgradeToPassword, signOutStudent,
@@ -226,6 +226,8 @@ export default function ApplyPage() {
 
   // Form state — custom fields (from form_config)
   const [formFields, setFormFields] = useState<FormFieldConfig[]>([])
+  const [formPages, setFormPages] = useState<FormPage[]>([])
+  const [customPageIdx, setCustomPageIdx] = useState(0)
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, FieldValue>>({})
 
   // Draft restore guard
@@ -243,6 +245,7 @@ export default function ApplyPage() {
     if (!event?.id) return
     fetchEventFormConfig(event.id).then(config => {
       setFormFields(config.fields ?? [])
+      setFormPages(config.pages ?? [])
     })
   }, [event?.id])
 
@@ -405,6 +408,7 @@ export default function ApplyPage() {
     // Re-fetch form config with auth
     fetchEventFormConfig(event.id).then(config => {
       setFormFields(config.fields ?? [])
+      setFormPages(config.pages ?? [])
     })
     const student = await lookupSelf()
     if (student) {
@@ -427,6 +431,7 @@ export default function ApplyPage() {
     // Re-fetch form config now that student is authenticated
     fetchEventFormConfig(event.id).then(config => {
       setFormFields(config.fields ?? [])
+      setFormPages(config.pages ?? [])
     })
     const student = await lookupSelf()
     if (student) {
@@ -1021,7 +1026,73 @@ export default function ApplyPage() {
           </div>
 
           {/* --- Custom form fields from form_config --- */}
-          {formFields.length > 0 && (
+          {formPages.length > 0 ? (
+            /* Multi-page mode */
+            <div className="border-t border-gray-100 pt-6 mb-6">
+              {/* Page indicator */}
+              <div className="flex items-center gap-2 mb-4">
+                {formPages.map((pg, pi) => (
+                  <div key={pg.id} className={`flex items-center gap-1 text-xs ${pi === customPageIdx ? 'text-purple-600 font-semibold' : 'text-gray-400'}`}>
+                    {pi > 0 && <span className="text-gray-300 mx-1">→</span>}
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${pi === customPageIdx ? 'bg-purple-600 text-white' : pi < customPageIdx ? 'bg-purple-200 text-purple-700' : 'bg-gray-200 text-gray-500'}`}>{pi + 1}</span>
+                    <span className="hidden sm:inline">{pg.title}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Page title */}
+              {formPages[customPageIdx]?.title && (
+                <h3 className="text-base font-semibold text-gray-900 mb-1">{formPages[customPageIdx].title}</h3>
+              )}
+              {formPages[customPageIdx]?.description && (
+                <p className="text-sm text-gray-500 mb-4">{formPages[customPageIdx].description}</p>
+              )}
+
+              {/* Page fields */}
+              {(formPages[customPageIdx]?.fields ?? []).map(field => (
+                <DynamicFormField
+                  key={field.id}
+                  field={field}
+                  value={customFieldValues[field.id]}
+                  onChange={handleCustomFieldChange}
+                  allValues={customFieldValues}
+                />
+              ))}
+
+              {/* Page navigation */}
+              <div className="flex gap-3 mt-4">
+                {customPageIdx > 0 && (
+                  <button type="button" onClick={() => setCustomPageIdx(customPageIdx - 1)}
+                    className="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition">
+                    ← Back
+                  </button>
+                )}
+                {customPageIdx < formPages.length - 1 && (
+                  <button type="button" onClick={() => {
+                    // Evaluate routing rules for current page
+                    const currentPage = formPages[customPageIdx]
+                    if (currentPage.routing?.rules) {
+                      for (const rule of currentPage.routing.rules) {
+                        if (evaluateConditions(rule.conditions, customFieldValues)) {
+                          if (rule.goToPageId === '__submit') {
+                            setCustomPageIdx(formPages.length) // past last page = show attribution
+                            return
+                          }
+                          const targetIdx = formPages.findIndex(p => p.id === rule.goToPageId)
+                          if (targetIdx >= 0) { setCustomPageIdx(targetIdx); return }
+                        }
+                      }
+                    }
+                    setCustomPageIdx(customPageIdx + 1)
+                  }}
+                    className="flex-1 py-2 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-700 transition">
+                    Next →
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : formFields.length > 0 ? (
+            /* Single-page mode (backward compat) */
             <div className="border-t border-gray-100 pt-6 mb-6">
               {formFields.map(field => (
                 <DynamicFormField
@@ -1029,10 +1100,11 @@ export default function ApplyPage() {
                   field={field}
                   value={customFieldValues[field.id]}
                   onChange={handleCustomFieldChange}
+                  allValues={customFieldValues}
                 />
               ))}
             </div>
-          )}
+          ) : null}
 
           {/* --- Attribution + consent --- */}
           <div className="border-t border-gray-100 pt-6 mb-6">
