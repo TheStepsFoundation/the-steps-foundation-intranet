@@ -6,6 +6,8 @@ import { searchSchools, School } from '@/lib/schools-api'
 export type SchoolPickerValue = {
   schoolId: string | null
   schoolNameRaw: string | null
+  typeGroup?: string | null
+  schoolName?: string | null
 }
 
 type Props = {
@@ -97,7 +99,7 @@ export default function SchoolPicker({
   }, [query, open])
 
   function commitSchool(s: School) {
-    onChange({ schoolId: s.id, schoolNameRaw: s.name })
+    onChange({ schoolId: s.id, schoolNameRaw: s.name, typeGroup: s.type_group ?? null, schoolName: s.name })
     setDisplayLabel(s.town ? `${s.name} — ${s.town}` : s.name)
     setQuery('')
     setResults([])
@@ -107,7 +109,7 @@ export default function SchoolPicker({
   function commitManual() {
     const raw = query.trim()
     if (!raw) return
-    onChange({ schoolId: null, schoolNameRaw: raw })
+    onChange({ schoolId: null, schoolNameRaw: raw, typeGroup: null, schoolName: null })
     setDisplayLabel(`${raw} (manual)`)
     setQuery('')
     setResults([])
@@ -115,7 +117,7 @@ export default function SchoolPicker({
   }
 
   function clear() {
-    onChange({ schoolId: null, schoolNameRaw: null })
+    onChange({ schoolId: null, schoolNameRaw: null, typeGroup: null, schoolName: null })
     setDisplayLabel('')
     setQuery('')
     setResults([])

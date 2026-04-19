@@ -118,6 +118,15 @@ const SCHOOL_TYPE_OPTIONS = [
   { value: 'independent_bursary', label: 'Independent (fee-paying) school with >90% bursary/scholarship' },
 ]
 
+
+// ---------------------------------------------------------------------------
+// School type: detect independent schools from GIAS type_group
+// ---------------------------------------------------------------------------
+
+function isIndependentSchool(typeGroup: string | null | undefined): boolean {
+  return typeGroup === 'Independent schools'
+}
+
 // ---------------------------------------------------------------------------
 // Steps
 // ---------------------------------------------------------------------------
@@ -243,6 +252,15 @@ export default function ApplyPage() {
   const handleCustomFieldChange = (fieldId: string, value: FieldValue) => {
     setCustomFieldValues(prev => ({ ...prev, [fieldId]: value }))
   }
+
+
+  // When an independent school is selected, clear any non-independent school type
+  // so the student must answer the bursary question
+  useEffect(() => {
+    if (isIndependentSchool(school.typeGroup) && schoolType && !schoolType.startsWith('independent')) {
+      setSchoolType('')
+    }
+  }, [school.typeGroup]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Handlers ---
 
@@ -587,20 +605,43 @@ export default function ApplyPage() {
               This helps us ensure our events reach students from underrepresented backgrounds.
             </p>
 
-            <fieldset className="mb-4">
-              <legend className="block text-sm font-medium text-gray-700 mb-2">
-                What type of school do you currently attend? <span className="text-red-400">*</span>
-              </legend>
-              {SCHOOL_TYPE_OPTIONS.map(opt => (
-                <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
-                  <input type="radio" name="schoolType" value={opt.value}
-                    checked={schoolType === opt.value}
-                    onChange={e => setSchoolType(e.target.value)}
-                    className="mt-0.5 accent-purple-600" />
-                  <span className="text-sm text-gray-700">{opt.label}</span>
-                </label>
-              ))}
-            </fieldset>
+            {isIndependentSchool(school.typeGroup) ? (
+              <fieldset className="mb-4">
+                <legend className="block text-sm font-medium text-gray-700 mb-2">
+                  Does your school provide you with a bursary or scholarship covering 90%+ of fees? <span className="text-red-400">*</span>
+                </legend>
+                <p className="text-xs text-gray-400 mb-2">
+                  We detected your school is independent from the schools register.
+                </p>
+                {[
+                  { value: 'independent', label: 'No — full or mostly fee-paying' },
+                  { value: 'independent_bursary', label: 'Yes — I receive a 90%+ bursary or scholarship' },
+                ].map(opt => (
+                  <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
+                    <input type="radio" name="schoolType" value={opt.value}
+                      checked={schoolType === opt.value}
+                      onChange={e => setSchoolType(e.target.value)}
+                      className="mt-0.5 accent-purple-600" />
+                    <span className="text-sm text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : (
+              <fieldset className="mb-4">
+                <legend className="block text-sm font-medium text-gray-700 mb-2">
+                  What type of school do you currently attend? <span className="text-red-400">*</span>
+                </legend>
+                {SCHOOL_TYPE_OPTIONS.map(opt => (
+                  <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
+                    <input type="radio" name="schoolType" value={opt.value}
+                      checked={schoolType === opt.value}
+                      onChange={e => setSchoolType(e.target.value)}
+                      className="mt-0.5 accent-purple-600" />
+                    <span className="text-sm text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
 
             <fieldset className="mb-4">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
