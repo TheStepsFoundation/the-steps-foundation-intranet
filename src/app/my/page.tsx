@@ -11,6 +11,7 @@ import {
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
 import type { StudentSelf } from '@/lib/apply-api'
+import { supabase } from '@/lib/supabase'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -106,33 +107,61 @@ export default function StudentHub() {
     setIncomeBand(p.parental_income_band ?? '')
   }, [])
 
-  // Load everything on mount
+  // Load everything on mount. We're deliberately patient about session
+  // hydration: after a fresh sign-in or password upgrade, the auth state can
+  // take a tick to land in localStorage, so we retry a few times before
+  // giving up and redirecting.
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      const email = await getAuthEmail()
-      if (!email) { router.replace('/my/sign-in'); return }
+
+    const waitForSession = async (): Promise<string | null> => {
+      for (let i = 0; i < 10; i++) {
+        if (cancelled) return null
+        const email = await getAuthEmail()
+        if (email) return email
+        await new Promise(r => setTimeout(r, 150))
+      }
+      return null
+    }
+
+    const loadAll = async (email: string) => {
       if (cancelled) return
       setAuthEmail(email)
-
       const [prof, apps, events] = await Promise.all([
         fetchProfile(),
         fetchMyApplications(),
         fetchOpenEvents(),
       ])
-
       if (cancelled) return
       setProfile(prof)
       if (prof) populateForm(prof)
       setApplications(apps)
-
-      // Filter out events the student has already applied to
       const appliedEventIds = new Set(apps.map(a => a.event_id))
       setOpenEvents(events.filter(e => !appliedEventIds.has(e.id)))
-
       setLoading(false)
+    }
+
+    ;(async () => {
+      const email = await waitForSession()
+      if (cancelled) return
+      if (!email) { router.replace('/my/sign-in'); return }
+      await loadAll(email)
     })()
-    return () => { cancelled = true }
+
+    // If auth changes mid-session (token refresh, re-sign-in, sign-out), react.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return
+      if (event === 'SIGNED_OUT') {
+        router.replace('/my/sign-in')
+        return
+      }
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user?.email) {
+        // Reload data with the fresh session — covers the "applied, then hub is empty" case.
+        loadAll(session.user.email.toLowerCase())
+      }
+    })
+
+    return () => { cancelled = true; sub.subscription.unsubscribe() }
   }, [router, populateForm])
 
   const handleSave = async () => {

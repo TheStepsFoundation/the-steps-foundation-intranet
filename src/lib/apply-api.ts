@@ -119,6 +119,10 @@ export async function upgradeToPassword(
 ): Promise<{ error: string | null }> {
   const { error } = await supabase.auth.updateUser({ password })
   if (error) return { error: error.message }
+  // Force a session refresh so the new JWT (with updated user object) is
+  // persisted to localStorage before the UI moves on. Without this, the
+  // next page load can find no session and bounce back to sign-in.
+  await supabase.auth.refreshSession()
   return { error: null }
 }
 

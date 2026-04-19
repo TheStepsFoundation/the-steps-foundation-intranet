@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { sendOtp, verifyOtp, signInWithPassword, getExistingSession } from '@/lib/apply-api'
+import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import Image from 'next/image'
 import { PressableButton } from '@/components/PressableButton'
@@ -29,12 +30,22 @@ export default function HubSignInPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  // Check for existing session on mount
-  useState(() => {
+  // On mount: check for existing session. Also listen for future auth changes
+  // so that once the session hydrates (after sign-in, after password upgrade),
+  // we reactively push the user into /my instead of leaving them stuck here.
+  useEffect(() => {
+    let cancelled = false
     getExistingSession().then(s => {
-      if (s?.email) router.replace('/my')
+      if (!cancelled && s?.email) router.replace('/my')
     })
-  })
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user?.email) {
+        router.replace('/my')
+      }
+    })
+    return () => { cancelled = true; sub.subscription.unsubscribe() }
+  }, [router])
 
   const handlePasswordSignIn = async () => {
     setError(null); setLoading(true)
