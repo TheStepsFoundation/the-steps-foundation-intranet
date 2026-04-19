@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS } from '@/lib/students-api'
+import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS, EVENT_BY_ID } from '@/lib/students-api'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -282,6 +282,13 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       .replace(/\{\{email\}\}/g, String(s.personal_email ?? ''))
       .replace(/\{\{event_name\}\}/g, eventName)
       .replace(/\{\{apply_link\}\}/g, applyLink)
+    // Last attended event — most recent event the student actually attended
+    const attendedApps = (s.applications || [])
+      .filter(a => a.attended)
+      .map(a => ({ ...a, ev: EVENT_BY_ID[a.event_id] }))
+      .filter(a => a.ev)
+      .sort((a, b) => new Date(b.ev.date).getTime() - new Date(a.ev.date).getTime())
+    result = result.replace(/\{\{last_attended_event\}\}/g, attendedApps[0]?.ev?.name ?? '')
     // Dynamic tags from raw_response
     const dynTags = getStudentMergeTags(s)
     for (const [key, val] of Object.entries(dynTags)) {
@@ -743,6 +750,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                     { tag: 'first_name', label: 'First Name' },
                     { tag: 'event_name', label: 'Event Name' },
                     { tag: 'apply_link', label: 'Apply Link' },
+                    { tag: 'last_attended_event', label: 'Last Event' },
                     ...getAvailableDynamicTags(recipients),
                   ].map(({ tag, label }) => (
                     <button
