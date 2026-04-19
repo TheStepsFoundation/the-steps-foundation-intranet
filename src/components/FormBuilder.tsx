@@ -60,6 +60,11 @@ type StandardQuestion = {
   description?: string
 }
 
+const FIELD_TYPE_ICON: Record<string, string> = {
+  ...Object.fromEntries(FIELD_TYPES.map(ft => [ft.value, ft.icon])),
+  search: "🔍",  // school picker — standard only
+}
+
 const STANDARD_QUESTIONS: StandardQuestion[] = [
   { id: "std_name",          label: "First name / Last name",      type: "text" },
   { id: "std_email",         label: "Email address",               type: "email", description: "Verified via OTP — read-only" },
@@ -73,6 +78,7 @@ const STANDARD_QUESTIONS: StandardQuestion[] = [
   { id: "std_gcse",          label: "GCSE results (digits)",        type: "number" },
   { id: "std_qualifications",label: "Subjects & predicted grades",  type: "paired_dropdown" },
   { id: "std_attribution",   label: "How did you hear about this?", type: "radio" },
+  { id: "std_anything_else", label: "Anything else you’d like us to know?", type: "textarea" },
 ]
 
 // ---------------------------------------------------------------------------
@@ -306,8 +312,8 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
           </p>
           {STANDARD_QUESTIONS.map(sq => (
             <div key={sq.id} className="flex items-center gap-2 py-1">
-              <span className="text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded text-[10px] shrink-0 w-20 text-center">
-                {sq.type}
+              <span className="text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded text-[10px] shrink-0 w-8 text-center" title={sq.type}>
+                {FIELD_TYPE_ICON[sq.type] ?? sq.type}
               </span>
               <span className="text-xs text-gray-700 dark:text-gray-300 flex-1">{sq.label}</span>
               {sq.description && <span className="text-[10px] text-gray-400 italic">{sq.description}</span>}
