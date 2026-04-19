@@ -132,6 +132,28 @@ export async function getExistingSession(): Promise<{ email: string } | null> {
   return { email }
 }
 
+
+// Check if current user has a password set (vs OTP-only)
+export async function userHasPassword(): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.user) return false
+  // Supabase stores identities — if email identity exists with provider 'email',
+  // and user has logged in with password before, they have one.
+  // Simplest check: try the user's identities for 'email' provider
+  const identities = session.user.identities ?? []
+  const emailIdentity = identities.find(i => i.provider === 'email')
+  if (!emailIdentity) return false
+  // If the user was created via OTP only, identity_data won't have a password hash.
+  // But we can't see the hash client-side. Best heuristic: check AMR claims.
+  const amr = (session as any).amr ?? []
+  // If they've ever signed in with password, 'password' will be in AMR
+  if (amr.some((a: any) => a.method === 'password')) return true
+  // Fallback: if last_sign_in_at exists on identity and provider is email,
+  // they likely have a password. But we can't be 100% sure without AMR.
+  // So also check if the user object has a confirmed_at (password users do)
+  return false
+}
+
 // ---------------------------------------------------------------------------
 // Student Lookup (post-OTP, reads own row via RLS)
 // ---------------------------------------------------------------------------

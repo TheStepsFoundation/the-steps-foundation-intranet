@@ -8,7 +8,7 @@ import type { FormFieldConfig, FormPage, EventRow } from '@/lib/events-api'
 import { fetchEventBySlug } from '@/lib/events-api'
 import {
   sendOtp, verifyOtp, signInWithPassword, lookupSelf, hasExistingApplication, fetchExistingApplication, getExistingSession,
-  submitApplication, upgradeToPassword, signOutStudent,
+  submitApplication, upgradeToPassword, signOutStudent, userHasPassword,
   fetchEventFormConfig,
   type StudentSelf, type ApplicationSubmission,
   type QualificationEntry,
@@ -227,6 +227,7 @@ export default function ApplyPage() {
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [passwordSaved, setPasswordSaved] = useState(false)
+  const [hasPassword, setHasPassword] = useState(false)
   const [passwordError, setPasswordError] = useState<string | null>(null)
 
   // Fetch event by slug on mount
@@ -292,6 +293,8 @@ export default function ApplyPage() {
     getExistingSession().then(async (session) => {
       if (cancelled || !session) return
       setEmail(session.email)
+      // Check if user already has a password (skip prompt on success screen)
+      userHasPassword().then(has => { if (!cancelled) setHasPassword(has) })
       // Re-fetch form config with auth
       fetchEventFormConfig(event!.id).then(config => {
         setFormFields(config.fields ?? [])
@@ -1256,7 +1259,7 @@ export default function ApplyPage() {
             </p>
           </div>
 
-          {!passwordSaved ? (
+          {!passwordSaved && !hasPassword ? (
             <div className="border-t border-gray-100 pt-6">
               <h3 className="text-base font-semibold text-gray-900 mb-1">Speed up future applications</h3>
               <p className="text-gray-500 text-sm mb-4">
@@ -1285,11 +1288,15 @@ export default function ApplyPage() {
             </div>
           ) : (
             <div className="border-t border-gray-100 pt-6 text-center">
-              <p className="text-green-600 font-medium mb-2">Password saved!</p>
-              <p className="text-gray-500 text-sm mb-4">
-                Next time, you can sign in with your email and password at{' '}
-                <strong className="text-gray-700">{email}</strong>.
-              </p>
+              {passwordSaved && (
+                <>
+                  <p className="text-green-600 font-medium mb-2">Password saved!</p>
+                  <p className="text-gray-500 text-sm mb-4">
+                    Next time, you can sign in with your email and password at{' '}
+                    <strong className="text-gray-700">{email}</strong>.
+                  </p>
+                </>
+              )}
               <a
                 href="/my"
                 className="inline-block px-6 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition text-sm"
