@@ -9,13 +9,12 @@ import { supabase } from '@/lib/supabase'
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [checkingHash, setCheckingHash] = useState(true)
   const [googleLoading, setGoogleLoading] = useState(false)
   const router = useRouter()
-  const { signIn, signUp, signInWithGoogle, user, isTeamMember, loading: authLoading } = useAuth()
+  const { signIn, signInWithGoogle, user, isTeamMember, loading: authLoading } = useAuth()
 
   // Check for OAuth tokens in URL hash (from Google redirect)
   useEffect(() => {
@@ -49,26 +48,11 @@ export default function LoginPage() {
     setLoading(true)
     setMessage(null)
 
-    if (isSignUp) {
-      const { error } = await signUp(email, password)
-      if (error) {
-        setMessage({ type: 'error', text: error })
-      } else {
-        setMessage({ type: 'success', text: 'Account created! You can now sign in.' })
-        setIsSignUp(false)
-        setPassword('')
-      }
+    const { error } = await signIn(email, password)
+    if (error) {
+      setMessage({ type: 'error', text: error })
     } else {
-      const { error } = await signIn(email, password)
-      if (error) {
-        if (error.includes('Invalid login')) {
-          setMessage({ type: 'error', text: 'Invalid email or password. If you haven\'t signed up yet, click "Create account".' })
-        } else {
-          setMessage({ type: 'error', text: error })
-        }
-      } else {
-        router.push('/hub')
-      }
+      router.push('/hub')
     }
 
     setLoading(false)
@@ -101,7 +85,7 @@ export default function LoginPage() {
           />
           <h1 className="font-display text-2xl sm:text-3xl font-black text-steps-dark tracking-tight">Team Intranet</h1>
           <p className="text-slate-500 mt-2">
-            {isSignUp ? 'Create your account' : 'Sign in to continue'}
+            Sign in to continue
           </p>
         </div>
 
@@ -132,15 +116,12 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={isSignUp ? 'Create a password' : 'Enter your password'}
+              placeholder="Enter your password"
               required
               minLength={6}
               disabled={loading}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition disabled:bg-gray-50 disabled:cursor-not-allowed"
             />
-            {isSignUp && (
-              <p className="text-xs text-gray-400 mt-1">Must be at least 6 characters</p>
-            )}
           </div>
 
           {message && (
@@ -164,10 +145,10 @@ export default function LoginPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                {isSignUp ? 'Creating account...' : 'Signing in...'}
+                Signing in...
               </>
             ) : (
-              isSignUp ? 'Create account' : 'Sign in'
+              'Sign in'
             )}
           </button>
         </form>
@@ -213,24 +194,17 @@ export default function LoginPage() {
           Continue with Google
         </button>
 
-        {/* Toggle Sign Up / Sign In */}
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            onClick={() => {
-              setIsSignUp(!isSignUp)
-              setMessage(null)
-            }}
-            className="text-sm text-steps-blue-600 hover:text-steps-blue-700 font-medium"
+        {/* Student Portal Link — prominent so students on the wrong page can't miss it */}
+        <div className="mt-6">
+          <Link
+            href="/student-portal"
+            className="group block rounded-xl border-2 border-steps-berry-200 bg-steps-berry-50/60 hover:bg-steps-berry-50 hover:border-steps-berry-400 transition-colors px-4 py-3.5 text-center"
           >
-            {isSignUp ? 'Already have an account? Sign in' : 'First time? Create account'}
-          </button>
-        </div>
-
-        {/* Student Portal Link */}
-        <div className="mt-4 text-center">
-          <Link href="/student-portal" className="text-sm text-steps-blue-600 hover:text-steps-blue-700 font-medium">
-            Student? Go to Student Portal →
+            <div className="text-xs uppercase tracking-wider text-steps-berry-700 font-semibold mb-0.5">Are you a student?</div>
+            <div className="text-base font-bold text-steps-dark flex items-center justify-center gap-1.5">
+              Go to the Student Portal
+              <span className="transition-transform group-hover:translate-x-0.5">→</span>
+            </div>
           </Link>
         </div>
 
