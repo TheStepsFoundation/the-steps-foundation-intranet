@@ -1400,33 +1400,45 @@ export default function EventDetailPage() {
             {applicants.length === 0 ? 'No applications yet.' : 'No applicants match your filters.'}
           </div>
         ) : (
-          <div className="flex text-sm overflow-visible" style={{ minHeight: Math.max((paged.length + 5) * 48, 336) }}>
-            {/* Frozen left: checkbox + name */}
-            <div className="flex-shrink-0 border-r border-gray-200 dark:border-gray-800" style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}>
-              <table className="text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    <th className="p-3 w-8">
-                      <input
-                        type="checkbox"
-                        checked={paged.length > 0 && paged.every(a => selected.has(a.id))}
-                        onChange={toggleSelectAll}
-                        className="rounded border-gray-300 dark:border-gray-600"
-                      />
+          <div className="overflow-x-auto overflow-y-visible" style={{ minHeight: Math.max((paged.length + 5) * 48, 336) }}>
+            <table className="text-sm w-full border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  <th className="p-3 w-8 sticky left-0 z-20 bg-white dark:bg-gray-900">
+                    <input
+                      type="checkbox"
+                      checked={paged.length > 0 && paged.every(a => selected.has(a.id))}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                  </th>
+                  <th className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900" style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}>Name</th>
+                  {visibleColumns.map(col => (
+                    <th key={col.id} className="p-3 whitespace-nowrap max-w-[200px] truncate" title={col.label}>
+                      {col.label}
                     </th>
-                    <th className="p-3 min-w-[160px]">Name</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paged.map(app => (
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {paged.map(app => {
+                  const badge = STATUS_MAP[app.status] ?? STATUS_MAP.submitted
+                  const post16 = app.qualifications.filter(q =>
+                    /a.?level|ib|btec/i.test(q.qualType) || q.level === 'post-16'
+                  )
+                  const gradeLetters = post16.map(q => q.grade).filter(Boolean).join(', ')
+                  const rowBg = app.eligibility === 'ineligible'
+                    ? 'bg-red-50 dark:bg-red-900/10'
+                    : selected.has(app.id)
+                      ? 'bg-steps-blue-50/50 dark:bg-steps-blue-900/10'
+                      : 'bg-white dark:bg-gray-900'
+
+                  return (
                     <tr
                       key={app.id}
-                      className={`border-b border-gray-100 dark:border-gray-800/50 transition-colors ${
-                        app.eligibility === 'ineligible' ? 'bg-red-50 dark:bg-red-900/10' :
-                        selected.has(app.id) ? 'bg-steps-blue-50/50 dark:bg-steps-blue-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
-                      }`}
+                      className={`border-b border-gray-100 dark:border-gray-800/50 transition-colors ${rowBg}`}
                     >
-                      <td className="p-3">
+                      <td className={`p-3 sticky left-0 z-10 ${rowBg}`}>
                         <input
                           type="checkbox"
                           checked={selected.has(app.id)}
@@ -1434,7 +1446,10 @@ export default function EventDetailPage() {
                           className="rounded border-gray-300 dark:border-gray-600"
                         />
                       </td>
-                      <td className="p-3">
+                      <td
+                        className={`p-3 sticky left-8 z-10 ${rowBg}`}
+                        style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}
+                      >
                         <Link
                           href={`/students/${app.student_id}`}
                           className={`font-medium hover:text-steps-blue-600 dark:hover:text-steps-blue-400 ${
@@ -1449,186 +1464,151 @@ export default function EventDetailPage() {
                           <span className="ml-1.5 text-[10px] font-medium text-red-500 dark:text-red-400 uppercase">Ineligible</span>
                         )}
                       </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Scrollable right: all other columns */}
-            <div className="overflow-x-auto overflow-y-visible flex-1">
-              <table className="text-sm w-full">
-                <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {visibleColumns.map(col => (
-                      <th key={col.id} className="p-3 whitespace-nowrap max-w-[200px] truncate" title={col.label}>
-                        {col.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {paged.map(app => {
-                    const badge = STATUS_MAP[app.status] ?? STATUS_MAP.submitted
-                    const post16 = app.qualifications.filter(q =>
-                      /a.?level|ib|btec/i.test(q.qualType) || q.level === 'post-16'
-                    )
-                    const gradeLetters = post16.map(q => q.grade).filter(Boolean).join(', ')
-
-                    return (
-                      <tr
-                        key={app.id}
-                        className={`border-b border-gray-100 dark:border-gray-800/50 transition-colors ${
-                          app.eligibility === 'ineligible' ? 'bg-red-50 dark:bg-red-900/10' :
-                          selected.has(app.id) ? 'bg-steps-blue-50/50 dark:bg-steps-blue-900/10' : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'
-                        }`}
-                      >
-                        {/* Dynamic columns based on visibility & order */}
-                        {visibleColumns.map(col => {
-                          // Built-in: school_type
-                          if (col.id === 'school_type') return (
-                            <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap">
-                              {app.school_type ?? '—'}
-                            </td>
-                          )
-                          // Built-in: status
-                          if (col.id === 'status') return (
-                            <td key={col.id} className="p-3">
-                              <select
-                                value={app.status}
-                                onChange={e => updateStatus(app.id, e.target.value)}
-                                disabled={saving.has(app.id)}
-                                className={`text-xs font-medium rounded-full px-2.5 py-0.5 border-0 cursor-pointer ${badge.color} ${
-                                  saving.has(app.id) ? 'opacity-50' : ''
-                                }`}
-                              >
-                                {STATUSES.map(s => (
-                                  <option key={s.code} value={s.code}>{s.label}</option>
-                                ))}
-                              </select>
-                            </td>
-                          )
-                          // Built-in: grades
-                          if (col.id === 'grades') return (
-                            <td key={col.id} className="p-3 whitespace-nowrap">
-                              {post16.length > 0 ? (
-                                <div className="group relative inline-block">
-                                  <span className="text-gray-700 dark:text-gray-300 cursor-default">
-                                    {gradeLetters}
-                                    <span className="ml-1 text-xs text-gray-400">({app.gradeScore})</span>
-                                  </span>
-                                  <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[220px]">
-                                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase">Qualifications</div>
-                                    {post16.map((q, qi) => (
-                                      <div key={qi} className="flex justify-between gap-4 text-xs py-0.5">
-                                        <span className="text-gray-700 dark:text-gray-300">{q.qualType}: {q.subject}</span>
-                                        <span className="font-medium text-gray-900 dark:text-gray-100">{q.grade}</span>
-                                      </div>
-                                    ))}
-                                    <div className="border-t border-gray-100 dark:border-gray-700 mt-1.5 pt-1.5 flex justify-between text-xs font-medium">
-                                      <span className="text-gray-500 dark:text-gray-400">Total score</span>
-                                      <span className="text-gray-900 dark:text-gray-100">{app.gradeScore}</span>
+                      {/* Dynamic columns based on visibility & order */}
+                      {visibleColumns.map(col => {
+                        // Built-in: school_type
+                        if (col.id === 'school_type') return (
+                          <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap">
+                            {app.school_type ?? '—'}
+                          </td>
+                        )
+                        // Built-in: status
+                        if (col.id === 'status') return (
+                          <td key={col.id} className="p-3">
+                            <select
+                              value={app.status}
+                              onChange={e => updateStatus(app.id, e.target.value)}
+                              disabled={saving.has(app.id)}
+                              className={`text-xs font-medium rounded-full px-2.5 py-0.5 border-0 cursor-pointer ${badge.color} ${
+                                saving.has(app.id) ? 'opacity-50' : ''
+                              }`}
+                            >
+                              {STATUSES.map(s => (
+                                <option key={s.code} value={s.code}>{s.label}</option>
+                              ))}
+                            </select>
+                          </td>
+                        )
+                        // Built-in: grades
+                        if (col.id === 'grades') return (
+                          <td key={col.id} className="p-3 whitespace-nowrap">
+                            {post16.length > 0 ? (
+                              <div className="group relative inline-block">
+                                <span className="text-gray-700 dark:text-gray-300 cursor-default">
+                                  {gradeLetters}
+                                  <span className="ml-1 text-xs text-gray-400">({app.gradeScore})</span>
+                                </span>
+                                <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[220px]">
+                                  <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase">Qualifications</div>
+                                  {post16.map((q, qi) => (
+                                    <div key={qi} className="flex justify-between gap-4 text-xs py-0.5">
+                                      <span className="text-gray-700 dark:text-gray-300">{q.qualType}: {q.subject}</span>
+                                      <span className="font-medium text-gray-900 dark:text-gray-100">{q.grade}</span>
                                     </div>
+                                  ))}
+                                  <div className="border-t border-gray-100 dark:border-gray-700 mt-1.5 pt-1.5 flex justify-between text-xs font-medium">
+                                    <span className="text-gray-500 dark:text-gray-400">Total score</span>
+                                    <span className="text-gray-900 dark:text-gray-100">{app.gradeScore}</span>
                                   </div>
                                 </div>
-                              ) : (
-                                <span className="text-gray-400 dark:text-gray-600">—</span>
-                              )}
-                            </td>
-                          )
-                          // Built-in: rsvp
-                          if (col.id === 'rsvp') return (
-                            <td key={col.id} className="p-3">
-                              {app.status === 'accepted' ? (
-                                app.rsvp_confirmed === true ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                    Yes
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-amber-600 dark:text-amber-400">Pending</span>
-                                )
-                              ) : (
-                                <span className="text-xs text-gray-400 dark:text-gray-600">—</span>
-                              )}
-                            </td>
-                          )
-                          // Built-in: attended
-                          if (col.id === 'attended') return (
-                            <td key={col.id} className="p-3 text-center">
-                              <button
-                                onClick={() => toggleAttended(app.id)}
-                                disabled={saving.has(app.id)}
-                                className={`w-5 h-5 rounded border-2 inline-flex items-center justify-center transition-colors ${
-                                  app.attended
-                                    ? 'bg-emerald-500 border-emerald-500 text-white'
-                                    : 'border-gray-300 dark:border-gray-600 hover:border-emerald-400'
-                                } ${saving.has(app.id) ? 'opacity-50' : ''}`}
-                                title={app.attended ? 'Attended' : 'Not attended'}
-                              >
-                                {app.attended && (
-                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 dark:text-gray-600">—</span>
+                            )}
+                          </td>
+                        )
+                        // Built-in: rsvp
+                        if (col.id === 'rsvp') return (
+                          <td key={col.id} className="p-3">
+                            {app.status === 'accepted' ? (
+                              app.rsvp_confirmed === true ? (
+                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                   </svg>
-                                )}
-                              </button>
-                            </td>
-                          )
-                          // Custom field columns (id starts with cf_)
-                          const cfId = col.id.replace(/^cf_/, '')
-                          const val = app.customFields[cfId]
-                          const isRankedChoice = val != null && !Array.isArray(val) && typeof val === 'object'
-                            && Object.keys(val as Record<string, unknown>).some(k => k in ORDINAL)
-                          let display: string
-                          let popoverContent: string | null = null
-                          if (val == null) {
-                            display = '—'
-                          } else if (isRankedChoice) {
-                            const obj = val as Record<string, unknown>
-                            const orderedKeys = ['first', 'second', 'third', 'fourth', 'fifth'].filter(k => obj[k])
-                            display = orderedKeys.map(k => toTitleCase(String(obj[k]))).join(', ')
-                            popoverContent = orderedKeys.map(k => `${ORDINAL[k]}: ${toTitleCase(String(obj[k]))}`).join('\n')
-                          } else if (Array.isArray(val)) {
-                            display = val.map(v =>
-                              typeof v === 'object' && v !== null
-                                ? Object.values(v as Record<string, unknown>).filter(Boolean).map(x => toTitleCase(String(x))).join(': ')
-                                : toTitleCase(String(v))
-                            ).join(', ')
-                          } else if (typeof val === 'object') {
-                            const entries = Object.entries(val as Record<string, unknown>).filter(([, v]) => v)
-                            display = entries.map(([, v]) => toTitleCase(String(v))).join(', ')
-                          } else {
-                            display = String(val)
-                          }
-                          const isLong = display.length > 40 || popoverContent != null
-                          return (
-                            <td key={col.id} className="p-3 max-w-[200px]">
-                              {display === '—' ? (
-                                <span className="text-gray-400">—</span>
+                                  Yes
+                                </span>
                               ) : (
-                                <div className="group relative">
-                                  <span className="text-gray-700 dark:text-gray-300 truncate block cursor-default">
-                                    {display.length > 40 ? display.slice(0, 40) + '…' : display}
-                                  </span>
-                                  {isLong && (
-                                    <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[280px] max-w-[400px] max-h-[200px] overflow-y-auto">
-                                      <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{col.label}</div>
-                                      <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{popoverContent ?? display}</div>
-                                    </div>
-                                  )}
-                                </div>
+                                <span className="text-xs text-amber-600 dark:text-amber-400">Pending</span>
+                              )
+                            ) : (
+                              <span className="text-xs text-gray-400 dark:text-gray-600">—</span>
+                            )}
+                          </td>
+                        )
+                        // Built-in: attended
+                        if (col.id === 'attended') return (
+                          <td key={col.id} className="p-3 text-center">
+                            <button
+                              onClick={() => toggleAttended(app.id)}
+                              disabled={saving.has(app.id)}
+                              className={`w-5 h-5 rounded border-2 inline-flex items-center justify-center transition-colors ${
+                                app.attended
+                                  ? 'bg-emerald-500 border-emerald-500 text-white'
+                                  : 'border-gray-300 dark:border-gray-600 hover:border-emerald-400'
+                              } ${saving.has(app.id) ? 'opacity-50' : ''}`}
+                              title={app.attended ? 'Attended' : 'Not attended'}
+                            >
+                              {app.attended && (
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
                               )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+                            </button>
+                          </td>
+                        )
+                        // Custom field columns (id starts with cf_)
+                        const cfId = col.id.replace(/^cf_/, '')
+                        const val = app.customFields[cfId]
+                        const isRankedChoice = val != null && !Array.isArray(val) && typeof val === 'object'
+                          && Object.keys(val as Record<string, unknown>).some(k => k in ORDINAL)
+                        let display: string
+                        let popoverContent: string | null = null
+                        if (val == null) {
+                          display = '—'
+                        } else if (isRankedChoice) {
+                          const obj = val as Record<string, unknown>
+                          const orderedKeys = ['first', 'second', 'third', 'fourth', 'fifth'].filter(k => obj[k])
+                          display = orderedKeys.map(k => toTitleCase(String(obj[k]))).join(', ')
+                          popoverContent = orderedKeys.map(k => `${ORDINAL[k]}: ${toTitleCase(String(obj[k]))}`).join('\n')
+                        } else if (Array.isArray(val)) {
+                          display = val.map(v =>
+                            typeof v === 'object' && v !== null
+                              ? Object.values(v as Record<string, unknown>).filter(Boolean).map(x => toTitleCase(String(x))).join(': ')
+                              : toTitleCase(String(v))
+                          ).join(', ')
+                        } else if (typeof val === 'object') {
+                          const entries = Object.entries(val as Record<string, unknown>).filter(([, v]) => v)
+                          display = entries.map(([, v]) => toTitleCase(String(v))).join(', ')
+                        } else {
+                          display = String(val)
+                        }
+                        const isLong = display.length > 40 || popoverContent != null
+                        return (
+                          <td key={col.id} className="p-3 max-w-[200px]">
+                            {display === '—' ? (
+                              <span className="text-gray-400">—</span>
+                            ) : (
+                              <div className="group relative">
+                                <span className="text-gray-700 dark:text-gray-300 truncate block cursor-default">
+                                  {display.length > 40 ? display.slice(0, 40) + '…' : display}
+                                </span>
+                                {isLong && (
+                                  <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[280px] max-w-[400px] max-h-[200px] overflow-y-auto">
+                                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{col.label}</div>
+                                    <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{popoverContent ?? display}</div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
 
