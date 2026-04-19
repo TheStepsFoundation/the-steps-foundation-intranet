@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
 import DynamicFormField, { type FieldValue } from '@/components/DynamicFormField'
@@ -127,6 +127,59 @@ function isIndependentSchool(typeGroup: string | null | undefined): boolean {
   return typeGroup === 'Independent schools'
 }
 
+
+// ---------------------------------------------------------------------------
+// Draft persistence — auto-save form state to localStorage
+// ---------------------------------------------------------------------------
+
+const DRAFT_VERSION = 1
+
+type DraftData = {
+  v: number
+  step: string
+  // Details
+  firstName: string
+  lastName: string
+  school: { schoolId: string | null; schoolNameRaw: string | null; typeGroup?: string | null; schoolName?: string | null }
+  yearGroup: number | ''
+  schoolType: string
+  freeSchoolMeals: string
+  firstGenUni: string
+  householdIncome: string
+  additionalContext: string
+  // Application
+  gcseResults: string
+  qualifications: QualificationEntry[]
+  attribution: string
+  consentGiven: boolean
+  // Custom fields
+  customFieldValues: Record<string, unknown>
+}
+
+function draftKey(eventId: string, email: string): string {
+  return `steps_draft_${eventId}_${email.toLowerCase().trim()}`
+}
+
+function saveDraft(eventId: string, email: string, data: Omit<DraftData, 'v'>): void {
+  try {
+    localStorage.setItem(draftKey(eventId, email), JSON.stringify({ ...data, v: DRAFT_VERSION }))
+  } catch { /* quota exceeded or private mode — silently skip */ }
+}
+
+function loadDraft(eventId: string, email: string): DraftData | null {
+  try {
+    const raw = localStorage.getItem(draftKey(eventId, email))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as DraftData
+    if (parsed.v !== DRAFT_VERSION) return null
+    return parsed
+  } catch { return null }
+}
+
+function clearDraft(eventId: string, email: string): void {
+  try { localStorage.removeItem(draftKey(eventId, email)) } catch { /* noop */ }
+}
+
 // ---------------------------------------------------------------------------
 // Steps
 // ---------------------------------------------------------------------------
@@ -174,6 +227,10 @@ export default function ApplyPage() {
   // Form state — custom fields (from form_config)
   const [formFields, setFormFields] = useState<FormFieldConfig[]>([])
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, FieldValue>>({})
+
+  // Draft restore guard
+  const restoringRef = useRef(false)
+  const draftRestoredRef = useRef(false)
 
   // Success step
   const [password, setPassword] = useState('')
@@ -231,6 +288,43 @@ export default function ApplyPage() {
     return () => { cancelled = true }
   }, [event?.id, prefill])
 
+
+  // Restore draft from localStorage after auth is established (runs once)
+  useEffect(() => {
+    if (!event?.id || !email || step === 'email' || step === 'otp' || step === 'success') return
+    if (draftRestoredRef.current) return
+    const draft = loadDraft(event.id, email)
+    if (!draft) { draftRestoredRef.current = true; return }
+    draftRestoredRef.current = true
+    restoringRef.current = true
+
+    // Restore details
+    if (draft.firstName) setFirstName(draft.firstName)
+    if (draft.lastName) setLastName(draft.lastName)
+    if (draft.school?.schoolId || draft.school?.schoolNameRaw) setSchool(draft.school)
+    if (draft.yearGroup) setYearGroup(draft.yearGroup)
+    if (draft.schoolType) setSchoolType(draft.schoolType)
+    if (draft.freeSchoolMeals) setFreeSchoolMeals(draft.freeSchoolMeals)
+    if (draft.firstGenUni) setFirstGenUni(draft.firstGenUni)
+    if (draft.householdIncome) setHouseholdIncome(draft.householdIncome)
+    if (draft.additionalContext) setAdditionalContext(draft.additionalContext)
+
+    // Restore application
+    if (draft.gcseResults) setGcseResults(draft.gcseResults)
+    if (draft.qualifications?.length) setQualifications(draft.qualifications)
+    if (draft.attribution) setAttribution(draft.attribution)
+    if (draft.consentGiven) setConsentGiven(draft.consentGiven)
+
+    // Restore custom fields
+    if (draft.customFieldValues) setCustomFieldValues(draft.customFieldValues as Record<string, FieldValue>)
+
+    // Restore step (but only if they were past details)
+    if (draft.step === 'application') setStep('application')
+
+    // Allow saving again after a tick
+    setTimeout(() => { restoringRef.current = false }, 100)
+  }, [event?.id, email, step]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- Qualification row helpers ---
   const addQualification = () => {
     setQualifications(prev => [...prev, { qualType: 'a_level', subject: '', grade: '' }])
@@ -253,6 +347,30 @@ export default function ApplyPage() {
     setCustomFieldValues(prev => ({ ...prev, [fieldId]: value }))
   }
 
+
+
+  // Auto-save draft to localStorage on field changes (debounced)
+  useEffect(() => {
+    if (!event?.id || !email || restoringRef.current) return
+    if (step === 'email' || step === 'otp' || step === 'success' || step === 'submitting') return
+
+    const t = setTimeout(() => {
+      saveDraft(event.id, email, {
+        step,
+        firstName, lastName, school, yearGroup, schoolType,
+        freeSchoolMeals, firstGenUni, householdIncome, additionalContext,
+        gcseResults, qualifications, attribution, consentGiven,
+        customFieldValues,
+      })
+    }, 500)
+    return () => clearTimeout(t)
+  }, [
+    event?.id, email, step,
+    firstName, lastName, school, yearGroup, schoolType,
+    freeSchoolMeals, firstGenUni, householdIncome, additionalContext,
+    gcseResults, qualifications, attribution, consentGiven,
+    customFieldValues,
+  ])
 
   // When an independent school is selected, clear any non-independent school type
   // so the student must answer the bursary question
@@ -383,6 +501,7 @@ export default function ApplyPage() {
       setStep('application')
       return
     }
+    clearDraft(event.id, email)
     setStep('success')
   }
 
