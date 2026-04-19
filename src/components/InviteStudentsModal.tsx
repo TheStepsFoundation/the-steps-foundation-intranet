@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS, EVENT_BY_ID } from '@/lib/students-api'
+import { type EventRow, fetchEvent } from '@/lib/events-api'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -137,6 +138,10 @@ function getAvailableDynamicTags(students: EnrichedStudent[]): { tag: string; la
 // ---------------------------------------------------------------------------
 
 export default function InviteStudentsModal({ eventId, eventName, eventSlug, teamMemberUuid, onClose, onSent }: Props) {
+  // Event details (for merge tags)
+  const [eventData, setEventData] = useState<EventRow | null>(null)
+  useEffect(() => { fetchEvent(eventId).then(e => setEventData(e)) }, [eventId])
+
   // Data
   const [students, setStudents] = useState<EnrichedStudent[]>([])
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set())
@@ -282,6 +287,12 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       .replace(/\{\{email\}\}/g, String(s.personal_email ?? ''))
       .replace(/\{\{event_name\}\}/g, eventName)
       .replace(/\{\{apply_link\}\}/g, applyLink)
+      .replace(/\{\{event_date\}\}/g, eventData?.event_date ? new Date(eventData.event_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '')
+      .replace(/\{\{event_time\}\}/g, eventData?.time_start ? (eventData.time_start + (eventData.time_end ? ` – ${eventData.time_end}` : '')) : '')
+      .replace(/\{\{event_location\}\}/g, eventData?.location ?? '')
+      .replace(/\{\{event_format\}\}/g, eventData?.format === 'in_person' ? 'in person' : eventData?.format === 'online' ? 'online' : eventData?.format === 'hybrid' ? 'hybrid' : '')
+      .replace(/\{\{event_dress_code\}\}/g, eventData?.dress_code ?? '')
+      .replace(/\{\{event_capacity\}\}/g, eventData?.capacity != null ? String(eventData.capacity) : '')
     // Last attended event — most recent event the student actually attended
     const attendedApps = (s.applications || [])
       .filter(a => a.attended)
@@ -751,6 +762,11 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                     { tag: 'event_name', label: 'Event Name' },
                     { tag: 'apply_link', label: 'Apply Link' },
                     { tag: 'last_attended_event', label: 'Last Event' },
+                    ...(eventData?.event_date ? [{ tag: 'event_date', label: 'Event Date' }] : []),
+                    ...(eventData?.time_start ? [{ tag: 'event_time', label: 'Event Time' }] : []),
+                    ...(eventData?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
+                    ...(eventData?.format ? [{ tag: 'event_format', label: 'Format' }] : []),
+                    ...(eventData?.dress_code ? [{ tag: 'event_dress_code', label: 'Dress Code' }] : []),
                     ...getAvailableDynamicTags(recipients),
                   ].map(({ tag, label }) => (
                     <button
