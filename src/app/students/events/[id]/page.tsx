@@ -987,7 +987,7 @@ export default function EventDetailPage() {
       </div>
 
       {/* Applicant Manager */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-visible">
         {/* Toolbar */}
         <div className="p-4 border-b border-gray-200 dark:border-gray-800">
           <div className="flex flex-wrap items-center gap-3">
@@ -1095,7 +1095,7 @@ export default function EventDetailPage() {
             {applicants.length === 0 ? 'No applications yet.' : 'No applicants match your filters.'}
           </div>
         ) : (
-          <div className="flex text-sm">
+          <div className="flex text-sm overflow-visible" style={{ minHeight: Math.max((paged.length + 3) * 48, 240) }}>
             {/* Frozen left: checkbox + name */}
             <div className="flex-shrink-0 border-r border-gray-200 dark:border-gray-800" style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}>
               <table className="text-sm">
@@ -1151,7 +1151,7 @@ export default function EventDetailPage() {
             </div>
 
             {/* Scrollable right: all other columns */}
-            <div className="overflow-x-auto flex-1">
+            <div className="overflow-x-auto overflow-y-visible flex-1">
               <table className="text-sm w-full">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -1274,14 +1274,22 @@ export default function EventDetailPage() {
                         {customFieldCols.map(col => {
                           const val = app.customFields[col.id]
                           // Serialize arrays/objects to readable text
-                          const display = val == null ? '—'
-                            : Array.isArray(val) ? val.map(v =>
-                                typeof v === 'object' && v !== null
-                                  ? Object.values(v as Record<string, unknown>).filter(Boolean).join(': ')
-                                  : String(v)
-                              ).join(', ')
-                            : typeof val === 'object' ? JSON.stringify(val, null, 2)
-                            : String(val)
+                          let display: string
+                          if (val == null) {
+                            display = '—'
+                          } else if (Array.isArray(val)) {
+                            display = val.map(v =>
+                              typeof v === 'object' && v !== null
+                                ? Object.values(v as Record<string, unknown>).filter(Boolean).join(': ')
+                                : String(v)
+                            ).join(', ')
+                          } else if (typeof val === 'object') {
+                            // Ranked choice / key-value objects — show values only
+                            const entries = Object.entries(val as Record<string, unknown>).filter(([, v]) => v)
+                            display = entries.map(([, v]) => String(v)).join(', ')
+                          } else {
+                            display = String(val)
+                          }
                           const isLong = display.length > 40
 
                           return (
