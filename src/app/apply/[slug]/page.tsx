@@ -1180,9 +1180,15 @@ export default function ApplyPage() {
             >
               Edit my application
             </button>
+            <a
+              href="https://thestepsfoundation.com"
+              className="px-6 py-2.5 text-sm text-purple-600 hover:text-purple-800 font-medium"
+            >
+              Back to The Steps Foundation
+            </a>
             <button
-              onClick={() => signOutStudent()}
-              className="px-6 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium"
+              onClick={async () => { await signOutStudent(); setEmail(''); setStep('email'); setAlreadyApplied(false) }}
+              className="px-6 py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium"
             >
               Sign out
             </button>
@@ -1223,7 +1229,7 @@ export default function ApplyPage() {
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition" />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => signOutStudent()}
+                <button onClick={async () => { await signOutStudent(); setEmail(''); setStep('email') }}
                   className="px-6 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium">No thanks</button>
                 <button onClick={handlePasswordUpgrade} disabled={loading || password.length < 6}
                   className="flex-1 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
