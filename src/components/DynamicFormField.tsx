@@ -481,7 +481,7 @@ function RepeatableGroupField({ field, value, onChange }: {
   const minEntries = field.config?.minEntries ?? 1
   const maxEntries = field.config?.maxEntries ?? 10
   const addLabel = field.config?.addButtonLabel ?? '+ Add another'
-  const entries = value ?? Array.from({ length: minEntries }, () => ({}))
+  const entries = value ?? Array.from({ length: minEntries }, (): Record<string, unknown> => ({}))
 
   const updateEntry = (entryIdx: number, subFieldId: string, val: unknown) => {
     const updated = entries.map((entry, i) =>
