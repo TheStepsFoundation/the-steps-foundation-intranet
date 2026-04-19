@@ -7,6 +7,20 @@
  */
 
 import { supabase } from './supabase'
+// ---------------------------------------------------------------------------
+// Auth helper — prefer getSession() (local, instant) over getUser() (network).
+// getUser() can fail if the JWT hasn't refreshed yet or the network hiccups.
+// ---------------------------------------------------------------------------
+
+async function currentUserEmail(): Promise<string | null> {
+  // Try local session first (no network call)
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session?.user?.email) return session.user.email.toLowerCase()
+  // Fallback: server-validated (slower, can fail)
+  const { data: { user } } = await supabase.auth.getUser()
+  return user?.email?.toLowerCase() ?? null
+}
+
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,9 +127,9 @@ export async function signOutStudent(): Promise<void> {
 }
 
 export async function getExistingSession(): Promise<{ email: string } | null> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) return null
-  return { email: user.email }
+  const email = await currentUserEmail()
+  if (!email) return null
+  return { email }
 }
 
 // ---------------------------------------------------------------------------
@@ -123,13 +137,13 @@ export async function getExistingSession(): Promise<{ email: string } | null> {
 // ---------------------------------------------------------------------------
 
 export async function lookupSelf(): Promise<StudentSelf | null> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) return null
+  const email = await currentUserEmail()
+  if (!email) return null
 
   const { data, error } = await supabase
     .from('students')
     .select(STUDENT_SELF_COLUMNS)
-    .eq('personal_email', user.email.toLowerCase())
+    .eq('personal_email', email)
     .maybeSingle()
 
   if (error) {
@@ -141,14 +155,14 @@ export async function lookupSelf(): Promise<StudentSelf | null> {
 
 // Check if student already applied to a specific event
 export async function hasExistingApplication(eventId: string): Promise<boolean> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) return false
+  const email = await currentUserEmail()
+  if (!email) return false
 
   // First get the student id
   const { data: student } = await supabase
     .from('students')
     .select('id')
-    .eq('personal_email', user.email.toLowerCase())
+    .eq('personal_email', email)
     .maybeSingle()
 
   if (!student) return false
@@ -184,13 +198,13 @@ export type ExistingApplicationData = {
 }
 
 export async function fetchExistingApplication(eventId: string): Promise<ExistingApplicationData | null> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) return null
+  const email = await currentUserEmail()
+  if (!email) return null
 
   const { data: student } = await supabase
     .from('students')
     .select('id')
-    .eq('personal_email', user.email.toLowerCase())
+    .eq('personal_email', email)
     .maybeSingle()
 
   if (!student) return null
@@ -235,8 +249,8 @@ export async function submitApplication(
   eventId: string,
   submission: ApplicationSubmission,
 ): Promise<{ error: string | null; studentId?: string; applicationId?: string }> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user?.email) return { error: 'Not authenticated' }
+  const email = await currentUserEmail()
+  if (!email) return { error: 'Your session has expired. Please sign out and sign back in.' }
 
   // Map the household income answer to an income band code
   const incomeBand = submission.householdIncomeUnder40k === 'yes'
@@ -252,7 +266,7 @@ export async function submitApplication(
   const studentPayload = {
     first_name: submission.firstName.trim(),
     last_name: submission.lastName.trim(),
-    personal_email: user.email.toLowerCase(),
+    personal_email: email,
     school_id: submission.schoolId,
     school_name_raw: submission.schoolNameRaw,
     year_group: submission.yearGroup,
@@ -310,6 +324,31 @@ export async function submitApplication(
     'other': 'other',
   }
 
+  // Check for existing application (edit mode)
+  const { data: existingApp } = await supabase
+    .from('applications')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('event_id', eventId)
+    .maybeSingle()
+
+  if (existingApp) {
+    // UPDATE existing application
+    const { error: updateErr } = await supabase
+      .from('applications')
+      .update({
+        raw_response: rawResponse,
+        channel: submission.attributionSource,
+        attribution_source: attributionMap[submission.attributionSource] || 'other',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existingApp.id)
+
+    if (updateErr) return { error: `Failed to update application: ${updateErr.message}` }
+    return { error: null, studentId, applicationId: existingApp.id }
+  }
+
+  // INSERT new application
   const { data: app, error: appError } = await supabase
     .from('applications')
     .insert({

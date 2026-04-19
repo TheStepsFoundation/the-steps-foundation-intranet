@@ -558,6 +558,44 @@ export default function ApplyPage() {
     setPasswordSaved(true)
   }
 
+  // Full sign-out: clear auth + all form state so nothing bleeds between accounts
+  const handleSignOut = async () => {
+    await signOutStudent()
+    setEmail('')
+    setStep('email')
+    setAlreadyApplied(false)
+    setExistingStudent(null)
+    setError(null)
+    setLoginPassword('')
+    setOtpCode('')
+    // Reset details
+    setFirstName('')
+    setLastName('')
+    setSchool({ schoolId: null, schoolNameRaw: null })
+    setYearGroup('')
+    setSchoolType('')
+    setFreeSchoolMeals('')
+    setHouseholdIncome('')
+    setAdditionalContext('')
+    // Reset application
+    setGcseResults('')
+    setQualifications([
+      { qualType: 'a_level', subject: '', grade: '' },
+      { qualType: 'a_level', subject: '', grade: '' },
+      { qualType: 'a_level', subject: '', grade: '' },
+    ])
+    setAttribution('')
+    setCustomFieldValues({})
+    setCustomPageIdx(0)
+    // Reset password step
+    setPassword('')
+    setPasswordConfirm('')
+    setPasswordSaved(false)
+    setPasswordError(null)
+    // Reset draft refs
+    draftRestoredRef.current = false
+  }
+
   // --- Loading / 404 ---
   if (eventLoading) {
     return (
@@ -1175,7 +1213,7 @@ export default function ApplyPage() {
 
           <div className="border-t border-gray-100 pt-6 flex flex-col items-center gap-3">
             <button
-              onClick={() => { setAlreadyApplied(false); setStep('details') }}
+              onClick={() => setStep('details')}
               className="px-6 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition text-sm"
             >
               Edit my application
@@ -1187,7 +1225,7 @@ export default function ApplyPage() {
               Back to The Steps Foundation
             </a>
             <button
-              onClick={async () => { await signOutStudent(); setEmail(''); setStep('email'); setAlreadyApplied(false) }}
+              onClick={handleSignOut}
               className="px-6 py-2.5 text-sm text-gray-400 hover:text-gray-600 font-medium"
             >
               Sign out
@@ -1204,10 +1242,14 @@ export default function ApplyPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Application submitted!</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              {alreadyApplied ? 'Application updated!' : 'Application submitted!'}
+            </h2>
             <p className="text-gray-500 text-sm">
-              Thanks for applying to the {event.name}. We&apos;ll review your application and
-              be in touch via email with next steps.
+              {alreadyApplied
+                ? <>Your application for the {event.name} has been updated. We&apos;ll be in touch via email with next steps.</>
+                : <>Thanks for applying to the {event.name}. We&apos;ll review your application and be in touch via email with next steps.</>
+              }
             </p>
           </div>
 
@@ -1229,7 +1271,7 @@ export default function ApplyPage() {
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition" />
               </div>
               <div className="flex gap-3">
-                <button onClick={async () => { await signOutStudent(); setEmail(''); setStep('email') }}
+                <button onClick={handleSignOut}
                   className="px-6 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium">No thanks</button>
                 <button onClick={handlePasswordUpgrade} disabled={loading || password.length < 6}
                   className="flex-1 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
