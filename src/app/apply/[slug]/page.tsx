@@ -301,8 +301,9 @@ export default function ApplyPage() {
         setExistingStudent(student)
         prefill(student)
         const applied = await hasExistingApplication(event!.id)
-        if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); if (!cancelled) setStep('applied'); return }
+        if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true; if (!cancelled) setStep('applied'); return }
       }
+      if (student) draftRestoredRef.current = true
       if (!cancelled) setStep(student ? 'application' : 'details')
     })
     return () => { cancelled = true }
@@ -431,8 +432,9 @@ export default function ApplyPage() {
       setExistingStudent(student)
       prefill(student)
       const applied = await hasExistingApplication(event!.id)
-      if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); setLoading(false); setStep('applied'); return }
+      if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true; setLoading(false); setStep('applied'); return }
     }
+    if (student) draftRestoredRef.current = true
     setLoading(false)
     setStep(student ? 'application' : 'details')
   }
@@ -454,8 +456,9 @@ export default function ApplyPage() {
       setExistingStudent(student)
       prefill(student)
       const applied = await hasExistingApplication(event!.id)
-      if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); setLoading(false); setStep('applied'); return }
+      if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true; setLoading(false); setStep('applied'); return }
     }
+    if (student) draftRestoredRef.current = true
     setLoading(false)
     setStep(student ? 'application' : 'details')
   }
