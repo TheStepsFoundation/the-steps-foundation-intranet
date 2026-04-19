@@ -112,8 +112,8 @@ export async function fetchEventsWithStats(): Promise<EventWithStats[]> {
 export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
-    'name' | 'location' | 'time_start' | 'time_end' | 'dress_code' |
-    'status' | 'capacity' | 'description' | 'event_date'
+    'name' | 'slug' | 'location' | 'format' | 'time_start' | 'time_end' | 'dress_code' |
+    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at'
   >>,
 ): Promise<EventRow> {
   const { data, error } = await supabase

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { EventRow, fetchEvent } from '@/lib/events-api'
+import { EventRow, fetchEvent, updateEvent } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
@@ -121,6 +121,68 @@ export default function EventDetailPage() {
   // Email compose state
   const [showCompose, setShowCompose] = useState(false)
   const [showInvite, setShowInvite] = useState(false)
+
+  // Inline event editing
+  const [editing, setEditing] = useState(false)
+  const [editDraft, setEditDraft] = useState<Partial<EventRow>>({})
+  const [editSaving, setEditSaving] = useState(false)
+
+  const startEditing = () => {
+    if (!event) return
+    setEditDraft({
+      name: event.name,
+      slug: event.slug,
+      event_date: event.event_date ?? '',
+      location: event.location ?? '',
+      format: event.format ?? '',
+      description: event.description ?? '',
+      capacity: event.capacity,
+      time_start: event.time_start ?? '',
+      time_end: event.time_end ?? '',
+      dress_code: event.dress_code ?? '',
+      status: event.status,
+      applications_open_at: event.applications_open_at ? event.applications_open_at.slice(0, 16) : '',
+      applications_close_at: event.applications_close_at ? event.applications_close_at.slice(0, 16) : '',
+    })
+    setEditing(true)
+  }
+
+  const cancelEditing = () => { setEditing(false); setEditDraft({}) }
+
+  const saveEditing = async () => {
+    if (!event) return
+    setEditSaving(true)
+    try {
+      const patch: Record<string, any> = {}
+      if (editDraft.name && editDraft.name !== event.name) patch.name = editDraft.name
+      if (editDraft.slug && editDraft.slug !== event.slug) patch.slug = editDraft.slug
+      if ((editDraft.event_date ?? '') !== (event.event_date ?? '')) patch.event_date = editDraft.event_date || null
+      if ((editDraft.location ?? '') !== (event.location ?? '')) patch.location = editDraft.location || null
+      if ((editDraft.format ?? '') !== (event.format ?? '')) patch.format = editDraft.format || null
+      if ((editDraft.description ?? '') !== (event.description ?? '')) patch.description = editDraft.description || null
+      if (editDraft.capacity !== event.capacity) patch.capacity = editDraft.capacity ?? null
+      if ((editDraft.time_start ?? '') !== (event.time_start ?? '')) patch.time_start = editDraft.time_start || null
+      if ((editDraft.time_end ?? '') !== (event.time_end ?? '')) patch.time_end = editDraft.time_end || null
+      if ((editDraft.dress_code ?? '') !== (event.dress_code ?? '')) patch.dress_code = editDraft.dress_code || null
+      if (editDraft.status && editDraft.status !== event.status) patch.status = editDraft.status
+      const openAt = editDraft.applications_open_at ? new Date(editDraft.applications_open_at as string).toISOString() : null
+      const closeAt = editDraft.applications_close_at ? new Date(editDraft.applications_close_at as string).toISOString() : null
+      if (openAt !== (event.applications_open_at ?? null)) patch.applications_open_at = openAt
+      if (closeAt !== (event.applications_close_at ?? null)) patch.applications_close_at = closeAt
+
+      if (Object.keys(patch).length > 0) {
+        const updated = await updateEvent(event.id, patch as any)
+        setEvent(updated)
+      }
+      setEditing(false)
+      setEditDraft({})
+    } catch (err) {
+      console.error('Failed to save event:', err)
+      alert('Failed to save changes. Please try again.')
+    } finally {
+      setEditSaving(false)
+    }
+  }
   const [templates, setTemplates] = useState<{ id: string; name: string; type: string; subject: string; body_html: string; event_id: string | null }[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
   const [emailSubject, setEmailSubject] = useState('')
@@ -602,41 +664,142 @@ export default function EventDetailPage() {
 
       {/* Event header */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 mb-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{event.name}</h1>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
-              <span>{formattedDate}</span>
-              {event.time_start && <span>{event.time_start}{event.time_end ? ` – ${event.time_end}` : ''}</span>}
-              {event.location && <span>{event.location}</span>}
-              {event.capacity != null && <span>Capacity: {event.capacity}</span>}
-              {event.dress_code && <span>Dress code: {event.dress_code}</span>}
-            </div>
-          </div>
-          {/* Quick stats */}
-          <div className="hidden sm:flex items-center gap-4 text-sm">
-            <div className="text-center">
-              <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{applicants.length}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Applicants</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">{acceptedCount}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Accepted</div>
-            </div>
-            {rsvpStats.accepted > 0 && (
-              <div className="text-center">
-                <div className="text-2xl font-semibold text-purple-600 dark:text-purple-400">{rsvpStats.confirmed}</div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">RSVPs</div>
+        {editing ? (
+          /* ---- EDIT MODE ---- */
+          <div className="space-y-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Edit Event</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={cancelEditing} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+                <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-1.5 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
               </div>
-            )}
-            <div className="text-center">
-              <div className="text-2xl font-semibold text-indigo-600 dark:text-indigo-400">{attendedCount}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Attended</div>
+            </div>
+
+            {/* Row 1: Name + Slug + Status */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Event name *</label>
+                <input value={editDraft.name ?? ''} onChange={e => setEditDraft(d => ({ ...d, name: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Slug *</label>
+                <input value={editDraft.slug ?? ''} onChange={e => setEditDraft(d => ({ ...d, slug: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Status</label>
+                <select value={editDraft.status ?? 'draft'} onChange={e => setEditDraft(d => ({ ...d, status: e.target.value as EventRow['status'] }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                  <option value="draft">Draft</option>
+                  <option value="open">Open</option>
+                  <option value="closed">Closed</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Row 2: Date + Start time + End time + Format */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Date</label>
+                <input type="date" value={editDraft.event_date ?? ''} onChange={e => setEditDraft(d => ({ ...d, event_date: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start time</label>
+                <input type="time" value={editDraft.time_start ?? ''} onChange={e => setEditDraft(d => ({ ...d, time_start: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End time</label>
+                <input type="time" value={editDraft.time_end ?? ''} onChange={e => setEditDraft(d => ({ ...d, time_end: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Format</label>
+                <select value={editDraft.format ?? ''} onChange={e => setEditDraft(d => ({ ...d, format: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                  <option value="">—</option>
+                  <option value="in-person">In-person</option>
+                  <option value="online">Online</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Row 3: Location + Capacity + Dress code */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Location</label>
+                <input value={editDraft.location ?? ''} onChange={e => setEditDraft(d => ({ ...d, location: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Capacity</label>
+                <input type="number" value={editDraft.capacity ?? ''} onChange={e => setEditDraft(d => ({ ...d, capacity: e.target.value ? parseInt(e.target.value) : null }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dress code</label>
+                <input value={editDraft.dress_code ?? ''} onChange={e => setEditDraft(d => ({ ...d, dress_code: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+            </div>
+
+            {/* Row 4: Application windows */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Applications open at</label>
+                <input type="datetime-local" value={editDraft.applications_open_at ?? ''} onChange={e => setEditDraft(d => ({ ...d, applications_open_at: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Applications close at</label>
+                <input type="datetime-local" value={editDraft.applications_close_at ?? ''} onChange={e => setEditDraft(d => ({ ...d, applications_close_at: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+            </div>
+
+            {/* Row 5: Description */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
+              <textarea rows={3} value={editDraft.description ?? ''} onChange={e => setEditDraft(d => ({ ...d, description: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 resize-y" />
             </div>
           </div>
-        </div>
-        {event.description && (
-          <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">{event.description}</p>
+        ) : (
+          /* ---- VIEW MODE ---- */
+          <>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{event.name}</h1>
+                  <button onClick={startEditing} className="p-1 rounded-md text-gray-400 hover:text-indigo-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Edit event details">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+                  <span>{formattedDate}</span>
+                  {event.time_start && <span>{event.time_start}{event.time_end ? ` – ${event.time_end}` : ''}</span>}
+                  {event.location && <span>{event.location}</span>}
+                  {event.capacity != null && <span>Capacity: {event.capacity}</span>}
+                  {event.dress_code && <span>Dress code: {event.dress_code}</span>}
+                </div>
+              </div>
+              {/* Quick stats */}
+              <div className="hidden sm:flex items-center gap-4 text-sm">
+                <div className="text-center">
+                  <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{applicants.length}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Applicants</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">{acceptedCount}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Accepted</div>
+                </div>
+                {rsvpStats.accepted > 0 && (
+                  <div className="text-center">
+                    <div className="text-2xl font-semibold text-purple-600 dark:text-purple-400">{rsvpStats.confirmed}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">RSVPs</div>
+                  </div>
+                )}
+                <div className="text-center">
+                  <div className="text-2xl font-semibold text-indigo-600 dark:text-indigo-400">{attendedCount}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Attended</div>
+                </div>
+              </div>
+            </div>
+            {event.description && (
+              <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">{event.description}</p>
+            )}
+          </>
         )}
       </div>
 
