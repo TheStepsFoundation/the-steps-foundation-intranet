@@ -1,9 +1,7 @@
 'use client'
-import Link from 'next/link'
-
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { type EnrichedStudent, fetchAllStudentsEnriched, EVENTS } from '@/lib/students-api'
+import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS } from '@/lib/students-api'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,8 +77,13 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   // Filters
   const [yearFilter, setYearFilter] = useState<string[]>([])
   const [minScore, setMinScore] = useState(0)
-  const [pastEventFilter, setPastEventFilter] = useState<string>('any') // any | attended_any | never_applied
+  const [eventFilter, setEventFilter] = useState<string[]>([])
+  const [eventDropdownOpen, setEventDropdownOpen] = useState(false)
   const [search, setSearch] = useState('')
+
+  // Student preview panel
+  const [previewStudent, setPreviewStudent] = useState<EnrichedStudent | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   // Selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -134,8 +137,10 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     return students.filter(s => {
       if (yearFilter.length && (s.year_group == null || !yearFilter.includes(s.year_group))) return false
       if (minScore > 0 && s.engagement_score < minScore) return false
-      if (pastEventFilter === 'attended_any' && s.attended_count === 0) return false
-      if (pastEventFilter === 'never_applied' && s.submitted_count > 0) return false
+      if (eventFilter.length > 0) {
+        const attendedEventIds = new Set(s.applications.filter(a => a.attended).map(a => a.event_id))
+        if (!eventFilter.some(eid => attendedEventIds.has(eid))) return false
+      }
       if (search) {
         const q = search.toLowerCase()
         if (!`${s.first_name} ${s.last_name}`.toLowerCase().includes(q) &&
@@ -144,7 +149,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       }
       return true
     })
-  }, [students, yearFilter, minScore, pastEventFilter, search])
+  }, [students, yearFilter, minScore, eventFilter, search])
 
   // Pagination
   const PAGE_SIZE = 50
@@ -152,8 +157,21 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const pageStudents = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
+  // Close event dropdown on outside click
+  const eventDropRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!eventDropdownOpen) return
+    function handleClick(e: MouseEvent) {
+      if (eventDropRef.current && !eventDropRef.current.contains(e.target as Node)) {
+        setEventDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [eventDropdownOpen])
+
   // Reset page when filters change
-  useEffect(() => { setPage(0) }, [yearFilter, minScore, pastEventFilter, search])
+  useEffect(() => { setPage(0) }, [yearFilter, minScore, eventFilter, search])
 
   // ---------------------------------------------------------------------------
   // Selection helpers
@@ -339,7 +357,11 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               {step === 'select' ? 'Invite Students' : step === 'compose' ? 'Compose Invite Email' : step === 'preview' ? 'Preview' : step === 'sending' ? 'Sending…' : 'Done'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {step === 'select' && `${filtered.length} eligible students (${students.length} total, excluding ${appliedIds.size} already applied)`}
+              {step === 'select' && (() => {
+                const eligibleCount = filtered.filter(s => s.eligibility === 'eligible').length
+                const unknownCount = filtered.filter(s => s.eligibility !== 'eligible').length
+                return `${filtered.length} students shown — ${eligibleCount} eligible, ${unknownCount} unknown (excluding ${appliedIds.size} already applied)`
+              })()}
               {step === 'compose' && `${selected.size} students selected`}
               {step === 'preview' && `Sending to ${recipients.length} student${recipients.length !== 1 ? 's' : ''}`}
             </p>
@@ -392,16 +414,47 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                   />
                 </div>
 
-                {/* Past events */}
-                <select
-                  value={pastEventFilter}
-                  onChange={e => setPastEventFilter(e.target.value)}
-                  className="px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
-                >
-                  <option value="any">All students</option>
-                  <option value="attended_any">Attended a past event</option>
-                  <option value="never_applied">Never applied before</option>
-                </select>
+                {/* Past events multi-select */}
+                <div className="relative" ref={eventDropRef}>
+                  <button
+                    onClick={() => setEventDropdownOpen(o => !o)}
+                    className="px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 flex items-center gap-1 min-w-[140px]"
+                  >
+                    <span className="truncate">
+                      {eventFilter.length === 0 ? 'All events' : `${eventFilter.length} event${eventFilter.length > 1 ? 's' : ''} selected`}
+                    </span>
+                    <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  {eventDropdownOpen && (
+                    <div className="absolute z-50 mt-1 w-64 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg py-1">
+                      <div className="px-3 py-1.5 text-xs text-gray-400 font-medium">Attended event:</div>
+                      {EVENTS.map(ev => (
+                        <label key={ev.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={eventFilter.includes(ev.id)}
+                            onChange={() => {
+                              setEventFilter(prev =>
+                                prev.includes(ev.id)
+                                  ? prev.filter(id => id !== ev.id)
+                                  : [...prev, ev.id]
+                              )
+                            }}
+                          />
+                          <span className="text-sm">{ev.short} <span className="text-gray-400">({ev.date})</span></span>
+                        </label>
+                      ))}
+                      {eventFilter.length > 0 && (
+                        <button
+                          onClick={() => setEventFilter([])}
+                          className="w-full text-left px-3 py-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:bg-gray-50 dark:hover:bg-gray-800 border-t border-gray-100 dark:border-gray-800 mt-1"
+                        >
+                          Clear selection
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Bulk actions */}
@@ -440,9 +493,20 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                           <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} />
                         </td>
                         <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
-                          <Link href={`/students/${s.id}`} className="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setPreviewLoading(true)
+                              setPreviewStudent(s as any)
+                              fetchEnrichedStudent(s.id).then(full => {
+                                setPreviewStudent(full)
+                                setPreviewLoading(false)
+                              }).catch(() => setPreviewLoading(false))
+                            }}
+                            className="text-left hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer"
+                          >
                             {s.first_name} {s.last_name}
-                          </Link>
+                          </button>
                           <div className="text-xs text-gray-400">{s.personal_email}</div>
                         </td>
                         <td className="px-3 py-2 text-gray-600 dark:text-gray-400 text-xs">{s.school_type ? s.school_type.charAt(0).toUpperCase() + s.school_type.slice(1) : '—'}</td>
@@ -701,6 +765,135 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
           )}
         </div>
       </div>
+
+      {/* ======= STUDENT PREVIEW SLIDE-OUT ======= */}
+      {previewStudent && (
+        <div className="fixed inset-0 z-[60]" onClick={() => setPreviewStudent(null)}>
+          <div className="absolute inset-0 bg-black/20" />
+          <div
+            className="absolute right-0 top-0 h-full w-full max-w-lg bg-white dark:bg-gray-900 shadow-2xl overflow-y-auto animate-slide-in-right"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-5 py-3 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                {previewStudent.first_name} {previewStudent.last_name}
+              </h3>
+              <button onClick={() => setPreviewStudent(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg">&times;</button>
+            </div>
+
+            {previewLoading ? (
+              <div className="p-8 text-center text-gray-400">Loading full profile…</div>
+            ) : (
+              <div className="p-5 space-y-5">
+                {/* Contact & basics */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <PreviewField label="Email" value={previewStudent.personal_email} />
+                  <PreviewField label="Year group" value={previewStudent.year_group} />
+                  <PreviewField label="School" value={previewStudent.school_name_raw} />
+                  <PreviewField label="School type" value={previewStudent.school_type ? previewStudent.school_type.charAt(0).toUpperCase() + previewStudent.school_type.slice(1) : null} />
+                </div>
+
+                {/* Scores & eligibility */}
+                <div className="flex flex-wrap gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                    Score {previewStudent.engagement_score}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                    {previewStudent.attended_count} attended
+                  </span>
+                  {previewStudent.no_show_count > 0 && (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                      {previewStudent.no_show_count} no-show
+                    </span>
+                  )}
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                    previewStudent.eligibility === 'eligible'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                      : previewStudent.eligibility === 'ineligible'
+                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                        : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                  }`}>
+                    {previewStudent.eligibility === 'eligible' ? 'Eligible' : previewStudent.eligibility === 'ineligible' ? 'Ineligible' : 'Unknown'}
+                  </span>
+                </div>
+
+                {/* SMI indicators */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
+                  <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2 uppercase">Social Mobility Indicators</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <PreviewField label="Free school meals" value={previewStudent.free_school_meals === true ? 'Yes' : previewStudent.free_school_meals === false ? 'No' : '—'} />
+                    <PreviewField label="First-gen uni" value={previewStudent.first_generation_uni === true ? 'Yes' : previewStudent.first_generation_uni === false ? 'No' : '—'} />
+                    <PreviewField label="Income band" value={
+                      previewStudent.parental_income_band === 'under_40k' ? 'Under £40k'
+                        : previewStudent.parental_income_band === 'over_40k' ? '£40k or more'
+                        : previewStudent.parental_income_band === 'prefer_na' ? 'Prefer not to say'
+                        : '—'
+                    } />
+                    <PreviewField label="Mailing list" value={previewStudent.subscribed_to_mailing === true ? 'Yes' : previewStudent.subscribed_to_mailing === false ? 'No' : '—'} />
+                  </div>
+                </div>
+
+                {/* Event history */}
+                <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">
+                  <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+                    <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Event History</h4>
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 dark:bg-gray-800/30">
+                      <tr>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Event</th>
+                        <th className="text-center px-2 py-1.5 font-medium text-gray-500">Status</th>
+                        <th className="text-center px-2 py-1.5 font-medium text-gray-500">Attended</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                      {EVENTS.map(ev => {
+                        const app = previewStudent.applications.find(a => a.event_id === ev.id)
+                        return (
+                          <tr key={ev.id}>
+                            <td className="px-3 py-1.5 text-gray-900 dark:text-gray-100">{ev.short}</td>
+                            <td className="px-2 py-1.5 text-center">
+                              {app ? (
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                  app.status === 'accepted' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                    : app.status === 'rejected' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                    : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                                }`}>
+                                  {app.status}
+                                </span>
+                              ) : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                            </td>
+                            <td className="px-2 py-1.5 text-center">
+                              {app?.attended ? '✓' : app ? '✗' : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Notes */}
+                {previewStudent.notes && (
+                  <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
+                    <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 uppercase">Notes</h4>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{previewStudent.notes}</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PreviewField({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</div>
+      <div className="text-gray-900 dark:text-gray-100">{value || <span className="text-gray-400">—</span>}</div>
     </div>
   )
 }

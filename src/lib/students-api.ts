@@ -129,6 +129,26 @@ export function enrich(s: StudentRow, apps: ApplicationRow[]): EnrichedStudent {
   }
 }
 
+/** Compute eligibility + smi_count for a row coming from students_enriched view */
+function computeEligibility(row: EnrichedStudent): EnrichedStudent {
+  if (!row.applications) row.applications = []
+  const smi_count =
+    (row.free_school_meals === true ? 1 : 0) +
+    (row.first_generation_uni === true ? 1 : 0) +
+    (row.parental_income_band === 'under_40k' ? 1 : 0)
+  const eligibility: Eligibility =
+    row.school_type === 'state' || row.school_type === 'grammar'
+      ? 'eligible'
+      : row.school_type === 'private' && row.bursary_90plus === true && smi_count >= 1
+        ? 'eligible'
+        : row.school_type === 'private'
+          ? 'ineligible'
+          : 'unknown'
+  row.smi_count = smi_count
+  row.eligibility = eligibility
+  return row
+}
+
 const CACHE_TTL_MS = 60_000
 let enrichedCache: { data: EnrichedStudent[]; at: number } | null = null
 
@@ -153,7 +173,7 @@ export async function fetchAllStudentsEnriched(opts?: { forceRefresh?: boolean }
       .range(from, from + size - 1)
     if (error) throw error
     if (!data || data.length === 0) break
-    rows.push(...(data as EnrichedStudent[]))
+    rows.push(...(data as EnrichedStudent[]).map(computeEligibility))
     if (data.length < size) break
     from += size
   }
@@ -246,8 +266,7 @@ export async function fetchEnrichedStudent(id: string): Promise<EnrichedStudent 
   if (error) throw error
   if (!data) return null
   const row = data as EnrichedStudent
-  if (!row.applications) row.applications = []
-  return row
+  return computeEligibility(row)
 }
 
 export async function fetchStudent(id: string): Promise<{ student: StudentRow | null; applications: ApplicationRow[] }> {
