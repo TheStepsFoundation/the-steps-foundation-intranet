@@ -287,6 +287,19 @@ export default function ApplyPage() {
     ? getFormSnapshot() !== originalFormSnapshot.current
     : true  // new applications always allow submit
 
+  // Take a snapshot of the form state once application data is fully restored
+  // This runs after React has re-rendered with the restored values
+  const snapshotTaken = useRef(false)
+  useEffect(() => {
+    if (alreadyApplied && !snapshotTaken.current && (firstName || gcseResults || qualifications[0]?.subject)) {
+      snapshotTaken.current = true
+      // Wait one more tick for any final state updates to settle
+      requestAnimationFrame(() => {
+        originalFormSnapshot.current = getFormSnapshot()
+      })
+    }
+  }, [alreadyApplied, firstName, gcseResults, qualifications, getFormSnapshot])
+
   const restoreApplication = useCallback(async (eventId: string) => {
     const app = await fetchExistingApplication(eventId)
     if (!app?.raw_response) return
@@ -328,8 +341,6 @@ export default function ApplyPage() {
           setAlreadyApplied(true)
           await restoreApplication(event!.id)
           draftRestoredRef.current = true
-          // Snapshot after next render so state is settled
-          setTimeout(() => { originalFormSnapshot.current = getFormSnapshot() }, 200)
           if (!cancelled) setStep(editMode ? 'details' : 'applied')
           return
         }
@@ -465,7 +476,6 @@ export default function ApplyPage() {
       const applied = await hasExistingApplication(event!.id)
       if (applied) {
           setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true
-          setTimeout(() => { originalFormSnapshot.current = getFormSnapshot() }, 200)
           setLoading(false); setStep(editMode ? 'details' : 'applied'); return
         }
     }
@@ -493,7 +503,6 @@ export default function ApplyPage() {
       const applied = await hasExistingApplication(event!.id)
       if (applied) {
           setAlreadyApplied(true); await restoreApplication(event!.id); draftRestoredRef.current = true
-          setTimeout(() => { originalFormSnapshot.current = getFormSnapshot() }, 200)
           setLoading(false); setStep(editMode ? 'details' : 'applied'); return
         }
     }
