@@ -303,7 +303,7 @@ export default function ApplyPage() {
         const applied = await hasExistingApplication(event!.id)
         if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); if (!cancelled) setStep('applied'); return }
       }
-      if (!cancelled) setStep('details')
+      if (!cancelled) setStep(student ? 'application' : 'details')
     })
     return () => { cancelled = true }
   }, [event?.id, prefill])
@@ -434,7 +434,7 @@ export default function ApplyPage() {
       if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); setLoading(false); setStep('applied'); return }
     }
     setLoading(false)
-    setStep('details')
+    setStep(student ? 'application' : 'details')
   }
 
   const handleVerifyOtp = async () => {
@@ -457,7 +457,7 @@ export default function ApplyPage() {
       if (applied) { setAlreadyApplied(true); await restoreApplication(event!.id); setLoading(false); setStep('applied'); return }
     }
     setLoading(false)
-    setStep('details')
+    setStep(student ? 'application' : 'details')
   }
 
   const handleDetailsNext = () => {
@@ -1213,7 +1213,7 @@ export default function ApplyPage() {
 
           <div className="border-t border-gray-100 pt-6 flex flex-col items-center gap-3">
             <button
-              onClick={() => setStep('details')}
+              onClick={() => setStep('application')}
               className="px-6 py-2.5 bg-purple-600 text-white font-medium rounded-xl hover:bg-purple-700 transition text-sm"
             >
               Edit my application
