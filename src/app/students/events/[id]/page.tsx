@@ -144,6 +144,31 @@ const ORDINAL: Record<string, string> = {
   sixth: '6th', seventh: '7th', eighth: '8th', ninth: '9th', tenth: '10th',
 }
 
+// Convert plain-text email body into Gmail-friendly HTML.
+// Each non-empty line becomes a <p>; consecutive blank lines collapse to one
+// paragraph break. Mirrors the InviteStudentsModal sender so notify emails
+// look identical in the recipient's inbox.
+function plainTextToHtml(text: string): string {
+  if (!text) return ''
+  const escape = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return text
+    .split(/\n{2,}/)
+    .map(block =>
+      `<p style="margin:0 0 12px;font-family:arial,sans-serif;font-size:14px;line-height:1.5;color:#222">` +
+      escape(block).replace(/\n/g, '<br>') +
+      `</p>`
+    )
+    .join('')
+}
+
+// Detect if a stored template body is HTML (legacy) or plain text (new style).
+// Plain-text bodies have no angle brackets at all, so a single < anywhere is
+// our cue to keep treating it as raw HTML on send.
+function looksLikeHtml(s: string): boolean {
+  return /<[a-z!\/]/i.test(s)
+}
+
 // Available sortable columns
 type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at'
 type SortDir = 'asc' | 'desc'
@@ -343,6 +368,8 @@ export default function EventDetailPage() {
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody] = useState('')
   const [emailStep, setEmailStep] = useState<'pick' | 'preview' | 'sending' | 'done'>('pick')
+  const [templateDirty, setTemplateDirty] = useState(false)
+  const [savingTemplate, setSavingTemplate] = useState(false)
   const [sendProgress, setSendProgress] = useState({ sent: 0, failed: 0, total: 0 })
 
   // Combined action: status to apply after emails are queued
@@ -704,6 +731,7 @@ export default function EventDetailPage() {
     setSelectedTemplate('')
     setEmailSubject('')
     setEmailBody('')
+    setTemplateDirty(false)
     setSendProgress({ sent: 0, failed: 0, total: 0 })
   }
 
@@ -720,6 +748,7 @@ export default function EventDetailPage() {
       setSelectedTemplate(match.id)
       setEmailSubject(match.subject)
       setEmailBody(match.body_html)
+      setTemplateDirty(false)
     }
   }, [templates, notifyAction, eventId, selectedTemplate])
 
@@ -729,6 +758,32 @@ export default function EventDetailPage() {
     setSelectedTemplate(templateId)
     setEmailSubject(tpl.subject)
     setEmailBody(tpl.body_html)
+    setTemplateDirty(false)
+  }
+
+  // Persist subject/body edits back to the selected template so the next
+  // send for this status starts from the customised version.
+  const saveTemplateChanges = async () => {
+    if (!selectedTemplate) return
+    setSavingTemplate(true)
+    try {
+      await supabase.from('email_templates').update({
+        subject: emailSubject,
+        body_html: emailBody,
+        updated_at: new Date().toISOString(),
+        updated_by: teamMember?.auth_uuid ?? null,
+      }).eq('id', selectedTemplate)
+      setTemplateDirty(false)
+      // Refresh local cache so the template list reflects the saved values.
+      const { data } = await supabase
+        .from('email_templates')
+        .select('id, name, type, subject, body_html, event_id')
+        .is('deleted_at', null)
+        .order('name')
+      setTemplates((data ?? []) as any[])
+    } finally {
+      setSavingTemplate(false)
+    }
   }
 
   const fillMergeFields = (text: string, applicant: Applicant) => {
@@ -767,7 +822,8 @@ export default function EventDetailPage() {
       const renderedBody = fillMergeFields(emailBody, recipient)
 
       try {
-        const fullBody = renderedBody + EMAIL_SIGNATURE_HTML
+        const bodyHtml = looksLikeHtml(renderedBody) ? renderedBody : plainTextToHtml(renderedBody)
+        const fullBody = bodyHtml + EMAIL_SIGNATURE_HTML
 
         // Insert into email_log with status pending
         const { data: logRow } = await supabase.from('email_log').insert({
@@ -1757,7 +1813,7 @@ export default function EventDetailPage() {
                       onChange={e => applyTemplate(e.target.value)}
                       className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
                     >
-                      <option value="">— Select a template or write from scratch —</option>
+                      <option value="">&mdash; Select a template or write from scratch &mdash;</option>
                       {templates
                         .filter(t => !t.event_id || t.event_id === eventId)
                         .map(t => (
@@ -1773,33 +1829,94 @@ export default function EventDetailPage() {
                     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Subject</label>
                     <input
                       value={emailSubject}
-                      onChange={e => setEmailSubject(e.target.value)}
-                      placeholder="e.g. Your application to {{event_name}}"
+                      onChange={e => { setEmailSubject(e.target.value); if (selectedTemplate) setTemplateDirty(true) }}
+                      placeholder="e.g. An update on your {{event_name}} application"
                       className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
                     />
                   </div>
 
                   {/* Body */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Body (HTML)</label>
-                    <textarea
-                      value={emailBody}
-                      onChange={e => setEmailBody(e.target.value)}
-                      rows={8}
-                      placeholder="<p>Hey {{first_name}},</p>"
-                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"
-                    />
-                  </div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Body</label>
+                      <span className="text-[10px] text-gray-400">Plain text &mdash; signature is auto-appended</span>
+                    </div>
 
-                  {/* Merge field hints */}
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <span className="font-medium">Merge fields: </span>
-                    {['{{first_name}}', '{{last_name}}', '{{full_name}}', '{{event_name}}', '{{event_date}}', '{{event_location}}', '{{event_time}}', '{{dress_code}}', '{{portal_link}}', '{{rsvp_link}}'].map((f, i, arr) => (
-                      <span key={f}>
-                        <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{f}</code>
-                        {i < arr.length - 1 ? ', ' : ''}
-                      </span>
-                    ))}
+                    {/* Merge-tag insert chips */}
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      <span className="text-[10px] text-gray-400 self-center mr-1">Insert:</span>
+                      {[
+                        { tag: 'first_name', label: 'First Name' },
+                        { tag: 'last_name', label: 'Last Name' },
+                        { tag: 'full_name', label: 'Full Name' },
+                        { tag: 'event_name', label: 'Event Name' },
+                        ...(event?.event_date ? [{ tag: 'event_date', label: 'Event Date' }] : []),
+                        ...(event?.time_start ? [{ tag: 'event_time', label: 'Event Time' }] : []),
+                        ...(event?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
+                        ...(event?.dress_code ? [{ tag: 'dress_code', label: 'Dress Code' }] : []),
+                        { tag: 'rsvp_link', label: 'RSVP Link' },
+                        { tag: 'portal_link', label: 'Portal Link' },
+                      ].map(({ tag, label }) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => {
+                            setEmailBody(prev => {
+                              const el = document.getElementById('notify-body-textarea') as HTMLTextAreaElement | null
+                              const insert = `{{${tag}}}`
+                              if (el) {
+                                const start = el.selectionStart
+                                const end = el.selectionEnd
+                                const next = prev.slice(0, start) + insert + prev.slice(end)
+                                setTimeout(() => { el.selectionStart = el.selectionEnd = start + insert.length; el.focus() }, 0)
+                                if (selectedTemplate) setTemplateDirty(true)
+                                return next
+                              }
+                              if (selectedTemplate) setTemplateDirty(true)
+                              return prev + insert
+                            })
+                          }}
+                          className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <textarea
+                      id="notify-body-textarea"
+                      value={emailBody}
+                      onChange={e => { setEmailBody(e.target.value); if (selectedTemplate) setTemplateDirty(true) }}
+                      rows={10}
+                      placeholder={`Hi {{first_name}},\n\n...\n\nVirtus non origo,\nThe Steps Foundation Team`}
+                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
+                    />
+
+                    {/* Save-back-to-template CTA */}
+                    {selectedTemplate && templateDirty && (
+                      <div className="mt-2 flex items-center justify-between rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
+                        <span className="text-xs text-amber-700 dark:text-amber-300">
+                          You&rsquo;ve edited this template. Save changes so future sends start from this version?
+                        </span>
+                        <button
+                          type="button"
+                          disabled={savingTemplate}
+                          onClick={saveTemplateChanges}
+                          className="text-xs font-medium px-3 py-1 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                        >
+                          {savingTemplate ? 'Saving...' : 'Save to template'}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Signature preview */}
+                    <div className="mt-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3">
+                      <div className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Email signature (auto-appended)</div>
+                      <div
+                        className="text-xs opacity-60 pointer-events-none"
+                        dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
+                      />
+                    </div>
                   </div>
                 </>
               )}
@@ -1818,7 +1935,11 @@ export default function EventDetailPage() {
                     <div
                       className="prose dark:prose-invert prose-sm max-w-none"
                       dangerouslySetInnerHTML={{
-                        __html: (getRecipients()[0] ? fillMergeFields(emailBody, getRecipients()[0]) : emailBody) + EMAIL_SIGNATURE_HTML,
+                        __html: (() => {
+                          const raw = getRecipients()[0] ? fillMergeFields(emailBody, getRecipients()[0]) : emailBody
+                          const html = looksLikeHtml(raw) ? raw : plainTextToHtml(raw)
+                          return html + EMAIL_SIGNATURE_HTML
+                        })(),
                       }}
                     />
                   </div>
