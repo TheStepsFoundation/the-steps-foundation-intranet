@@ -2223,7 +2223,15 @@ export default function EventDetailPage() {
                   </th>
                   <th className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900" style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}>Name</th>
                   {visibleColumns.map(col => (
-                    <th key={col.id} className="p-3 whitespace-nowrap max-w-[200px] truncate" title={col.label}>
+                    <th
+                      key={col.id}
+                      className={
+                        col.id.startsWith('cf_')
+                          ? 'p-3 align-bottom min-w-[260px] max-w-[320px] leading-snug'
+                          : 'p-3 whitespace-nowrap max-w-[200px] truncate'
+                      }
+                      title={col.label}
+                    >
                       {col.label}
                     </th>
                   ))}
@@ -2274,7 +2282,7 @@ export default function EventDetailPage() {
                         )}
                       </td>
                       {/* Dynamic columns based on visibility & order */}
-                      {visibleColumns.map(col => {
+                      {visibleColumns.map((col, colIdx) => {
                         // Built-in: school_type
                         if (col.id === 'school_type') return (
                           <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap">
@@ -2413,18 +2421,19 @@ export default function EventDetailPage() {
                         } else {
                           display = String(val)
                         }
-                        const isLong = display.length > 40 || popoverContent != null
+                        const isLong = display.length > 80 || popoverContent != null
+                        const flipPopover = colIdx >= visibleColumns.length - 2
                         return (
-                          <td key={col.id} className="p-3 max-w-[200px]">
+                          <td key={col.id} className="p-3 align-top min-w-[260px] max-w-[320px]">
                             {display === '—' ? (
                               <span className="text-gray-400">—</span>
                             ) : (
                               <div className="group relative">
-                                <span className="text-gray-700 dark:text-gray-300 truncate block cursor-default">
-                                  {display.length > 40 ? display.slice(0, 40) + '…' : display}
+                                <span className="text-gray-700 dark:text-gray-300 cursor-default line-clamp-2 break-words">
+                                  {display}
                                 </span>
                                 {isLong && (
-                                  <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[280px] max-w-[400px] max-h-[200px] overflow-y-auto">
+                                  <div className={`absolute ${flipPopover ? 'right-0' : 'left-0'} top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[280px] max-w-[400px] max-h-[200px] overflow-y-auto`}>
                                     <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{col.label}</div>
                                     <div className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{popoverContent ?? display}</div>
                                   </div>
