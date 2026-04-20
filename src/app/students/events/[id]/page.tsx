@@ -442,7 +442,10 @@ function EventImageUploader({
   eventId,
   kind,
   value,
+  focalX,
+  focalY,
   onChange,
+  onFocalChange,
 }: {
   label: string
   hint: string
@@ -450,11 +453,16 @@ function EventImageUploader({
   eventId: string
   kind: 'banner' | 'hub'
   value: string | null | undefined
+  focalX: number
+  focalY: number
   onChange: (url: string | null) => void
+  onFocalChange: (x: number, y: number) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const frameRef = useRef<HTMLDivElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dragging, setDragging] = useState(false)
 
   const handleFile = async (file: File) => {
     setError(null)
@@ -478,6 +486,7 @@ function EventImageUploader({
       const { data: pub } = supabase.storage.from('event-banners').getPublicUrl(objectKey)
       if (!pub?.publicUrl) throw new Error('Could not resolve public URL')
       onChange(pub.publicUrl)
+      onFocalChange(50, 50)  // reset to centre on new upload
     } catch (err: any) {
       console.error('upload failed', err)
       setError(err?.message || 'Upload failed')
@@ -485,6 +494,32 @@ function EventImageUploader({
       setUploading(false)
     }
   }
+
+  const updateFocalFromEvent = (clientX: number, clientY: number) => {
+    const el = frameRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))
+    const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))
+    onFocalChange(Math.round(x), Math.round(y))
+  }
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setDragging(true)
+    updateFocalFromEvent(e.clientX, e.clientY)
+    ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return
+    updateFocalFromEvent(e.clientX, e.clientY)
+  }
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setDragging(false)
+    ;(e.target as HTMLElement).releasePointerCapture?.(e.pointerId)
+  }
+
+  const focalStyle = { objectPosition: `${focalX}% ${focalY}%` } as React.CSSProperties
 
   return (
     <div>
@@ -498,28 +533,54 @@ function EventImageUploader({
         onChange={e => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = '' }}
       />
       {value ? (
-        <div className={`relative w-full ${aspect} rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900`}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={value} alt={label} className="w-full h-full object-cover" />
-          <div className="absolute top-2 right-2 flex gap-1.5">
+        <>
+          <div
+            ref={frameRef}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            className={`relative w-full ${aspect} rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 touch-none ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={value} alt={label} className="w-full h-full object-cover select-none pointer-events-none" style={focalStyle} draggable={false} />
+            {/* Focal pin */}
+            <div
+              className="absolute w-6 h-6 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-lg border-2 border-steps-blue-600 flex items-center justify-center pointer-events-none transition-transform"
+              style={{ left: `${focalX}%`, top: `${focalY}%`, transform: `translate(-50%, -50%) scale(${dragging ? 1.15 : 1})` }}
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-steps-blue-600" />
+            </div>
+            <div className="absolute top-2 right-2 flex gap-1.5 pointer-events-auto" onPointerDown={e => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                disabled={uploading}
+                className="px-2.5 py-1 text-xs font-medium rounded-md bg-white/90 text-gray-700 border border-gray-200 hover:bg-white shadow-sm disabled:opacity-50"
+              >
+                {uploading ? 'Uploading…' : 'Replace'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { onChange(null); onFocalChange(50, 50) }}
+                disabled={uploading}
+                className="px-2.5 py-1 text-xs font-medium rounded-md bg-white/90 text-red-600 border border-red-200 hover:bg-red-50 shadow-sm disabled:opacity-50"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
+            <span>Drag the pin to choose what stays in frame.</span>
             <button
               type="button"
-              onClick={() => inputRef.current?.click()}
-              disabled={uploading}
-              className="px-2.5 py-1 text-xs font-medium rounded-md bg-white/90 text-gray-700 border border-gray-200 hover:bg-white shadow-sm disabled:opacity-50"
+              onClick={() => onFocalChange(50, 50)}
+              className="underline underline-offset-2 hover:text-steps-blue-700"
             >
-              {uploading ? 'Uploading…' : 'Replace'}
-            </button>
-            <button
-              type="button"
-              onClick={() => onChange(null)}
-              disabled={uploading}
-              className="px-2.5 py-1 text-xs font-medium rounded-md bg-white/90 text-red-600 border border-red-200 hover:bg-red-50 shadow-sm disabled:opacity-50"
-            >
-              Remove
+              Recentre
             </button>
           </div>
-        </div>
+        </>
       ) : (
         <button
           type="button"
@@ -671,6 +732,10 @@ export default function EventDetailPage() {
       form_config: event.form_config ?? { fields: [] },
       banner_image_url: event.banner_image_url,
       hub_image_url: event.hub_image_url,
+      banner_focal_x: event.banner_focal_x,
+      banner_focal_y: event.banner_focal_y,
+      hub_focal_x: event.hub_focal_x,
+      hub_focal_y: event.hub_focal_y,
     })
     setEditing(true)
   }
@@ -700,6 +765,10 @@ export default function EventDetailPage() {
 
       if ((editDraft.banner_image_url ?? null) !== (event.banner_image_url ?? null)) patch.banner_image_url = editDraft.banner_image_url ?? null
       if ((editDraft.hub_image_url ?? null) !== (event.hub_image_url ?? null)) patch.hub_image_url = editDraft.hub_image_url ?? null
+      if ((editDraft.banner_focal_x ?? 50) !== (event.banner_focal_x ?? 50)) patch.banner_focal_x = editDraft.banner_focal_x ?? 50
+      if ((editDraft.banner_focal_y ?? 50) !== (event.banner_focal_y ?? 50)) patch.banner_focal_y = editDraft.banner_focal_y ?? 50
+      if ((editDraft.hub_focal_x ?? 50) !== (event.hub_focal_x ?? 50)) patch.hub_focal_x = editDraft.hub_focal_x ?? 50
+      if ((editDraft.hub_focal_y ?? 50) !== (event.hub_focal_y ?? 50)) patch.hub_focal_y = editDraft.hub_focal_y ?? 50
 
       // Always include form_config if it was edited
       const currentFormConfig = JSON.stringify(event.form_config ?? { fields: [] })
@@ -1582,21 +1651,27 @@ export default function EventDetailPage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <EventImageUploader
                   label="Application banner"
-                  hint="Wide hero shown at the top of /apply/{slug}. Recommended 1600×400 (4:1)."
+                  hint="Wide hero shown at the top of /apply/{slug}. Recommended 1600×400 (4:1). Drag the pin to reframe."
                   aspect="aspect-[4/1]"
                   eventId={event.id}
                   kind="banner"
                   value={editDraft.banner_image_url}
+                  focalX={editDraft.banner_focal_x ?? 50}
+                  focalY={editDraft.banner_focal_y ?? 50}
                   onChange={url => setEditDraft(d => ({ ...d, banner_image_url: url }))}
+                  onFocalChange={(x, y) => setEditDraft(d => ({ ...d, banner_focal_x: x, banner_focal_y: y }))}
                 />
                 <EventImageUploader
                   label="Student hub card image"
-                  hint="Thumbnail shown on the student hub event cards. Recommended 1200×675 (16:9)."
+                  hint="Thumbnail shown on the student hub event cards. Recommended 1200×675 (16:9). Drag the pin to reframe."
                   aspect="aspect-[16/9]"
                   eventId={event.id}
                   kind="hub"
                   value={editDraft.hub_image_url}
+                  focalX={editDraft.hub_focal_x ?? 50}
+                  focalY={editDraft.hub_focal_y ?? 50}
                   onChange={url => setEditDraft(d => ({ ...d, hub_image_url: url }))}
+                  onFocalChange={(x, y) => setEditDraft(d => ({ ...d, hub_focal_x: x, hub_focal_y: y }))}
                 />
               </div>
             </div>

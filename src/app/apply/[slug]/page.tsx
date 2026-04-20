@@ -729,6 +729,7 @@ export default function ApplyPage() {
               src={event.banner_image_url}
               alt={event.name}
               className="w-full aspect-[4/1] object-cover"
+              style={{ objectPosition: `${event.banner_focal_x ?? 50}% ${event.banner_focal_y ?? 50}%` }}
             />
           </div>
         </div>

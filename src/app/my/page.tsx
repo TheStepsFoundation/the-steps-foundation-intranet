@@ -258,7 +258,7 @@ export default function StudentHub() {
                   {event.hub_image_url && (
                     <div className="flex-shrink-0 w-28 sm:w-40 aspect-[16/9] rounded-xl overflow-hidden bg-gray-100 self-start">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={event.hub_image_url} alt={event.name} className="w-full h-full object-cover" />
+                      <img src={event.hub_image_url} alt={event.name} className="w-full h-full object-cover" style={{ objectPosition: `${event.hub_focal_x ?? 50}% ${event.hub_focal_y ?? 50}%` }} />
                     </div>
                   )}
                   <div className="flex items-start justify-between gap-4 flex-1 min-w-0">
@@ -324,7 +324,7 @@ export default function StudentHub() {
                     {app.event.hub_image_url && (
                       <div className="flex-shrink-0 w-24 sm:w-32 aspect-[16/9] rounded-xl overflow-hidden bg-gray-100 self-start">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={app.event.hub_image_url} alt={app.event.name} className="w-full h-full object-cover" />
+                        <img src={app.event.hub_image_url} alt={app.event.name} className="w-full h-full object-cover" style={{ objectPosition: `${app.event.hub_focal_x ?? 50}% ${app.event.hub_focal_y ?? 50}%` }} />
                       </div>
                     )}
                     <div className="flex items-start justify-between gap-3 flex-1 min-w-0">

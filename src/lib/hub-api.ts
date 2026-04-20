@@ -36,6 +36,10 @@ export type HubEvent = {
   applications_close_at: string | null
   banner_image_url: string | null
   hub_image_url: string | null
+  banner_focal_x: number
+  banner_focal_y: number
+  hub_focal_x: number
+  hub_focal_y: number
 }
 
 export type HubApplication = {
@@ -123,7 +127,7 @@ export async function fetchMyApplications(): Promise<HubApplication[]> {
   const eventIds = [...new Set(data.map(a => a.event_id))]
   const { data: events } = await supabase
     .from('events')
-    .select('id, name, slug, event_date, location, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url')
+    .select('id, name, slug, event_date, location, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y')
     .in('id', eventIds)
 
   const eventMap = new Map((events ?? []).map(e => [e.id, e]))
@@ -145,7 +149,7 @@ export async function fetchOpenEvents(): Promise<HubEvent[]> {
 
   const { data } = await supabase
     .from('events')
-    .select('id, name, slug, event_date, location, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url')
+    .select('id, name, slug, event_date, location, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y')
     .is('deleted_at', null)
     .eq('status', 'open')
     .lte('applications_open_at', now)
@@ -162,7 +166,7 @@ export async function fetchOpenEvents(): Promise<HubEvent[]> {
 export async function fetchAllEvents(): Promise<HubEvent[]> {
   const { data } = await supabase
     .from('events')
-    .select('id, name, slug, event_date, location, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url')
+    .select('id, name, slug, event_date, location, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y')
     .is('deleted_at', null)
     .order('event_date', { ascending: false })
 

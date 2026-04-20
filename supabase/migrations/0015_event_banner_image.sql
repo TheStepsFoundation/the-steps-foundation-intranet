@@ -78,3 +78,27 @@ create policy "event banners admin delete"
         and role = 'admin'
     )
   );
+
+-- 4. Focal point columns -----------------------------------------------------
+-- Each image stores an (x, y) percent (0-100) that drives object-position when
+-- the image is rendered inside its crop frame. Defaults to 50,50 (centre) so
+-- existing behaviour is unchanged for events without an explicit focal point.
+
+alter table public.events
+  add column if not exists banner_focal_x numeric not null default 50,
+  add column if not exists banner_focal_y numeric not null default 50,
+  add column if not exists hub_focal_x    numeric not null default 50,
+  add column if not exists hub_focal_y    numeric not null default 50;
+
+do $$ begin
+  alter table public.events add constraint banner_focal_x_range check (banner_focal_x >= 0 and banner_focal_x <= 100);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.events add constraint banner_focal_y_range check (banner_focal_y >= 0 and banner_focal_y <= 100);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.events add constraint hub_focal_x_range check (hub_focal_x >= 0 and hub_focal_x <= 100);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.events add constraint hub_focal_y_range check (hub_focal_y >= 0 and hub_focal_y <= 100);
+exception when duplicate_object then null; end $$;
