@@ -44,10 +44,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check if authenticated user is in team_members table.
   // This is the single source of truth — no hardcoded allowlist.
-  // Wrapped in a 5-second timeout so a hanging Supabase request
-  // can never cause an infinite loading screen.
-  const checkTeamMembership = useCallback(async (email: string | undefined): Promise<TeamMember | null> => {
-    if (!email) return null
+  //
+  // IMPORTANT: We distinguish three outcomes:
+  //   - { status: 'member',  row: TeamMember }   → authorised team member
+  //   - { status: 'not_member' }                 → confirmed NOT a team member
+  //   - { status: 'unknown' }                    → check failed (timeout / network / RLS)
+  //
+  // A failed check MUST NOT be treated as 'not_member', or transient network
+  // slowness (e.g. during a big storage upload) will silently sign the user out.
+  const checkTeamMembership = useCallback(async (email: string | undefined): Promise<
+    | { status: 'member'; row: TeamMember }
+    | { status: 'not_member' }
+    | { status: 'unknown' }
+  > => {
+    if (!email) return { status: 'not_member' }
     try {
       const result = await Promise.race([
         supabase
@@ -57,48 +67,82 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .limit(1)
           .maybeSingle(),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Team membership check timed out')), 5000)
+          setTimeout(() => reject(new Error('Team membership check timed out')), 8000)
         ),
       ])
       const { data, error } = result
-      if (error || !data) return null
-      return data as TeamMember
-    } catch {
-      console.warn('[auth] checkTeamMembership failed or timed out')
-      return null
+      if (error) {
+        console.warn('[auth] checkTeamMembership DB error:', error.message)
+        return { status: 'unknown' }
+      }
+      if (!data) return { status: 'not_member' }
+      return { status: 'member', row: data as TeamMember }
+    } catch (err: any) {
+      console.warn('[auth] checkTeamMembership failed:', err?.message)
+      return { status: 'unknown' }
     }
   }, [])
 
-  // Handle auth state changes — runs on initial load and every sign-in/out
-  const handleAuthChange = useCallback(async (newSession: Session | null) => {
+  // Handle auth state changes. Runs on initial load, sign-in, sign-out, AND
+  // every background token refresh. We must be careful not to re-validate
+  // team membership on every refresh — that's expensive and fragile
+  // (see prior bug: transient timeout during image upload → silent logout).
+  //
+  // Strategy:
+  //   - INITIAL_SESSION / SIGNED_IN / USER_UPDATED → full check + enforce
+  //   - TOKEN_REFRESHED → just update the session object, keep cached team state
+  //   - SIGNED_OUT → clear everything
+  const handleAuthChange = useCallback(async (
+    event: string | null,
+    newSession: Session | null,
+  ) => {
     try {
       setSession(newSession)
       const newUser = newSession?.user ?? null
       setUser(newUser)
 
-      if (newUser?.email) {
-        const tm = await checkTeamMembership(newUser.email)
-        setTeamMember(tm)
-
-        // If someone signs in (Google or otherwise) and they're NOT a team member,
-        // AND we're on an admin page (not /apply or /my), sign them out immediately.
-        // The /apply and /my pages handle their own student auth.
-        if (!tm && typeof window !== 'undefined'
-            && !window.location.pathname.startsWith('/apply')
-            && !window.location.pathname.startsWith('/my')) {
-          await supabase.auth.signOut()
-          setUser(null)
-          setSession(null)
-          setTeamMember(null)
-        }
-      } else {
+      // Signed out: clear and exit.
+      if (event === 'SIGNED_OUT' || !newUser?.email) {
         setTeamMember(null)
+        return
+      }
+
+      // Token refresh / silent re-auth: DO NOT re-hit team_members.
+      // The team_members row does not change during a session; re-checking
+      // here was the root cause of the mid-session logout bug.
+      if (event === 'TOKEN_REFRESHED') {
+        return
+      }
+
+      // Real auth event — validate team membership.
+      const result = await checkTeamMembership(newUser.email)
+
+      if (result.status === 'member') {
+        setTeamMember(result.row)
+        return
+      }
+
+      // 'unknown' means the check failed (timeout / network). Never sign out
+      // on this — keep whatever team state we already have.
+      if (result.status === 'unknown') {
+        console.warn('[auth] team check returned unknown — keeping existing state')
+        return
+      }
+
+      // Confirmed not a team member. Only sign out if they're on an admin
+      // page; /apply and /my handle their own student auth.
+      setTeamMember(null)
+      if (typeof window !== 'undefined'
+          && !window.location.pathname.startsWith('/apply')
+          && !window.location.pathname.startsWith('/my')) {
+        await supabase.auth.signOut()
+        setUser(null)
+        setSession(null)
       }
     } catch (err) {
       console.error('[auth] handleAuthChange error:', err)
-      // On any failure, clear state so the user lands on the login page
-      // instead of being stuck on an infinite loading screen.
-      setTeamMember(null)
+      // Do NOT clear team state on unexpected errors — same reasoning as
+      // the 'unknown' branch above. Let the user keep working.
     } finally {
       setLoading(false)
     }
@@ -115,17 +159,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTimeout(() => reject(new Error('getSession timed out')), 8000)
       ),
     ])
-      .then(({ data: { session } }) => handleAuthChange(session))
+      .then(({ data: { session } }) => handleAuthChange('INITIAL_SESSION', session))
       .catch((err) => {
         console.warn('[auth] getSession failed:', err?.message)
         setLoading(false)
       })
 
-    // Listen for auth changes (sign-in, sign-out, token refresh)
+    // Listen for auth changes (sign-in, sign-out, token refresh, user updated).
+    // We forward the event type so handleAuthChange can skip the team_members
+    // re-check on TOKEN_REFRESHED — crucial for avoiding mid-session logouts.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
         try {
-          await handleAuthChange(session)
+          await handleAuthChange(event, session)
         } catch (err) {
           console.error('[auth] onAuthStateChange error:', err)
           setLoading(false)
@@ -139,9 +185,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Check team_members BEFORE attempting sign-in
+    // Check team_members BEFORE attempting sign-in.
+    // Treat 'unknown' (transient failure) as allowed — we'll re-validate after
+    // sign-in succeeds. Better to let the request through than block on a flaky network.
     const tm = await checkTeamMembership(normalizedEmail)
-    if (!tm) {
+    if (tm.status === 'not_member') {
       return { error: 'This email is not authorised to access the intranet. Contact a team admin if you should have access.' }
     }
 
@@ -160,9 +208,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string): Promise<{ error: string | null }> => {
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Check team_members BEFORE allowing sign-up
+    // Check team_members BEFORE allowing sign-up.
+    // Treat 'unknown' (transient failure) as allowed — handleAuthChange will
+    // re-validate once the session is established and sign them out if needed.
     const tm = await checkTeamMembership(normalizedEmail)
-    if (!tm) {
+    if (tm.status === 'not_member') {
       return { error: 'This email is not authorised to access the intranet. Contact a team admin if you should have access.' }
     }
 
