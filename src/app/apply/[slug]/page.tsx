@@ -1302,24 +1302,38 @@ export default function ApplyPage() {
           {formPages.length > 0 ? (
             /* Multi-page mode */
             <div className="border-t border-gray-100 pt-6 mb-6">
-              {/* Page indicator */}
-              <div className="flex items-center gap-2 mb-4">
-                {formPages.map((pg, pi) => (
-                  <div key={pg.id} className={`flex items-center gap-1 text-xs ${pi === customPageIdx ? 'text-steps-blue-600 font-semibold' : 'text-gray-400'}`}>
-                    {pi > 0 && <span className="text-gray-300 mx-1">→</span>}
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${pi === customPageIdx ? 'bg-steps-blue-600 text-white' : pi < customPageIdx ? 'bg-steps-blue-200 text-steps-blue-700' : 'bg-gray-200 text-gray-500'}`}>{pi + 1}</span>
-                    <span className="hidden sm:inline">{pg.title}</span>
-                  </div>
-                ))}
+              {/* Page indicator — doubles as the current page title.
+                  Active page's label is scaled up so it reads as the section
+                  heading (we used to render a separate <h3> below but that
+                  duplicated the title visually). */}
+              <div className="flex items-center gap-2 mb-4 flex-wrap">
+                {formPages.map((pg, pi) => {
+                  const isActive = pi === customPageIdx
+                  return (
+                    <div
+                      key={pg.id}
+                      className={`flex items-center gap-1.5 ${
+                        isActive ? 'text-steps-blue-600 font-semibold text-lg' : 'text-gray-400 text-xs'
+                      }`}
+                    >
+                      {pi > 0 && <span className="text-gray-300 mx-1">→</span>}
+                      <span
+                        className={`rounded-full flex items-center justify-center font-semibold ${
+                          isActive
+                            ? 'w-7 h-7 bg-steps-blue-600 text-white text-sm'
+                            : pi < customPageIdx
+                              ? 'w-5 h-5 bg-steps-blue-200 text-steps-blue-700 text-[10px]'
+                              : 'w-5 h-5 bg-gray-200 text-gray-500 text-[10px]'
+                        }`}
+                      >
+                        {pi + 1}
+                      </span>
+                      <span className={isActive ? '' : 'hidden sm:inline'}>{pg.title}</span>
+                    </div>
+                  )
+                })}
               </div>
 
-              {/* Page title */}
-              {formPages[customPageIdx]?.title && (
-                <h3
-                  className="text-base font-semibold text-gray-900 mb-1 rich-html"
-                  dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(formPages[customPageIdx].title) }}
-                />
-              )}
               {formPages[customPageIdx]?.description && (
                 <p
                   className="text-sm text-gray-500 mb-4 rich-html"

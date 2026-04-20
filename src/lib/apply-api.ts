@@ -461,13 +461,17 @@ export async function submitApplication(
   }
 
   try {
-    // Check for existing application (edit mode)
+    // Check for an existing LIVE application (edit mode). Soft-deleted rows
+    // (deleted_at IS NOT NULL) must be ignored so a student who previously
+    // withdrew / was soft-deleted can submit a fresh application. Matching
+    // partial unique index: applications_student_event_live_uniq (0019).
     const existingLookup = await runWithRetry(
       () => supabase
         .from('applications')
         .select('id')
         .eq('student_id', studentId)
         .eq('event_id', eventId)
+        .is('deleted_at', null)
         .maybeSingle(),
       'applications.lookup',
     )
