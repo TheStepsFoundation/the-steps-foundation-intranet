@@ -209,7 +209,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
 
   const filtered = useMemo(() => {
     return students.filter(s => {
-      if (yearFilter.length && (s.year_group == null || !yearFilter.includes(s.year_group))) return false
+      if (yearFilter.length && s.year_group != null && !yearFilter.includes(s.year_group)) return false
       if (minScore > 0 && s.engagement_score < minScore) return false
       if (eventFilter.length > 0) {
         const attendedEventIds = new Set(s.applications.filter(a => a.attended).map(a => a.event_id))
