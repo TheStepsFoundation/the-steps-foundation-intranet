@@ -586,7 +586,7 @@ export default function StudentHub() {
             </h3>
             <p className="text-sm text-slate-600 mb-4">
               You're about to withdraw your application to <span className="font-semibold text-steps-dark">{withdrawTarget.event.name}</span>.
-              This can't be undone \u2014 if you change your mind, you'll need to reapply.
+              This can&apos;t be undone &mdash; if you change your mind, you&apos;ll need to reapply.
             </p>
 
             {withdrawError && (
