@@ -368,7 +368,9 @@ export default function ApplyPage() {
         }
       }
       if (student) draftRestoredRef.current = true
-      if (!cancelled) setStep(student ? 'application' : 'details')
+      // Always land on the details step so returning users can review their
+      // pre-filled profile before diving into the application form.
+      if (!cancelled) setStep('details')
     })
     return () => { cancelled = true }
   }, [event?.id, prefill, editMode])
@@ -528,7 +530,9 @@ export default function ApplyPage() {
     }
     if (student) draftRestoredRef.current = true
     setLoading(false)
-    setStep(student ? 'application' : 'details')
+    // Always land on the details step so returning users can review their
+    // pre-filled profile before diving into the application form.
+    setStep('details')
   }
 
   const handleVerifyOtp = async () => {
@@ -555,7 +559,9 @@ export default function ApplyPage() {
     }
     if (student) draftRestoredRef.current = true
     setLoading(false)
-    setStep(student ? 'application' : 'details')
+    // Always land on the details step so returning users can review their
+    // pre-filled profile before diving into the application form.
+    setStep('details')
   }
 
   const handleDetailsNext = () => {
