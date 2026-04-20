@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
-import type { FormFieldConfig, FormPage } from "@/lib/events-api"
+import type { FormFieldConfig, FormPage, StandardOverrides } from "@/lib/events-api"
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 import LinkableInput from '@/components/LinkableInput'
 
@@ -1770,9 +1770,17 @@ export default function EventDetailPage() {
                 </a>
               </div>
               <FormBuilder
-                fields={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[] })?.fields ?? []}
-                pages={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[] })?.pages}
-                onChange={(fields, pages) => setEditDraft(d => ({ ...d, form_config: { fields, ...(pages ? { pages } : {}) } }))}
+                fields={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides })?.fields ?? []}
+                pages={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides })?.pages}
+                standardOverrides={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides })?.standard_overrides}
+                onChange={(fields, pages, standardOverrides) => setEditDraft(d => ({
+                  ...d,
+                  form_config: {
+                    fields,
+                    ...(pages ? { pages } : {}),
+                    ...(standardOverrides ? { standard_overrides: standardOverrides } : {}),
+                  },
+                }))}
               />
             </div>
           </div>

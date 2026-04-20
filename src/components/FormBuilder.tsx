@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import type { FormFieldConfig, FormFieldType, FormPage, ConditionalRule } from "@/lib/events-api"
+import type { FormFieldConfig, FormFieldType, FormPage, ConditionalRule, StandardOverrides, StandardOverride } from "@/lib/events-api"
 import LinkableInput from "./LinkableInput"
 import MediaUploader from "./MediaUploader"
 import { stripToText } from "@/lib/sanitize-html"
@@ -62,6 +62,18 @@ type StandardQuestion = {
   label: string
   type: string
   description?: string
+  /** Where this question appears in the apply form flow. Used to group the builder UI. */
+  group: 'start' | 'middle' | 'end'
+  /** Reference-only options (for radio/dropdown) so admins can see what students will see. */
+  defaultOptions?: { value: string; label: string }[]
+  /**
+   * Can admins edit the options for this field?
+   * Only true for fields whose values aren't wired to business logic (eligibility, year calcs).
+   * Currently: only std_attribution.
+   */
+  editableOptions?: boolean
+  /** Human-readable grouping of where this sits in the form (e.g. "About you", "Contextual"). */
+  section?: string
 }
 
 const FIELD_TYPE_ICON: Record<string, string> = {
@@ -69,20 +81,66 @@ const FIELD_TYPE_ICON: Record<string, string> = {
   search: "🔍",  // school picker — standard only
 }
 
-const STANDARD_QUESTIONS: StandardQuestion[] = [
-  { id: "std_name",          label: "First name / Last name",      type: "text" },
-  { id: "std_email",         label: "Email address",               type: "email", description: "Verified via OTP — read-only" },
-  { id: "std_school",        label: "Current school / sixth form", type: "search" },
-  { id: "std_year_group",    label: "Year group",                  type: "dropdown" },
-  { id: "std_school_type",   label: "School type",                 type: "radio" },
-  { id: "std_income",        label: "Household income under £40k?", type: "radio" },
-  { id: "std_fsm",           label: "Free School Meals eligibility", type: "radio" },
-  { id: "std_additional",    label: "Additional contextual information", type: "textarea" },
-  { id: "std_gcse",          label: "GCSE results (digits)",        type: "number" },
-  { id: "std_qualifications",label: "Subjects & predicted grades",  type: "paired_dropdown" },
-  { id: "std_attribution",   label: "How did you hear about this?", type: "radio" },
-  { id: "std_anything_else", label: "Anything else you’d like us to know?", type: "textarea" },
+// Default options for standard fields — must stay in lock-step with the apply
+// form (src/app/apply/[slug]/page.tsx). When admins override, we store the
+// override in form_config.standard_overrides; the apply form prefers the
+// override and falls back to these.
+export const STD_YEAR_GROUP_OPTIONS: { value: string; label: string }[] = [
+  { value: "12", label: "Year 12" },
+  { value: "13", label: "Year 13" },
+  { value: "14", label: "Gap year" },
 ]
+export const STD_SCHOOL_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "state",               label: "State non-selective school" },
+  { value: "grammar",              label: "State selective / grammar school" },
+  { value: "independent",          label: "Independent (fee-paying) school" },
+  { value: "independent_bursary",  label: "Independent (fee-paying) school with >90% bursary/scholarship" },
+]
+export const STD_INCOME_OPTIONS: { value: string; label: string }[] = [
+  { value: "yes",                 label: "Yes" },
+  { value: "no",                  label: "No" },
+  { value: "prefer_not_to_say",   label: "Prefer not to say" },
+]
+export const STD_FSM_OPTIONS: { value: string; label: string }[] = [
+  { value: "yes",         label: "Currently eligible" },
+  { value: "previously",  label: "Previously eligible" },
+  { value: "no",          label: "Not eligible" },
+]
+export const STD_ATTRIBUTION_OPTIONS: { value: string; label: string }[] = [
+  { value: "email_invite",                 label: "Email invite" },
+  { value: "school_teacher",                label: "School / teacher" },
+  { value: "previous_steps_event",          label: "Attended a previous Steps Foundation event" },
+  { value: "previous_steps_application",    label: "Applied to a previous Steps Foundation event" },
+  { value: "linkedin",                      label: "LinkedIn" },
+  { value: "instagram",                     label: "Instagram" },
+  { value: "tiktok",                        label: "TikTok" },
+  { value: "friend_word_of_mouth",          label: "Friend / word of mouth" },
+  { value: "other",                         label: "Other" },
+]
+
+const STANDARD_QUESTIONS: StandardQuestion[] = [
+  // Near the start — About you
+  { id: "std_name",          label: "First name / Last name",      type: "text",            group: "start",  section: "About you" },
+  { id: "std_email",         label: "Email address",               type: "email",           group: "start",  section: "About you", description: "Verified via OTP — read-only" },
+  { id: "std_school",        label: "Current school / sixth form", type: "search",          group: "start",  section: "About you" },
+  { id: "std_year_group",    label: "Year group",                  type: "dropdown",        group: "start",  section: "About you", defaultOptions: STD_YEAR_GROUP_OPTIONS },
+  // Middle — Contextual & academic
+  { id: "std_school_type",   label: "School type",                 type: "radio",           group: "middle", section: "Contextual information", defaultOptions: STD_SCHOOL_TYPE_OPTIONS },
+  { id: "std_income",        label: "Household income under £40k?", type: "radio",          group: "middle", section: "Contextual information", defaultOptions: STD_INCOME_OPTIONS },
+  { id: "std_fsm",           label: "Free School Meals eligibility", type: "radio",         group: "middle", section: "Contextual information", defaultOptions: STD_FSM_OPTIONS },
+  { id: "std_additional",    label: "Additional contextual information", type: "textarea",  group: "middle", section: "Contextual information" },
+  { id: "std_gcse",          label: "GCSE results (digits)",        type: "number",         group: "middle", section: "Academic information" },
+  { id: "std_qualifications",label: "Subjects & predicted grades",  type: "paired_dropdown", group: "middle", section: "Academic information" },
+  // Near the end
+  { id: "std_attribution",   label: "How did you hear about this?", type: "radio",          group: "end",    section: "Before you submit", defaultOptions: STD_ATTRIBUTION_OPTIONS, editableOptions: true },
+  { id: "std_anything_else", label: "Anything else you’d like us to know?", type: "textarea", group: "end", section: "Before you submit" },
+]
+
+const STANDARD_GROUP_LABELS: Record<'start' | 'middle' | 'end', string> = {
+  start: "Near the start — About you",
+  middle: "Middle — Contextual & academic",
+  end: "Near the end — Before you submit",
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -91,18 +149,32 @@ const STANDARD_QUESTIONS: StandardQuestion[] = [
 type Props = {
   fields: FormFieldConfig[]
   pages?: FormPage[]
-  onChange: (fields: FormFieldConfig[], pages?: FormPage[]) => void
+  standardOverrides?: StandardOverrides
+  onChange: (fields: FormFieldConfig[], pages?: FormPage[], standardOverrides?: StandardOverrides) => void
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export default function FormBuilder({ fields, pages, onChange }: Props) {
+export default function FormBuilder({ fields, pages, standardOverrides, onChange }: Props) {
   const [showTypePicker, setShowTypePicker] = useState(false)
   const [activePage, setActivePage] = useState(0)
-  const [showStandard, setShowStandard] = useState(false)
+  const [openStandardGroups, setOpenStandardGroups] = useState<Record<'start' | 'middle' | 'end', boolean>>({
+    start: true, middle: true, end: true,
+  })
   const [editingRouting, setEditingRouting] = useState<number | null>(null)
+
+  const stdOverrides: StandardOverrides = standardOverrides ?? {}
+  const updateStandardOverride = (stdId: string, next: StandardOverride | undefined) => {
+    const copy: StandardOverrides = { ...stdOverrides }
+    if (!next || (next.label === undefined && next.description === undefined && next.options === undefined)) {
+      delete copy[stdId]
+    } else {
+      copy[stdId] = next
+    }
+    onChange(fields, pages, Object.keys(copy).length > 0 ? copy : undefined)
+  }
 
   const inputClass = "w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
 
@@ -298,29 +370,130 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
         </button>
       </div>
 
-      {/* ---- Standard questions toggle ---- */}
-      <button onClick={() => setShowStandard(!showStandard)}
-        className="w-full mb-3 px-3 py-2 text-left text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/30 transition flex items-center justify-between">
-        <span>⚠️ Standard questions (auto-included on every form)</span>
-        <span className="text-[10px]">{showStandard ? "▲ Hide" : "▼ Show"}</span>
-      </button>
-
-      {showStandard && (
-        <div className="mb-4 space-y-1.5 p-3 bg-amber-50/50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-lg">
-          <p className="text-[10px] text-amber-600 dark:text-amber-500 mb-2 font-medium">
-            These fields appear automatically. Editing them here changes labels for this event only. Proceed with caution.
+      {/* ---- Standard questions (grouped by form position) ---- */}
+      <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10">
+        <div className="px-3 py-2 border-b border-amber-200 dark:border-amber-800">
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+            Standard questions
           </p>
-          {STANDARD_QUESTIONS.map(sq => (
-            <div key={sq.id} className="flex items-center gap-2 py-1">
-              <span className="text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded text-[10px] shrink-0 w-8 text-center" title={sq.type}>
-                {FIELD_TYPE_ICON[sq.type] ?? sq.type}
-              </span>
-              <span className="text-xs text-gray-700 dark:text-gray-300 flex-1">{sq.label}</span>
-              {sq.description && <span className="text-[10px] text-gray-400 italic">{sq.description}</span>}
-            </div>
-          ))}
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+            These fields appear on every form in the order shown. You can rename them or tweak descriptions
+            for this event only; the options for most are locked because they drive eligibility logic.
+            The "How did you hear about this?" options are fully editable.
+          </p>
         </div>
-      )}
+
+        {(['start', 'middle', 'end'] as const).map(group => {
+          const groupQs = STANDARD_QUESTIONS.filter(q => q.group === group)
+          const isOpen = openStandardGroups[group]
+          return (
+            <div key={group} className="border-b border-amber-200 dark:border-amber-800 last:border-b-0">
+              <button
+                onClick={() => setOpenStandardGroups(s => ({ ...s, [group]: !s[group] }))}
+                className="w-full px-3 py-2 text-left text-xs font-medium text-amber-800 dark:text-amber-300 hover:bg-amber-100/60 dark:hover:bg-amber-900/20 flex items-center justify-between">
+                <span>{STANDARD_GROUP_LABELS[group]}</span>
+                <span className="text-[10px] text-amber-600 dark:text-amber-500">{isOpen ? '▲ Hide' : '▼ Show'} ({groupQs.length})</span>
+              </button>
+              {isOpen && (
+                <div className="px-3 pb-3 pt-1 space-y-2">
+                  {groupQs.map(sq => {
+                    const override = stdOverrides[sq.id] ?? {}
+                    const effLabel = override.label ?? sq.label
+                    const effDescription = override.description ?? sq.description ?? ''
+                    const effOptions = override.options ?? sq.defaultOptions ?? []
+                    return (
+                      <div key={sq.id}
+                        className="p-2.5 rounded-md bg-white/70 dark:bg-gray-900/40 border border-amber-200/70 dark:border-amber-800/60 space-y-2">
+                        {/* Header row */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-medium text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 rounded text-[10px] shrink-0 w-8 text-center" title={sq.type}>
+                            {FIELD_TYPE_ICON[sq.type] ?? sq.type}
+                          </span>
+                          <span className="text-[10px] font-mono text-gray-400">{sq.id}</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 font-medium">
+                            🔒 Standard
+                          </span>
+                          {sq.section && (
+                            <span className="text-[10px] text-gray-500 dark:text-gray-400 ml-auto">
+                              {sq.section}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Label */}
+                        <div>
+                          <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Question label</label>
+                          <LinkableInput
+                            value={effLabel}
+                            onChange={(v) => updateStandardOverride(sq.id, {
+                              ...override,
+                              label: v === sq.label ? undefined : v,
+                            })}
+                            placeholder={sq.label}
+                            className={inputClass}
+                          />
+                        </div>
+
+                        {/* Description */}
+                        <div>
+                          <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                            Help text {sq.id === 'std_email' && <span className="text-amber-600">(students always see "verified via OTP")</span>}
+                          </label>
+                          <LinkableInput
+                            value={effDescription}
+                            onChange={(v) => updateStandardOverride(sq.id, {
+                              ...override,
+                              description: v === (sq.description ?? '') ? undefined : v,
+                            })}
+                            placeholder={sq.description ?? 'Optional help text shown below the question'}
+                            className={inputClass}
+                          />
+                        </div>
+
+                        {/* Options */}
+                        {sq.defaultOptions && (
+                          <div>
+                            <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-1">
+                              Options {sq.editableOptions
+                                ? '(editable — reorder, add, remove)'
+                                : '(locked — wired to eligibility / year-group logic)'}
+                            </label>
+                            {sq.editableOptions ? (
+                              <OptionListEditor
+                                options={effOptions}
+                                onOptionsChange={(opts) => {
+                                  // If edited options equal defaults (same shape), drop the override to keep config clean.
+                                  const sameAsDefault = sq.defaultOptions
+                                    && opts.length === sq.defaultOptions.length
+                                    && opts.every((o, i) => o.value === sq.defaultOptions![i].value && o.label === sq.defaultOptions![i].label)
+                                  updateStandardOverride(sq.id, {
+                                    ...override,
+                                    options: sameAsDefault ? undefined : opts,
+                                  })
+                                }}
+                              />
+                            ) : (
+                              <ul className="ml-2 space-y-0.5">
+                                {effOptions.map((o, i) => (
+                                  <li key={i} className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-2">
+                                    <span className="text-gray-400">•</span>
+                                    <span>{o.label}</span>
+                                    <span className="text-[10px] font-mono text-gray-400">({o.value})</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
 
       {/* ---- Page tabs ---- */}
       <div className="flex items-center gap-1 mb-3 overflow-x-auto pb-1">

@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
 import DynamicFormField, { type FieldValue, evaluateConditions } from '@/components/DynamicFormField'
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
-import type { FormFieldConfig, FormPage, EventRow } from '@/lib/events-api'
+import type { FormFieldConfig, FormPage, EventRow, StandardOverrides } from '@/lib/events-api'
 import { fetchEventBySlug } from '@/lib/events-api'
 import {
   sendOtp, verifyOtp, signInWithPassword, lookupSelf, hasExistingApplication, fetchExistingApplication, getExistingSession,
@@ -137,6 +137,7 @@ type DraftData = {
   freeSchoolMeals: string
   householdIncome: string
   additionalContext: string
+  anythingElse: string
   // Application
   gcseResults: string
   qualifications: QualificationEntry[]
@@ -227,6 +228,7 @@ export default function ApplyPage() {
   const [freeSchoolMeals, setFreeSchoolMeals] = useState('')
   const [householdIncome, setHouseholdIncome] = useState('')
   const [additionalContext, setAdditionalContext] = useState('')
+  const [anythingElse, setAnythingElse] = useState('')
 
   // Form state — application step (fixed fields)
   const [gcseResults, setGcseResults] = useState('')
@@ -240,6 +242,23 @@ export default function ApplyPage() {
   // Form state — custom fields (from form_config)
   const [formFields, setFormFields] = useState<FormFieldConfig[]>([])
   const [formPages, setFormPages] = useState<FormPage[]>([])
+  const [stdOverrides, setStdOverrides] = useState<StandardOverrides>({})
+
+  // Effective label / help-text for a standard field (override → default).
+  const stdLabel = (id: string, fallback: string) => stdOverrides[id]?.label ?? fallback
+  const stdDesc  = (id: string, fallback?: string) => stdOverrides[id]?.description ?? fallback ?? ''
+
+  // Attribution options: if admin overrode the list, use that; otherwise defaults.
+  // If the student has a saved attribution value that is no longer in the list
+  // (e.g. admin removed the option after they applied), append it as a
+  // "(no longer offered)" entry so it still shows up and can't silently vanish.
+  const effectiveAttributionOptions = (() => {
+    const base = stdOverrides.std_attribution?.options ?? ATTRIBUTION_OPTIONS
+    if (attribution && !base.find(o => o.value === attribution)) {
+      return [...base, { value: attribution, label: `${attribution} (no longer offered)` }]
+    }
+    return base
+  })()
   const [customPageIdx, setCustomPageIdx] = useState(0)
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, FieldValue>>({})
 
@@ -271,6 +290,7 @@ export default function ApplyPage() {
     fetchEventFormConfig(event!.id).then(config => {
       setFormFields(config.fields ?? [])
       setFormPages(config.pages ?? [])
+      setStdOverrides(config.standard_overrides ?? {})
     })
   }, [event?.id])
 
@@ -298,11 +318,11 @@ export default function ApplyPage() {
   const getFormSnapshot = useCallback(() => {
     return JSON.stringify({
       firstName, lastName, school, yearGroup, schoolType, freeSchoolMeals,
-      householdIncome, additionalContext, gcseResults, qualifications,
+      householdIncome, additionalContext, anythingElse, gcseResults, qualifications,
       attribution, customFieldValues,
     })
   }, [firstName, lastName, school, yearGroup, schoolType, freeSchoolMeals,
-      householdIncome, additionalContext, gcseResults, qualifications,
+      householdIncome, additionalContext, anythingElse, gcseResults, qualifications,
       attribution, customFieldValues])
 
   const hasFormChanges = alreadyApplied && originalFormSnapshot.current
@@ -336,6 +356,7 @@ export default function ApplyPage() {
       })))
     }
     if (raw.additional_context) setAdditionalContext(raw.additional_context)
+    if (raw.anything_else) setAnythingElse(raw.anything_else)
     if (raw.custom_fields) setCustomFieldValues(raw.custom_fields as Record<string, FieldValue>)
     if (app.channel) setAttribution(app.channel)
     else if (app.attribution_source) setAttribution(app.attribution_source)
@@ -353,6 +374,7 @@ export default function ApplyPage() {
       // Re-fetch form config with auth
       fetchEventFormConfig(event!.id).then(config => {
         setFormFields(config.fields ?? [])
+        setStdOverrides(config.standard_overrides ?? {})
       })
       const student = await lookupSelf()
       if (student) {
@@ -394,6 +416,7 @@ export default function ApplyPage() {
     if (draft.freeSchoolMeals) setFreeSchoolMeals(draft.freeSchoolMeals)
     if (draft.householdIncome) setHouseholdIncome(draft.householdIncome)
     if (draft.additionalContext) setAdditionalContext(draft.additionalContext)
+    if (draft.anythingElse) setAnythingElse(draft.anythingElse)
 
     // Restore application
     if (draft.gcseResults) setGcseResults(draft.gcseResults)
@@ -478,7 +501,7 @@ export default function ApplyPage() {
       saveDraft(event!.id, email, {
         step,
         firstName, lastName, school, yearGroup, schoolType,
-        freeSchoolMeals, householdIncome, additionalContext,
+        freeSchoolMeals, householdIncome, additionalContext, anythingElse,
         gcseResults, qualifications, attribution,
         customFieldValues,
       })
@@ -527,6 +550,7 @@ export default function ApplyPage() {
     fetchEventFormConfig(event!.id).then(config => {
       setFormFields(config.fields ?? [])
       setFormPages(config.pages ?? [])
+      setStdOverrides(config.standard_overrides ?? {})
     })
     const student = await lookupSelf()
     if (student) {
@@ -665,6 +689,7 @@ export default function ApplyPage() {
       freeSchoolMeals: (freeSchoolMeals === 'yes' || freeSchoolMeals === 'previously') ? true : freeSchoolMeals === 'no' ? false : null,
       householdIncomeUnder40k: householdIncome,
       additionalContext,
+      anythingElse,
       gcseResults,
       qualifications: filledQuals,
       customFields: customFieldValues,
@@ -1070,8 +1095,11 @@ export default function ApplyPage() {
           {/* School */}
           <div className="mb-4" data-error-key="school">
             <label htmlFor="school" className="block text-sm font-medium text-gray-700 mb-1">
-              Current school / sixth form college <span className="text-red-400">*</span>
+              {stdLabel('std_school', 'Current school / sixth form college')} <span className="text-red-400">*</span>
             </label>
+            {stdDesc('std_school') && (
+              <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_school')) }} />
+            )}
             <SchoolPicker value={school} onChange={v => { setSchool(v); clearFieldError('school') }} placeholder="Search for your school…" id="school" />
             {fieldErrors.school && <p className="mt-1 text-xs text-red-600">{fieldErrors.school}</p>}
           </div>
@@ -1079,8 +1107,11 @@ export default function ApplyPage() {
           {/* Year group */}
           <div className="mb-6" data-error-key="yearGroup">
             <label htmlFor="yearGroup" className="block text-sm font-medium text-gray-700 mb-1">
-              Year group <span className="text-red-400">*</span>
+              {stdLabel('std_year_group', 'Year group')} <span className="text-red-400">*</span>
             </label>
+            {stdDesc('std_year_group') && (
+              <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_year_group')) }} />
+            )}
             <select id="yearGroup" value={yearGroup}
               onChange={e => { setYearGroup(e.target.value ? Number(e.target.value) : ''); clearFieldError('yearGroup') }}
               className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white ${fieldErrors.yearGroup ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}>
@@ -1124,8 +1155,11 @@ export default function ApplyPage() {
             ) : (
               <fieldset className="mb-4" data-error-key="schoolType">
                 <legend className="block text-sm font-medium text-gray-700 mb-2">
-                  What type of school do you currently attend? <span className="text-red-400">*</span>
+                  {stdLabel('std_school_type', 'What type of school do you currently attend?')} <span className="text-red-400">*</span>
                 </legend>
+                {stdDesc('std_school_type') && (
+                  <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_school_type')) }} />
+                )}
                 {SCHOOL_TYPE_OPTIONS.map(opt => (
                   <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
                     <input type="radio" name="schoolType" value={opt.value}
@@ -1141,8 +1175,11 @@ export default function ApplyPage() {
 
             <fieldset className="mb-4" data-error-key="householdIncome">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
-                Is your average household income less than £40,000? <span className="text-red-400">*</span>
+                {stdLabel('std_income', 'Is your average household income less than £40,000?')} <span className="text-red-400">*</span>
               </legend>
+              {stdDesc('std_income') && (
+                <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_income')) }} />
+              )}
               {[{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }, { v: 'prefer_not_to_say', l: 'Prefer not to say' }].map(opt => (
                 <label key={opt.v} className="flex items-center gap-3 py-1.5 cursor-pointer">
                   <input type="radio" name="income" value={opt.v} checked={householdIncome === opt.v}
@@ -1155,8 +1192,11 @@ export default function ApplyPage() {
 
             <fieldset className="mb-4" data-error-key="freeSchoolMeals">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
-                Are you eligible for Free School Meals? <span className="text-red-400">*</span>
+                {stdLabel('std_fsm', 'Are you eligible for Free School Meals?')} <span className="text-red-400">*</span>
               </legend>
+              {stdDesc('std_fsm') && (
+                <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_fsm')) }} />
+              )}
               {[
                 { v: 'yes', l: 'Currently eligible' },
                 { v: 'previously', l: 'Previously eligible' },
@@ -1175,11 +1215,9 @@ export default function ApplyPage() {
 
             <div>
               <label htmlFor="additionalContext" className="block text-sm font-medium text-gray-700 mb-1">
-                Any additional contextual information?
+                {stdLabel('std_additional', 'Any additional contextual information?')}
               </label>
-              <p className="text-xs text-gray-400 mb-2">
-                E.g. young carer, extenuating circumstances, school disruption, etc.
-              </p>
+              <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_additional', 'E.g. young carer, extenuating circumstances, school disruption, etc.')) }} />
               <textarea id="additionalContext" value={additionalContext}
                 onChange={e => setAdditionalContext(e.target.value)} rows={3}
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition resize-none" />
@@ -1209,11 +1247,9 @@ export default function ApplyPage() {
           {/* GCSE results — digits only */}
           <div className="mb-6" data-error-key="gcseResults">
             <label htmlFor="gcse" className="block text-sm font-medium text-gray-700 mb-1">
-              Achieved GCSE results <span className="text-red-400">*</span>
+              {stdLabel('std_gcse', 'Achieved GCSE results')} <span className="text-red-400">*</span>
             </label>
-            <p className="text-xs text-gray-400 mb-2">
-              Enter your grades as numbers only, highest to lowest (e.g. 999887766).
-            </p>
+            <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_gcse', 'Enter your grades as numbers only, highest to lowest (e.g. 999887766).')) }} />
             <input
               id="gcse"
               type="text"
@@ -1230,11 +1266,9 @@ export default function ApplyPage() {
           {/* --- Qualifications --- */}
           <div className="mb-6" data-error-key="qualifications">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Subjects and predicted/achieved grades <span className="text-red-400">*</span>
+              {stdLabel('std_qualifications', 'Subjects and predicted/achieved grades')} <span className="text-red-400">*</span>
             </label>
-            <p className="text-xs text-gray-400 mb-3">
-              Add each subject you study. Select your qualification type, subject, and current predicted (or achieved) grade.
-            </p>
+            <p className="text-xs text-gray-400 mb-3" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_qualifications', 'Add each subject you study. Select your qualification type, subject, and current predicted (or achieved) grade.')) }} />
 
             <div className="space-y-3">
               {qualifications.map((q, idx) => (
@@ -1418,13 +1452,27 @@ export default function ApplyPage() {
             </div>
           ) : null}
 
+          {/* --- Anything else (std_anything_else) --- */}
+          <div className="border-t border-gray-100 pt-6 mb-6">
+            <label htmlFor="anythingElse" className="block text-sm font-medium text-gray-700 mb-1">
+              {stdLabel('std_anything_else', 'Anything else you’d like us to know?')}
+            </label>
+            <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_anything_else', 'Optional — share anything else you’d like the team to know about you or your application.')) }} />
+            <textarea id="anythingElse" value={anythingElse}
+              onChange={e => setAnythingElse(e.target.value)} rows={3}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition resize-none" />
+          </div>
+
           {/* --- Attribution + consent --- */}
           <div className="border-t border-gray-100 pt-6 mb-6">
             <fieldset className="mb-6" data-error-key="attribution">
               <legend className="block text-sm font-medium text-gray-700 mb-2">
-                How did you hear about this opportunity? <span className="text-red-400">*</span>
+                {stdLabel('std_attribution', 'How did you hear about this opportunity?')} <span className="text-red-400">*</span>
               </legend>
-              {ATTRIBUTION_OPTIONS.map(opt => (
+              {stdDesc('std_attribution') && (
+                <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_attribution')) }} />
+              )}
+              {effectiveAttributionOptions.map(opt => (
                 <label key={opt.value} className="flex items-center gap-3 py-1.5 cursor-pointer">
                   <input type="radio" name="attribution" value={opt.value}
                     checked={attribution === opt.value}

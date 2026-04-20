@@ -17,6 +17,18 @@ export type ConditionalRule = {
   value?: string
 }
 
+export type StandardOverride = {
+  /** Custom label to replace the default for this event. */
+  label?: string
+  /** Custom helper/description text shown below the label. */
+  description?: string
+  /** Custom options (only applies to fields with editable options, currently std_attribution). */
+  options?: { value: string; label: string }[]
+}
+
+/** Per-event overrides for standard (auto-included) questions. Keyed by standard-question id (std_*). */
+export type StandardOverrides = Record<string, StandardOverride>
+
 export type FormPage = {
   id: string
   title: string
@@ -91,7 +103,7 @@ export type EventRow = {
   applications_open_at: string | null
   applications_close_at: string | null
   interest_options: { value: string; label: string }[]
-  form_config: { fields: FormFieldConfig[]; pages?: FormPage[] }
+  form_config: { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides }
   banner_image_url: string | null
   hub_image_url: string | null
   banner_focal_x: number
@@ -231,5 +243,5 @@ export async function fetchEventFormConfigBySlug(slug: string): Promise<{ fields
     .is('deleted_at', null)
     .maybeSingle()
   if (error) throw error
-  return (data as { form_config: { fields: FormFieldConfig[]; pages?: FormPage[] } })?.form_config ?? null
+  return (data as { form_config: { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides } })?.form_config ?? null
 }

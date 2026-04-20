@@ -134,6 +134,7 @@ export type ApplicationSubmission = {
   freeSchoolMeals: boolean | null
   householdIncomeUnder40k: string  // yes | no | prefer_not_to_say
   additionalContext: string
+  anythingElse: string
   // Academics
   gcseResults: string
   qualifications: QualificationEntry[]
@@ -292,6 +293,7 @@ export type ExistingApplicationData = {
     qualifications?: { qualType: string; subject: string; grade: string; level?: string }[]
     custom_fields?: Record<string, unknown>
     additional_context?: string
+    anything_else?: string
     household_income_under_40k?: string
     free_school_meals_raw?: string
   } | null
@@ -328,7 +330,11 @@ export async function fetchExistingApplication(eventId: string): Promise<Existin
 
 export async function fetchEventFormConfig(
   eventId: string,
-): Promise<{ fields: import('@/lib/events-api').FormFieldConfig[]; pages?: import('@/lib/events-api').FormPage[] }> {
+): Promise<{
+  fields: import('@/lib/events-api').FormFieldConfig[]
+  pages?: import('@/lib/events-api').FormPage[]
+  standard_overrides?: import('@/lib/events-api').StandardOverrides
+}> {
   const { data, error } = await supabase
     .from('events')
     .select('form_config')
@@ -336,7 +342,11 @@ export async function fetchEventFormConfig(
     .maybeSingle()
 
   if (error || !data || !data.form_config) return { fields: [] }
-  return data.form_config as { fields: import('@/lib/events-api').FormFieldConfig[]; pages?: import('@/lib/events-api').FormPage[] }
+  return data.form_config as {
+    fields: import('@/lib/events-api').FormFieldConfig[]
+    pages?: import('@/lib/events-api').FormPage[]
+    standard_overrides?: import('@/lib/events-api').StandardOverrides
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -444,6 +454,7 @@ export async function submitApplication(
     qualifications: submission.qualifications,
     custom_fields: submission.customFields,
     additional_context: submission.additionalContext,
+    anything_else: submission.anythingElse,
     household_income_under_40k: submission.householdIncomeUnder40k,
     free_school_meals_raw: submission.freeSchoolMealsRaw,
   }
