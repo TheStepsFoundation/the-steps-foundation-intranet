@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
 import DynamicFormField, { type FieldValue, evaluateConditions } from '@/components/DynamicFormField'
-import { sanitizeRichHtml } from '@/lib/sanitize-html'
+import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 import type { FormFieldConfig, FormPage, EventRow } from '@/lib/events-api'
 import { fetchEventBySlug } from '@/lib/events-api'
 import {
@@ -600,7 +600,7 @@ export default function ApplyPage() {
       const val = customFieldValues[field.id]
       const key = `customField:${field.id}`
       if (val === undefined || val === '' || val === null) {
-        errs[key] = `Please complete: ${field.label}`
+        errs[key] = `Please complete: ${stripToText(field.label)}`
         order.push(key)
         continue
       }
@@ -611,16 +611,16 @@ export default function ApplyPage() {
           i === 0 ? 'first' : i === 1 ? 'second' : i === 2 ? 'third' : `choice_${i + 1}`
         )
         for (const rk of rankKeys) {
-          if (!entries[rk]) { errs[key] = `Please complete all choices for: ${field.label}`; order.push(key); break }
+          if (!entries[rk]) { errs[key] = `Please complete all choices for: ${stripToText(field.label)}`; order.push(key); break }
         }
       }
       if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
-        errs[key] = `Please select at least one option for: ${field.label}`
+        errs[key] = `Please select at least one option for: ${stripToText(field.label)}`
         order.push(key)
       }
       if (field.type === 'paired_dropdown' && Array.isArray(val)) {
         const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
-        if (completeRows.length === 0) { errs[key] = `Please complete at least one row for: ${field.label}`; order.push(key) }
+        if (completeRows.length === 0) { errs[key] = `Please complete at least one row for: ${stripToText(field.label)}`; order.push(key) }
       }
     }
 
@@ -1299,7 +1299,10 @@ export default function ApplyPage() {
 
               {/* Page title */}
               {formPages[customPageIdx]?.title && (
-                <h3 className="text-base font-semibold text-gray-900 mb-1">{formPages[customPageIdx].title}</h3>
+                <h3
+                  className="text-base font-semibold text-gray-900 mb-1 rich-html"
+                  dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(formPages[customPageIdx].title) }}
+                />
               )}
               {formPages[customPageIdx]?.description && (
                 <p

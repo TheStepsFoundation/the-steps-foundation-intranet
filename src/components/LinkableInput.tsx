@@ -3,10 +3,18 @@
 import { useEffect, useRef, useState } from "react"
 
 /**
- * Single-line contenteditable input that supports inserting hyperlinks via
- * Ctrl+K (or Cmd+K) or the explicit "🔗 Link" button below the field. The
- * rendered HTML is returned via `onChange` as a string and on render the
- * consumer should run it through `sanitizeRichHtml`.
+ * Contenteditable input/textarea that supports inserting hyperlinks via Ctrl+K
+ * (or Cmd+K). The rendered HTML is returned via `onChange` as a string; the
+ * consumer should run it through `sanitizeRichHtml` on render.
+ *
+ * Two modes:
+ *   - single-line (default): Enter is swallowed; behaves like an <input>.
+ *   - multiline (pass `multiline`): Enter inserts a line break; behaves like
+ *     a <textarea>. Auto-grows with content.
+ *
+ * The Ctrl+K behaviour is deliberately silent — there is no visible hint or
+ * button. Admins who know the shortcut use it; everyone else continues to
+ * type plain text and gets plain text.
  */
 
 type Props = {
@@ -15,6 +23,8 @@ type Props = {
   placeholder?: string
   className?: string
   ariaLabel?: string
+  multiline?: boolean
+  rows?: number
 }
 
 const baseInputClass =
@@ -26,6 +36,8 @@ export default function LinkableInput({
   placeholder,
   className,
   ariaLabel,
+  multiline = false,
+  rows = 3,
 }: Props) {
   const editorRef = useRef<HTMLDivElement | null>(null)
   const savedRangeRef = useRef<Range | null>(null)
@@ -75,6 +87,7 @@ export default function LinkableInput({
 
   const openLinkPrompt = () => {
     saveSelection()
+    const sel = window.getSelection()
     const range = savedRangeRef.current
     const selectedText = range ? range.toString() : ""
 
@@ -96,6 +109,7 @@ export default function LinkableInput({
       el?.focus()
       el?.select()
     }, 10)
+    void sel
   }
 
   const confirmLink = () => {
@@ -174,7 +188,7 @@ export default function LinkableInput({
       openLinkPrompt()
       return
     }
-    if (e.key === "Enter") {
+    if (!multiline && e.key === "Enter") {
       e.preventDefault()
       return
     }
@@ -186,13 +200,17 @@ export default function LinkableInput({
     document.execCommand("insertText", false, text)
   }
 
+  const editorStyle: React.CSSProperties = multiline
+    ? { minHeight: `${rows * 1.6}em`, whiteSpace: "pre-wrap" }
+    : { minHeight: "1.9em", whiteSpace: "pre-wrap" }
+
   return (
     <div className="relative">
       <div
         ref={editorRef}
         role="textbox"
         aria-label={ariaLabel}
-        aria-multiline="false"
+        aria-multiline={multiline ? "true" : "false"}
         contentEditable
         suppressContentEditableWarning
         onInput={emit}
@@ -203,25 +221,8 @@ export default function LinkableInput({
         onKeyUp={saveSelection}
         data-placeholder={placeholder}
         className={`${baseInputClass} ${className ?? ""} linkable-input`}
-        style={{ minHeight: "1.9em", whiteSpace: "pre-wrap" }}
+        style={editorStyle}
       />
-
-      <div className="mt-1 flex items-center gap-2">
-        <button
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault()
-            saveSelection()
-            openLinkPrompt()
-          }}
-          className="text-[10px] text-steps-blue-600 dark:text-steps-blue-400 hover:underline font-medium"
-        >
-          🔗 Link (Ctrl+K)
-        </button>
-        <span className="text-[10px] text-gray-400">
-          Select text and press Ctrl+K — students will see the link as blue underlined text.
-        </span>
-      </div>
 
       {showLinkPrompt && (
         <div

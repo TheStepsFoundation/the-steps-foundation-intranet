@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import type { FormFieldConfig, FormFieldType, FormPage, ConditionalRule } from "@/lib/events-api"
 import LinkableInput from "./LinkableInput"
 import MediaUploader from "./MediaUploader"
+import { stripToText } from "@/lib/sanitize-html"
 
 // ---------------------------------------------------------------------------
 // Field type categories with icons
@@ -331,7 +332,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
                   ? "bg-steps-blue-100 dark:bg-steps-blue-900/30 text-steps-blue-700 dark:text-steps-blue-300 border border-steps-blue-200 dark:border-steps-blue-800"
                   : "text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 border border-transparent"
               }`}>
-              {page.title}
+              {stripToText(page.title) || `Page ${pi + 1}`}
               {effectivePages.length > 1 && (
                 <span onClick={e => { e.stopPropagation(); removePage(pi) }}
                   className="text-red-400 hover:text-red-600 font-bold ml-0.5 text-[10px]">×</span>
@@ -346,9 +347,11 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
           <div className="grid grid-cols-2 gap-2 mb-2">
             <div>
               <label className="block text-[10px] text-gray-500 mb-0.5">Page title</label>
-              <input value={activePageObj.title}
-                onChange={e => updatePageMeta(activePage, { title: e.target.value })}
-                className={inputClass} />
+              <LinkableInput
+                value={activePageObj.title ?? ""}
+                onChange={html => updatePageMeta(activePage, { title: html })}
+                ariaLabel="Page title"
+              />
             </div>
             <div>
               <label className="block text-[10px] text-gray-500 mb-0.5">Page description (optional)</label>
@@ -400,7 +403,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
                         className={`mt-0.5 ${inputClass}`}>
                         <option value="">Select page…</option>
                         {effectivePages.filter((_, i) => i !== activePage).map(p => (
-                          <option key={p.id} value={p.id}>{p.title}</option>
+                          <option key={p.id} value={p.id}>{stripToText(p.title) || p.id}</option>
                         ))}
                         <option value="__submit">→ Skip to submit</option>
                       </select>
@@ -419,7 +422,7 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
       )}
 
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-        {`Fields on "${activePageObj?.title ?? "this page"}" — students see these after the standard questions.`}
+        {`Fields on "${stripToText(activePageObj?.title ?? "") || "this page"}" — students see these after the standard questions.`}
       </p>
 
       {/* Existing fields */}
@@ -459,7 +462,9 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
                 <label className="block text-xs text-gray-500 mb-0.5">
                   {field.type === "section_heading" ? "Heading text" : field.type === "media" ? "Caption (optional)" : "Label"}
                 </label>
-                <input value={field.label} onChange={e => updateField(idx, { label: e.target.value })}
+                <LinkableInput
+                  value={field.label ?? ""}
+                  onChange={html => updateField(idx, { label: html })}
                   placeholder={
                     field.type === "section_heading"
                       ? "e.g. About your academics"
@@ -467,14 +472,19 @@ export default function FormBuilder({ fields, pages, onChange }: Props) {
                         ? "e.g. Introduction to Man Group"
                         : "e.g. Which areas interest you most?"
                   }
-                  className={inputClass} />
+                  ariaLabel="Field label"
+                />
               </div>
 
               {/* Description */}
               <div className="mb-2">
                 <label className="block text-xs text-gray-500 mb-0.5">Description (optional)</label>
-                <input value={field.description ?? ""} onChange={e => updateField(idx, { description: e.target.value || undefined })}
-                  placeholder="Helper text shown below the label" className={inputClass} />
+                <LinkableInput
+                  value={field.description ?? ""}
+                  onChange={html => updateField(idx, { description: html || undefined })}
+                  placeholder="Helper text shown below the label"
+                  ariaLabel="Field description"
+                />
               </div>
 
               {/* Required toggle (not for section_heading or media — both are display-only) */}

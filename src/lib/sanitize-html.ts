@@ -77,3 +77,18 @@ export function looksLikeHtml(s: string | null | undefined): boolean {
   if (!s) return false
   return /<\/?[a-z][^>]*>/i.test(s)
 }
+
+/**
+ * Strip HTML to plain text for contexts where markup would be invalid
+ * (e.g. inside a card that's already wrapped in an anchor) or unwanted
+ * (e.g. truncated previews). SSR fallback: regex strips tags.
+ */
+export function stripToText(raw: string | null | undefined): string {
+  if (!raw) return ''
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+    return raw.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+  }
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(`<!doctype html><body>${raw}</body>`, 'text/html')
+  return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim()
+}

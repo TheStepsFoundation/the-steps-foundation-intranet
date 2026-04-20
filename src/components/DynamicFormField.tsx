@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import type { FormFieldConfig, ConditionalRule } from '@/lib/events-api'
+import { sanitizeRichHtml } from '@/lib/sanitize-html'
 
 // ---------------------------------------------------------------------------
 // Value types for each field type
@@ -66,9 +67,15 @@ export default function DynamicFormField({ field, value, onChange, allValues }: 
     case 'section_heading':
       return (
         <div className="mb-4 pt-4">
-          <h3 className="text-base font-semibold text-gray-900 mb-1">{field.label}</h3>
+          <h3
+            className="text-base font-semibold text-gray-900 mb-1 rich-html"
+            dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(field.label) }}
+          />
           {field.description && (
-            <p className="text-sm text-gray-500">{field.description}</p>
+            <p
+              className="text-sm text-gray-500 rich-html"
+              dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(field.description) }}
+            />
           )}
         </div>
       )
@@ -99,10 +106,16 @@ export default function DynamicFormField({ field, value, onChange, allValues }: 
             </div>
           )}
           {field.label && (
-            <p className="mt-2 text-sm text-gray-700 font-medium">{field.label}</p>
+            <p
+              className="mt-2 text-sm text-gray-700 font-medium rich-html"
+              dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(field.label) }}
+            />
           )}
           {field.description && (
-            <p className="mt-0.5 text-xs text-gray-500">{field.description}</p>
+            <p
+              className="mt-0.5 text-xs text-gray-500 rich-html"
+              dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(field.description) }}
+            />
           )}
           {mediaType === 'pdf' && (
             <a
@@ -275,11 +288,15 @@ function FieldLabel({ field, asLegend }: { field: FormFieldConfig; asLegend?: bo
   const Tag = asLegend ? 'legend' : 'label'
   return (
     <>
-      <Tag className="block text-sm font-medium text-gray-700 mb-1">
-        {field.label} {field.required && <span className="text-red-400">*</span>}
+      <Tag className="block text-sm font-medium text-gray-700 mb-1 rich-html">
+        <span dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(field.label) }} />
+        {field.required && <span className="text-red-400"> *</span>}
       </Tag>
       {field.description && (
-        <p className="text-xs text-gray-400 mb-2">{field.description}</p>
+        <p
+          className="text-xs text-gray-400 mb-2 rich-html"
+          dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(field.description) }}
+        />
       )}
     </>
   )

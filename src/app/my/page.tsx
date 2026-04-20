@@ -14,6 +14,7 @@ import {
 import { getDisplayLocation } from '@/lib/event-display'
 import type { StudentSelf } from '@/lib/apply-api'
 import { supabase } from '@/lib/supabase'
+import { stripToText } from '@/lib/sanitize-html'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -276,7 +277,7 @@ export default function StudentHub() {
                       )}
                     </div>
                     {event.description && (
-                      <p className="text-sm text-gray-500 mt-3 line-clamp-3">{event.description}</p>
+                      <p className="text-sm text-gray-500 mt-3 line-clamp-3">{stripToText(event.description)}</p>
                     )}
                     <div className="mt-auto pt-3 flex items-center justify-between gap-3">
                       {event.applications_close_at ? (

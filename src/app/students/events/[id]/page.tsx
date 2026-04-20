@@ -9,6 +9,8 @@ import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
 import type { FormFieldConfig, FormPage } from "@/lib/events-api"
+import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
+import LinkableInput from '@/components/LinkableInput'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1468,7 +1470,7 @@ export default function EventDetailPage() {
     return (cfg.fields ?? [])
       // Exclude display-only fields (no student response to show in a column).
       .filter(f => f.type !== 'section_heading' && f.type !== 'media')
-      .map(f => ({ id: f.id, label: f.label, type: f.type }))
+      .map(f => ({ id: f.id, label: stripToText(f.label), type: f.type }))
   }, [event])
   // Compute the effective ordered list of all visible columns (built-in + custom)
   const allColumns = useMemo(() => {
@@ -1666,7 +1668,14 @@ export default function EventDetailPage() {
             {/* Row 5: Description */}
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
-              <textarea rows={3} value={editDraft.description ?? ''} onChange={e => setEditDraft(d => ({ ...d, description: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 resize-y" />
+              <LinkableInput
+                multiline
+                rows={3}
+                value={editDraft.description ?? ''}
+                onChange={html => setEditDraft(d => ({ ...d, description: html }))}
+                ariaLabel="Event description"
+                className="!text-sm !px-3 !py-1.5"
+              />
             </div>
 
             {/* Row 5b: Event images */}
@@ -1822,7 +1831,10 @@ export default function EventDetailPage() {
               </div>
             </div>
             {event.description && (
-              <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">{event.description}</p>
+              <p
+                className="mt-3 text-sm text-gray-600 dark:text-gray-300 rich-html whitespace-pre-wrap"
+                dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(event.description) }}
+              />
             )}
           </>
         )}

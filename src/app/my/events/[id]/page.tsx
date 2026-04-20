@@ -10,6 +10,7 @@ import {
   type EventOverview,
 } from '@/lib/hub-api'
 import { getDisplayLocation, canSeeFullAddress } from '@/lib/event-display'
+import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 
 // ---------------------------------------------------------------------------
 // Constants / helpers
@@ -286,7 +287,10 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
           {event.description && (
             <div className="mt-6 pt-6 border-t border-gray-100">
               <h2 className="text-sm font-semibold text-gray-900 mb-2">About this event</h2>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{event.description}</p>
+              <p
+                className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed rich-html"
+                dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(event.description) }}
+              />
             </div>
           )}
 
@@ -342,7 +346,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
               {customFields
                 .filter(f => f.type !== 'section_heading' && f.type !== 'media')
                 .map(f => (
-                  <Field key={f.id} label={f.label} className="sm:col-span-2">
+                  <Field key={f.id} label={stripToText(f.label)} className="sm:col-span-2">
                     {stringifyAnswer(customResponses[f.id])}
                   </Field>
                 ))}
