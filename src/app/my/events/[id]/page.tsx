@@ -95,7 +95,14 @@ export default function EventOverviewPage({ params }: { params: Promise<{ id: st
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <TopNav variant="light" homeHref="/my" onSignOut={handleSignOut} />
+        <TopNav variant="light" homeHref="/my">
+          <button
+            onClick={handleSignOut}
+            className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+          >
+            Sign out
+          </button>
+        </TopNav>
         <div className="max-w-4xl mx-auto px-4 py-16 text-center text-gray-500">Loading…</div>
       </div>
     )
@@ -104,7 +111,14 @@ export default function EventOverviewPage({ params }: { params: Promise<{ id: st
   if (err || !overview?.event) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <TopNav variant="light" homeHref="/my" onSignOut={handleSignOut} />
+        <TopNav variant="light" homeHref="/my">
+          <button
+            onClick={handleSignOut}
+            className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+          >
+            Sign out
+          </button>
+        </TopNav>
         <div className="max-w-4xl mx-auto px-4 py-16 text-center">
           <p className="text-gray-700 font-semibold">We couldn&apos;t find that event.</p>
           <p className="text-gray-500 text-sm mt-1">{err ?? 'It may have been removed or is no longer visible.'}</p>
@@ -126,7 +140,14 @@ export default function EventOverviewPage({ params }: { params: Promise<{ id: st
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <TopNav variant="light" homeHref="/my" onSignOut={handleSignOut} />
+      <TopNav variant="light" homeHref="/my">
+          <button
+            onClick={handleSignOut}
+            className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+          >
+            Sign out
+          </button>
+        </TopNav>
 
       {/* Banner */}
       {event.banner_image_url && (
