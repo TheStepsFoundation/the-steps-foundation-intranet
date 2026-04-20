@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, use } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { TopNav } from '@/components/TopNav'
@@ -55,8 +55,8 @@ function stringifyAnswer(val: unknown): string {
 // Page
 // ---------------------------------------------------------------------------
 
-export default function EventOverviewPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function EventOverviewPage({ params }: { params: { id: string } }) {
+  const { id } = params
   const router = useRouter()
   const [overview, setOverview] = useState<EventOverview | null>(null)
   const [loading, setLoading] = useState(true)
