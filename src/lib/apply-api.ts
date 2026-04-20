@@ -16,9 +16,84 @@ async function currentUserEmail(): Promise<string | null> {
   // Try local session first (no network call)
   const { data: { session } } = await supabase.auth.getSession()
   if (session?.user?.email) return session.user.email.toLowerCase()
-  // Fallback: server-validated (slower, can fail)
-  const { data: { user } } = await supabase.auth.getUser()
-  return user?.email?.toLowerCase() ?? null
+  // Fallback: server-validated (slower, can fail). Wrap in a timeout so a
+  // hanging refresh never blocks a submit indefinitely.
+  try {
+    const { data } = await withTimeout(supabase.auth.getUser(), 8000, 'getUser')
+    return data.user?.email?.toLowerCase() ?? null
+  } catch {
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Resilience helpers — every network call in the submit pipeline goes
+// through these so a single slow round-trip can't freeze the form.
+// ---------------------------------------------------------------------------
+
+/** Rejects with a labelled error if the promise hasn't settled by `ms`. */
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`[${label}] request timed out after ${ms}ms`)), ms)
+    Promise.resolve(p).then(
+      (v) => { clearTimeout(t); resolve(v) },
+      (e) => { clearTimeout(t); reject(e) },
+    )
+  })
+}
+
+/**
+ * Run a Supabase call with a timeout. Retry once on timeout or network error.
+ * Supabase's `.from(...).select().single()` etc. return a *thenable builder*
+ * that we can await directly — that's what we pass in here.
+ */
+async function runWithRetry<T>(
+  factory: () => PromiseLike<T>,
+  label: string,
+  timeoutMs = 12000,
+): Promise<T> {
+  try {
+    return await withTimeout(factory(), timeoutMs, label)
+  } catch (err: any) {
+    const msg = String(err?.message ?? err).toLowerCase()
+    const isRetriable = msg.includes('timed out') || msg.includes('network') || msg.includes('fetch')
+    if (!isRetriable) throw err
+    console.warn(`[apply] ${label} failed (${err?.message}) — retrying once`)
+    return await withTimeout(factory(), timeoutMs, label)
+  }
+}
+
+/**
+ * Proactively refresh the JWT before submitting. A user who spends several
+ * minutes filling the form may have a token that's close to expiry — if it
+ * expires mid-pipeline, the first write will hang. Refreshing upfront gives
+ * us a clean fresh token and a fast-fail signal if the refresh token itself
+ * is dead (so we can tell the student to sign in again BEFORE they lose
+ * their form data).
+ */
+async function ensureFreshSession(): Promise<{ ok: boolean; reason?: string }> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return { ok: false, reason: 'no_session' }
+
+    // Refresh if the access token expires within the next 60 seconds, OR
+    // always refresh after a long idle gap (user probably had the tab open
+    // a while — cheap insurance).
+    const expiresAt = session.expires_at ? session.expires_at * 1000 : 0
+    const secondsLeft = Math.floor((expiresAt - Date.now()) / 1000)
+    if (secondsLeft > 300) return { ok: true }  // > 5 min left, skip refresh
+
+    const { error } = await withTimeout(
+      supabase.auth.refreshSession(),
+      8000,
+      'refreshSession',
+    )
+    if (error) return { ok: false, reason: error.message }
+    return { ok: true }
+  } catch (err: any) {
+    console.warn('[apply] ensureFreshSession failed:', err?.message)
+    return { ok: false, reason: err?.message ?? 'unknown' }
+  }
 }
 
 
@@ -276,8 +351,22 @@ export async function submitApplication(
   eventId: string,
   submission: ApplicationSubmission,
 ): Promise<{ error: string | null; studentId?: string; applicationId?: string }> {
+  // -------------------------------------------------------------------------
+  // Pre-flight: make sure we have a fresh, valid session before we start
+  // hitting the DB. A student who spent 5 minutes on the form may have a
+  // token that's minutes from expiry; refreshing up front prevents a
+  // mid-pipeline hang and gives us an early-exit signal if the refresh token
+  // is itself dead.
+  // -------------------------------------------------------------------------
+  const session = await ensureFreshSession()
+  if (!session.ok) {
+    return { error: 'Your session has expired. Please sign out and sign back in, then resubmit. Your answers are saved on this device.' }
+  }
+
   const email = await currentUserEmail()
-  if (!email) return { error: 'Your session has expired. Please sign out and sign back in.' }
+  if (!email) {
+    return { error: 'Your session has expired. Please sign out and sign back in, then resubmit. Your answers are saved on this device.' }
+  }
 
   // Map the household income answer to an income band code
   const incomeBand = submission.householdIncomeUnder40k === 'yes'
@@ -286,9 +375,11 @@ export async function submitApplication(
       ? 'over_40k'
       : 'prefer_na'
 
-  // --- Step 1: Upsert student ---
+  // -------------------------------------------------------------------------
+  // Step 1: Upsert student.
   // independent_bursary is now a first-class school_type (migrated 2026-04-19);
   // no more collapsing it into 'independent' + bursary_90plus=true.
+  // -------------------------------------------------------------------------
   const studentPayload = {
     first_name: submission.firstName.trim(),
     last_name: submission.lastName.trim(),
@@ -302,30 +393,52 @@ export async function submitApplication(
     parental_income_band: incomeBand,
   }
 
-  // Check if student exists
-  const existing = await lookupSelf()
   let studentId: string
+  try {
+    // One round-trip: UPDATE ... WHERE personal_email=? RETURNING id.
+    // If the student doesn't exist yet, rows=[], so we INSERT on the next
+    // step. Previously this was a SELECT then UPDATE — two trips instead of one.
+    const upd = await runWithRetry(
+      () => supabase
+        .from('students')
+        .update(studentPayload)
+        .eq('personal_email', email)
+        .select('id'),
+      'students.update',
+    )
+    if (upd.error) {
+      return { error: `Failed to save your details: ${upd.error.message}` }
+    }
 
-  if (existing) {
-    const { data, error } = await supabase
-      .from('students')
-      .update(studentPayload)
-      .eq('id', existing.id)
-      .select('id')
-      .single()
-    if (error) return { error: `Failed to update your details: ${error.message}` }
-    studentId = data.id
-  } else {
-    const { data, error } = await supabase
-      .from('students')
-      .insert(studentPayload)
-      .select('id')
-      .single()
-    if (error) return { error: `Failed to create your record: ${error.message}` }
-    studentId = data.id
+    if (upd.data && upd.data.length > 0) {
+      studentId = upd.data[0].id
+    } else {
+      // No existing row — INSERT.
+      const ins = await runWithRetry(
+        () => supabase
+          .from('students')
+          .insert(studentPayload)
+          .select('id')
+          .single(),
+        'students.insert',
+      )
+      if (ins.error || !ins.data) {
+        return { error: `Failed to create your record: ${ins.error?.message ?? 'unknown error'}` }
+      }
+      studentId = ins.data.id
+    }
+  } catch (err: any) {
+    // Timeout / network error after retry
+    return {
+      error: err?.message?.includes('timed out')
+        ? 'The server is responding slowly. Please check your connection and try again — your answers are saved on this device.'
+        : `Could not save your details: ${err?.message ?? 'network error'}`,
+    }
   }
 
-  // --- Step 2: Create application ---
+  // -------------------------------------------------------------------------
+  // Step 2: Upsert application.
+  // -------------------------------------------------------------------------
   const rawResponse = {
     gcse_results: submission.gcseResults,
     qualifications: submission.qualifications,
@@ -335,7 +448,6 @@ export async function submitApplication(
     free_school_meals_raw: submission.freeSchoolMealsRaw,
   }
 
-  // Map attribution to our standard codes
   const attributionMap: Record<string, string> = {
     'email_invite': 'email',
     'school_teacher': 'teacher_newsletter',
@@ -348,50 +460,65 @@ export async function submitApplication(
     'other': 'other',
   }
 
-  // Check for existing application (edit mode)
-  const { data: existingApp } = await supabase
-    .from('applications')
-    .select('id')
-    .eq('student_id', studentId)
-    .eq('event_id', eventId)
-    .maybeSingle()
+  try {
+    // Check for existing application (edit mode)
+    const existingLookup = await runWithRetry(
+      () => supabase
+        .from('applications')
+        .select('id')
+        .eq('student_id', studentId)
+        .eq('event_id', eventId)
+        .maybeSingle(),
+      'applications.lookup',
+    )
+    const existingApp = existingLookup.data
 
-  if (existingApp) {
-    // UPDATE existing application
-    const { error: updateErr } = await supabase
-      .from('applications')
-      .update({
-        raw_response: rawResponse,
-        channel: submission.attributionSource,
-        attribution_source: attributionMap[submission.attributionSource] || 'other',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existingApp.id)
-
-    if (updateErr) return { error: `Failed to update application: ${updateErr.message}` }
-    return { error: null, studentId, applicationId: existingApp.id }
-  }
-
-  // INSERT new application
-  const { data: app, error: appError } = await supabase
-    .from('applications')
-    .insert({
-      student_id: studentId,
-      event_id: eventId,
-      status: 'submitted',
-      raw_response: rawResponse,
-      channel: submission.attributionSource,
-      attribution_source: attributionMap[submission.attributionSource] || 'other',
-    })
-    .select('id')
-    .single()
-
-  if (appError) {
-    if (appError.message.includes('unique') || appError.message.includes('duplicate')) {
-      return { error: 'You have already submitted an application for this event.' }
+    if (existingApp) {
+      const upd = await runWithRetry(
+        () => supabase
+          .from('applications')
+          .update({
+            raw_response: rawResponse,
+            channel: submission.attributionSource,
+            attribution_source: attributionMap[submission.attributionSource] || 'other',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingApp.id),
+        'applications.update',
+      )
+      if (upd.error) return { error: `Failed to update application: ${upd.error.message}` }
+      return { error: null, studentId, applicationId: existingApp.id }
     }
-    return { error: `Failed to submit application: ${appError.message}` }
-  }
 
-  return { error: null, studentId, applicationId: app.id }
+    // INSERT new application
+    const ins = await runWithRetry(
+      () => supabase
+        .from('applications')
+        .insert({
+          student_id: studentId,
+          event_id: eventId,
+          status: 'submitted',
+          raw_response: rawResponse,
+          channel: submission.attributionSource,
+          attribution_source: attributionMap[submission.attributionSource] || 'other',
+        })
+        .select('id')
+        .single(),
+      'applications.insert',
+    )
+    if (ins.error || !ins.data) {
+      const m = ins.error?.message ?? ''
+      if (m.includes('unique') || m.includes('duplicate')) {
+        return { error: 'You have already submitted an application for this event.' }
+      }
+      return { error: `Failed to submit application: ${m || 'unknown error'}` }
+    }
+    return { error: null, studentId, applicationId: ins.data.id }
+  } catch (err: any) {
+    return {
+      error: err?.message?.includes('timed out')
+        ? 'The server is responding slowly. Please check your connection and try again — your answers are saved on this device.'
+        : `Could not submit your application: ${err?.message ?? 'network error'}`,
+    }
+  }
 }

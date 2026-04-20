@@ -178,6 +178,24 @@ type Step = 'loading' | 'email' | 'otp' | 'details' | 'application' | 'submittin
 // Page Component
 // ---------------------------------------------------------------------------
 
+// Progressive reassurance during submit — if the network is slow, students
+// start to suspect the form has frozen after ~4s. Showing "still working…"
+// at 4s and "almost there…" at 10s keeps them calm instead of reloading.
+function SubmittingHints(): JSX.Element | null {
+  const [stage, setStage] = useState<0 | 1 | 2>(0)
+  useEffect(() => {
+    const t1 = setTimeout(() => setStage(1), 4000)
+    const t2 = setTimeout(() => setStage(2), 10000)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [])
+  if (stage === 0) return null
+  return (
+    <p className="text-sm text-gray-500 mt-2">
+      {stage === 1 ? 'Still working — this usually takes just a moment.' : 'Almost there. Please keep this page open.'}
+    </p>
+  )
+}
+
 export default function ApplyPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -1392,6 +1410,7 @@ export default function ApplyPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 text-center">
           <Spinner large />
           <p className="text-gray-600 mt-4">Submitting your application…</p>
+          <SubmittingHints />
         </div>
       )}
 
