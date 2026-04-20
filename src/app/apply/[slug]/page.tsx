@@ -682,14 +682,25 @@ export default function ApplyPage() {
     setStep('success')
   }
 
+  const friendlyPWError = (msg: string | null | undefined): string => {
+    if (!msg) return "Couldn't save. Try again."
+    const m = String(msg).toLowerCase()
+    if (m.includes('should contain') || m.includes('character of each') || m.includes('strength') || m.includes('weak')) {
+      return 'Use at least 8 characters with a mix of letters, numbers and symbols.'
+    }
+    if (m.includes('short') || m.includes('min')) return 'Use at least 8 characters.'
+    if (m.includes('same') || m.includes('used') || m.includes('different')) return 'Pick a different password from your last one.'
+    return "Couldn't save. Try again."
+  }
+
   const handlePasswordUpgrade = async () => {
     setPasswordError(null)
-    if (password.length < 6) { setPasswordError('Password must be at least 6 characters.'); return }
+    if (password.length < 8) { setPasswordError('Use at least 8 characters.'); return }
     if (password !== passwordConfirm) { setPasswordError('Passwords do not match.'); return }
     setLoading(true)
     const { error: err } = await upgradeToPassword(password)
     setLoading(false)
-    if (err) { setPasswordError(err); return }
+    if (err) { setPasswordError(friendlyPWError(err)); return }
     setPasswordSaved(true)
   }
 
@@ -1531,7 +1542,7 @@ export default function ApplyPage() {
               <div className="flex gap-3">
                 <a href="/my"
                   className="px-6 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium">No thanks, go to hub</a>
-                <button onClick={handlePasswordUpgrade} disabled={loading || password.length < 6}
+                <button onClick={handlePasswordUpgrade} disabled={loading || password.length < 8}
                   className="flex-1 py-2.5 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-press-blue flex items-center justify-center gap-2">
                   {loading ? <Spinner /> : null}
                   Save password
