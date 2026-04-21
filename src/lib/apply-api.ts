@@ -426,6 +426,26 @@ export async function submitApplication(
     return { error: 'Your session has expired. Please sign out and sign back in, then resubmit. Your answers are saved on this device.' }
   }
 
+  // -------------------------------------------------------------------------
+  // Pre-flight: year-group eligibility.
+  // Prevents students navigating to an ineligible event by slug and submitting
+  // anyway. Skipped when the event has no eligible_year_groups (open to all).
+  // -------------------------------------------------------------------------
+  const eligibilityCheck = await runWithRetry(
+    () => supabase.from('events').select('eligible_year_groups').eq('id', eventId).maybeSingle(),
+    'events.eligibility',
+  )
+  if (eligibilityCheck.error) {
+    return { error: `Could not verify event eligibility: ${eligibilityCheck.error.message}` }
+  }
+  const allowedYears = (eligibilityCheck.data?.eligible_year_groups ?? null) as number[] | null
+  if (allowedYears && allowedYears.length > 0) {
+    if (submission.yearGroup == null || !allowedYears.includes(submission.yearGroup)) {
+      const label = allowedYears.length === 1 ? `Year ${allowedYears[0]}` : `Years ${allowedYears.join(', ')}`
+      return { error: `This event is for ${label} only. If this looks wrong, contact hello@thestepsfoundation.com.` }
+    }
+  }
+
   // Map the household income answer to an income band code
   const incomeBand = submission.householdIncomeUnder40k === 'yes'
     ? 'under_40k'

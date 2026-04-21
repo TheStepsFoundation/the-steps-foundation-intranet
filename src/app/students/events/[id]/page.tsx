@@ -841,6 +841,7 @@ export default function EventDetailPage() {
       banner_focal_y: event.banner_focal_y,
       hub_focal_x: event.hub_focal_x,
       hub_focal_y: event.hub_focal_y,
+      eligible_year_groups: event.eligible_year_groups ?? null,
     })
     setEditing(true)
   }
@@ -875,6 +876,15 @@ export default function EventDetailPage() {
       if ((editDraft.banner_focal_y ?? 50) !== (event.banner_focal_y ?? 50)) patch.banner_focal_y = editDraft.banner_focal_y ?? 50
       if ((editDraft.hub_focal_x ?? 50) !== (event.hub_focal_x ?? 50)) patch.hub_focal_x = editDraft.hub_focal_x ?? 50
       if ((editDraft.hub_focal_y ?? 50) !== (event.hub_focal_y ?? 50)) patch.hub_focal_y = editDraft.hub_focal_y ?? 50
+
+      // eligible_year_groups — null means "open to all". Compare as sorted JSON.
+      const eygDraft = Array.isArray(editDraft.eligible_year_groups) && editDraft.eligible_year_groups.length > 0
+        ? [...editDraft.eligible_year_groups].sort((a, b) => a - b)
+        : null
+      const eygCurrent = Array.isArray(event.eligible_year_groups) && event.eligible_year_groups.length > 0
+        ? [...event.eligible_year_groups].sort((a, b) => a - b)
+        : null
+      if (JSON.stringify(eygDraft) !== JSON.stringify(eygCurrent)) patch.eligible_year_groups = eygDraft
 
       // Always include form_config if it was edited
       const currentFormConfig = JSON.stringify(event.form_config ?? { fields: [] })
@@ -1944,6 +1954,35 @@ export default function EventDetailPage() {
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Dress code</label>
                 <input value={editDraft.dress_code ?? ''} onChange={e => setEditDraft(d => ({ ...d, dress_code: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              </div>
+            </div>
+
+            {/* Row 3c: Eligible year groups */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Eligible year groups <span className="text-gray-400 font-normal">(unchecked all = open to any year)</span>
+              </label>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {[9, 10, 11, 12, 13].map(yr => {
+                  const checked = Array.isArray(editDraft.eligible_year_groups) && editDraft.eligible_year_groups.includes(yr)
+                  return (
+                    <label key={yr} className="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-200">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => setEditDraft(d => {
+                          const current = Array.isArray(d.eligible_year_groups) ? [...d.eligible_year_groups] : []
+                          const next = e.target.checked
+                            ? Array.from(new Set([...current, yr])).sort((a, b) => a - b)
+                            : current.filter(v => v !== yr)
+                          return { ...d, eligible_year_groups: next.length > 0 ? next : null }
+                        })}
+                        className="rounded border-gray-300"
+                      />
+                      Year {yr}
+                    </label>
+                  )
+                })}
               </div>
             </div>
 

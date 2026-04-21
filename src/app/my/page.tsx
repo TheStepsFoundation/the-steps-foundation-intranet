@@ -56,6 +56,18 @@ export default function StudentHub() {
   const [applications, setApplications] = useState<HubApplication[]>([])
   const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
 
+  // Split open events into eligible vs ineligible for this student's year_group.
+  // eligible_year_groups = NULL → open to all year groups.
+  // If student has no year_group set, show everything as eligible (they'll be asked to set it).
+  const yg = profile?.year_group ?? null
+  const isEligibleForYearGroup = (event: HubEvent): boolean => {
+    if (!event.eligible_year_groups || event.eligible_year_groups.length === 0) return true
+    if (yg == null) return true
+    return event.eligible_year_groups.includes(yg)
+  }
+  const eligibleOpenEvents = openEvents.filter(isEligibleForYearGroup)
+  const ineligibleOpenEvents = openEvents.filter(e => !isEligibleForYearGroup(e))
+
   // Edit mode
   const [editing, setEditing] = useState(false)
 
@@ -230,12 +242,16 @@ export default function StudentHub() {
     setSaving(true)
     setSaveMsg(null)
 
+    // year_group is locked once set — profile.year_group is authoritative
+    // when non-null. If the admin needs to correct it, they do it from
+    // /students. (See "Wrong year?" link in edit form.)
+    const yearGroupLocked = profile.year_group != null
     const updates: ProfileUpdate = {
       first_name: firstName.trim(),
       last_name: lastName.trim(),
       school_id: school.schoolId,
       school_name_raw: school.schoolNameRaw,
-      year_group: yearGroup ? Number(yearGroup) : null,
+      year_group: yearGroupLocked ? profile.year_group : (yearGroup ? Number(yearGroup) : null),
       school_type: schoolType,
       free_school_meals: freeSchoolMeals,
       parental_income_band: incomeBand,
@@ -369,11 +385,11 @@ export default function StudentHub() {
       {/* ================================================================ */}
       {/* SECTION 1: Open Events — Apply Now */}
       {/* ================================================================ */}
-      {openEvents.length > 0 && (
+      {eligibleOpenEvents.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Apply now</h2>
           <div className="space-y-4">
-            {openEvents.map(event => {
+            {eligibleOpenEvents.map(event => {
               const publicLocation = getDisplayLocation(event, false)
               return (
               <Link
@@ -432,13 +448,58 @@ export default function StudentHub() {
       )}
 
       {/* ================================================================ */}
+      {/* SECTION 1b: Events for other year groups (greyed, non-clickable) */}
+      {/* ================================================================ */}
+      {ineligibleOpenEvents.length > 0 && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-gray-500 mb-3">Events for other year groups</h2>
+          <div className="space-y-3">
+            {ineligibleOpenEvents.map(event => {
+              const publicLocation = getDisplayLocation(event, false)
+              const yearList = (event.eligible_year_groups ?? []).sort((a, b) => a - b)
+              const yearLabel = yearList.length === 1
+                ? `Year ${yearList[0]}`
+                : yearList.length > 1
+                  ? `Years ${yearList.join(', ')}`
+                  : ''
+              return (
+                <div
+                  key={event.id}
+                  className="relative block bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden opacity-60 cursor-not-allowed"
+                  aria-disabled="true"
+                  title={`This event is for ${yearLabel.toLowerCase() || 'another year group'}.`}
+                >
+                  <div className="flex items-stretch min-h-[96px]">
+                    <div className="flex-1 min-w-0 p-4 sm:p-5 flex flex-col justify-center">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="font-medium text-gray-700 text-base">{event.name}</h3>
+                        {yearLabel && (
+                          <span className="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-200 text-gray-600">
+                            {yearLabel} only
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1">
+                        {event.event_date && <span>{formatDate(event.event_date)}</span>}
+                        {publicLocation && <span>{publicLocation}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
       {/* SECTION 2: My Applications */}
       {/* ================================================================ */}
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">My applications</h2>
         {applications.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-            {openEvents.length > 0 ? (
+            {eligibleOpenEvents.length > 0 ? (
               <>
                 <p className="text-gray-500 text-sm">You haven&apos;t applied to any events yet.</p>
                 <p className="text-steps-blue-600 text-sm mt-2 font-medium">Check out the open events above!</p>
@@ -572,16 +633,27 @@ export default function StudentHub() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Year group</label>
-                <select
-                  value={yearGroup}
-                  onChange={e => setYearGroup(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white"
-                >
-                  <option value="">Select…</option>
-                  <option value={12}>Year 12</option>
-                  <option value={13}>Year 13</option>
-                  <option value={14}>Gap year</option>
-                </select>
+                {profile.year_group != null ? (
+                  <>
+                    <div className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-700">
+                      {profile.year_group === 14 ? 'Gap year' : `Year ${profile.year_group}`}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Wrong year? <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">Contact hello@thestepsfoundation.com</a> to update this.
+                    </p>
+                  </>
+                ) : (
+                  <select
+                    value={yearGroup}
+                    onChange={e => setYearGroup(e.target.value ? Number(e.target.value) : '')}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white"
+                  >
+                    <option value="">Select…</option>
+                    <option value={12}>Year 12</option>
+                    <option value={13}>Year 13</option>
+                    <option value={14}>Gap year</option>
+                  </select>
+                )}
               </div>
 
               <div>

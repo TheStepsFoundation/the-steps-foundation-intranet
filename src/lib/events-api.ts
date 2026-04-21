@@ -131,6 +131,7 @@ export type EventRow = {
   hub_focal_x: number
   hub_focal_y: number
   dashboard_columns: DashboardColumnsConfig | null
+  eligible_year_groups: number[] | null
   created_at: string
 }
 
@@ -161,7 +162,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
