@@ -39,10 +39,21 @@ const INCOME_BANDS: Array<{ code: 'under_40k' | 'over_40k' | 'prefer_na'; label:
   { code: 'over_40k', label: 'Over \u00a340k' },
   { code: 'prefer_na', label: 'Prefer not to say' },
 ]
+// Must match public.application_statuses.code — attended/no_show are NOT
+// statuses (we have a separate `attended` boolean column for that).
 const APPLICATION_STATUSES = [
-  'submitted', 'accepted', 'attended', 'no_show', 'rejected', 'waitlist',
+  'submitted', 'shortlisted', 'accepted', 'waitlist', 'rejected', 'withdrew',
 ] as const
 type AppStatus = typeof APPLICATION_STATUSES[number]
+
+const STATUS_LABELS: Record<AppStatus, string> = {
+  submitted: 'submitted',
+  shortlisted: 'shortlisted',
+  accepted: 'accepted',
+  waitlist: 'waitlist',
+  rejected: 'rejected',
+  withdrew: 'withdrew',
+}
 
 const A_LEVEL_SUBJECT_POOL = [
   'Mathematics', 'Further Mathematics', 'Economics', 'Physics', 'Chemistry',
@@ -65,8 +76,15 @@ function randomPastEventPicks(): EventPick[] {
   const howMany = pick([0, 1, 1, 2, 2, 3]) // skew towards 1-2
   const shuffled = [...past].sort(() => Math.random() - 0.5).slice(0, howMany)
   return shuffled.map(e => {
-    const status = pick<AppStatus>(['submitted', 'accepted', 'attended', 'attended', 'no_show', 'waitlist'])
-    return { event_id: e.id, status, attended: status === 'attended' }
+    // Weight 'accepted' (with attended=true) as the most common outcome — that
+    // matches reality for past events in our pipeline.
+    const status = pick<AppStatus>([
+      'accepted', 'accepted', 'accepted',
+      'submitted', 'waitlist', 'rejected',
+    ])
+    // Roughly: if accepted, 75% actually showed up. Otherwise attended=false.
+    const attended = status === 'accepted' ? Math.random() < 0.75 : false
+    return { event_id: e.id, status, attended }
   })
 }
 
@@ -108,7 +126,7 @@ function randomAcademic(year: number | null): AcademicPayload {
 
 type Props = {
   onClose: () => void
-  onCreated: (student_id: string) => void
+  onCreated: (student_id: string, extras?: { warning?: string | null; magicLink?: string | null }) => void
 }
 
 export default function AddTestStudentModal({ onClose, onCreated }: Props) {
@@ -237,20 +255,21 @@ export default function AddTestStudentModal({ onClose, onCreated }: Props) {
     setEventPicks(prev => {
       const next = { ...prev }
       if (next[eventId]) delete next[eventId]
-      else next[eventId] = { status: 'attended', attended: true }
+      else next[eventId] = { status: 'accepted', attended: true }
       return next
     })
   }
 
   function updateEventStatus(eventId: string, status: AppStatus) {
-    setEventPicks(prev => ({
-      ...prev,
-      [eventId]: {
-        status,
-        // Keep attended in sync with status choices that imply it.
-        attended: status === 'attended',
-      },
-    }))
+    setEventPicks(prev => {
+      const existing = prev[eventId] ?? { status: 'submitted' as AppStatus, attended: false }
+      // Rejected/withdrew auto-sets attended=false (they definitionally didn't go).
+      const attended = (status === 'rejected' || status === 'withdrew') ? false : existing.attended
+      return {
+        ...prev,
+        [eventId]: { status, attended },
+      }
+    })
   }
 
   function updateEventAttended(eventId: string, attended: boolean) {
@@ -344,7 +363,18 @@ export default function AddTestStudentModal({ onClose, onCreated }: Props) {
         setSubmitting(false)
         return
       }
-      onCreated(body.student_id)
+      // Student row was created (201). If the API surfaces a warning (e.g.
+      // applications insert failed), keep the modal open and show it — don't
+      // let the admin leave the page thinking everything worked. Otherwise
+      // close normally.
+      const warning: string | null = typeof body?.warning === 'string' ? body.warning : null
+      const magicLink: string | null = typeof body?.magic_link === 'string' ? body.magic_link : null
+      if (warning) {
+        setError(`Student was created (${body.student_id}) but: ${warning}`)
+        setSubmitting(false)
+        return
+      }
+      onCreated(body.student_id, { warning, magicLink })
     } catch (err: any) {
       setError(err?.message ?? 'Unexpected error')
       setSubmitting(false)
@@ -474,7 +504,7 @@ export default function AddTestStudentModal({ onClose, onCreated }: Props) {
                             onChange={ev => updateEventStatus(e.id, ev.target.value as AppStatus)}
                             className="px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
                           >
-                            {APPLICATION_STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                            {APPLICATION_STATUSES.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                           </select>
                           <label className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1">
                             <input

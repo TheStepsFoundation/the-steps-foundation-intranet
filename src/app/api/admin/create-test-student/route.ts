@@ -241,10 +241,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Step 5: Generate a one-click magic-link URL so the admin can sign in as
+  // the dummy without receiving the OTP email. generateLink will also create
+  // the auth user if we skipped createUser above (password was blank), which
+  // matches the real "migrated student clicks their first magic link" flow.
+  let magicLink: string | null = null
+  try {
+    const redirectTo = req.nextUrl.origin + '/my'
+    const { data: linkData, error: linkErr } = await (svc.auth.admin as any).generateLink({
+      type: 'magiclink',
+      email,
+      options: { redirectTo },
+    })
+    if (!linkErr) {
+      magicLink = linkData?.properties?.action_link ?? linkData?.action_link ?? null
+    }
+  } catch { /* noop — magic link is best-effort, not required */ }
+
   return NextResponse.json({
     student_id: studentId,
     auth_user_id: authUserId,
     applications_created: applicationsCreated,
     progression_created: progressionCreated,
+    magic_link: magicLink,
   }, { status: 201 })
 }

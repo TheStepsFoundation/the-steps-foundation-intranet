@@ -86,6 +86,10 @@ export default function StudentsDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [students, setStudents] = useState<EnrichedStudent[]>([])
   const [showAddStudent, setShowAddStudent] = useState(false)
+  // After a test student is created, we surface a magic-link sign-in URL (if
+  // the API produced one) so admins can sign in as the dummy without having
+  // to actually receive the OTP email at the test address.
+  const [lastTestStudentMagicLink, setLastTestStudentMagicLink] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<SortKey>('engagement')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filters, setFilters] = useState<Filters>(defaultFilters())
@@ -332,6 +336,31 @@ export default function StudentsDashboard() {
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {lastTestStudentMagicLink && (
+        <div className="mb-4 rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-100 px-4 py-3 text-sm flex items-center justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="font-medium">Test student created — sign in as them to see the first-sign-in experience.</div>
+            <div className="text-xs mt-0.5 text-emerald-800 dark:text-emerald-200 break-all">Open this magic link (expires shortly): <a href={lastTestStudentMagicLink} target="_blank" rel="noopener noreferrer" className="underline">{lastTestStudentMagicLink}</a></div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => { if (lastTestStudentMagicLink) navigator.clipboard.writeText(lastTestStudentMagicLink) }}
+              className="px-2 py-1 text-xs rounded-md border border-emerald-400 dark:border-emerald-600 bg-white dark:bg-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/60"
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => setLastTestStudentMagicLink(null)}
+              className="px-2 py-1 text-xs rounded-md border border-emerald-400 dark:border-emerald-600 bg-white dark:bg-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/60"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Student Database</h1>
@@ -704,8 +733,9 @@ export default function StudentsDashboard() {
       {showAddStudent && (
         <AddTestStudentModal
           onClose={() => setShowAddStudent(false)}
-          onCreated={async () => {
+          onCreated={async (_id, extras) => {
             setShowAddStudent(false)
+            if (extras?.magicLink) setLastTestStudentMagicLink(extras.magicLink)
             // Refresh the list so the new test student appears immediately.
             const fresh = await fetchAllStudentsEnriched({ forceRefresh: true })
             setStudents(fresh)
