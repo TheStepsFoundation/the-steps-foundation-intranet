@@ -6,7 +6,7 @@
  * RLS policies (0006) enforce that students can only access their own data.
  */
 
-import { supabase } from './supabase'
+import { supabase } from './supabase-student'
 // ---------------------------------------------------------------------------
 // Auth helper — prefer getSession() (local, instant) over getUser() (network).
 // getUser() can fail if the JWT hasn't refreshed yet or the network hiccups.

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { sendOtp, verifyOtp, signInWithPassword, getExistingSession } from '@/lib/apply-api'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-student'
 import Link from 'next/link'
 import Image from 'next/image'
 import { PressableButton } from '@/components/PressableButton'

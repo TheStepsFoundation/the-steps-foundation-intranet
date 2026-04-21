@@ -3,7 +3,7 @@
  * All queries go through RLS (students can only read their own data + public events).
  */
 
-import { supabase } from './supabase'
+import { supabase } from './supabase-student'
 import type { StudentSelf } from './apply-api'
 
 // ---------------------------------------------------------------------------

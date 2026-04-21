@@ -15,7 +15,7 @@ import { getDisplayLocation } from '@/lib/event-display'
 import { hasPasswordSet, upgradeToPassword, type StudentSelf } from '@/lib/apply-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
 import { getStatusMeta } from '@/lib/application-status'
-import { supabase } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase-student'
 import { stripToText } from '@/lib/sanitize-html'
 
 // ---------------------------------------------------------------------------
