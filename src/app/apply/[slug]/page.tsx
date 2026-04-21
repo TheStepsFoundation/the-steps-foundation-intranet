@@ -174,7 +174,7 @@ function clearDraft(eventId: string, email: string): void {
 // Steps
 // ---------------------------------------------------------------------------
 
-type Step = 'loading' | 'email' | 'otp' | 'details' | 'application' | 'submitting' | 'success' | 'applied'
+type Step = 'loading' | 'email' | 'otp' | 'details' | 'application' | 'wrapup' | 'submitting' | 'success' | 'applied'
 
 // ---------------------------------------------------------------------------
 // Page Component
@@ -402,7 +402,7 @@ export default function ApplyPage() {
 
   // Restore draft from localStorage after auth is established (runs once)
   useEffect(() => {
-    if (!event?.id || !email || step === 'loading' || step === 'email' || step === 'otp' || step === 'success' || step === 'applied') return
+    if (!event?.id || !email || step === 'loading' || step === 'email' || step === 'otp' || step === 'success' || step === 'applied' || step === 'submitting') return
     if (draftRestoredRef.current) return
     const draft = loadDraft(event!.id, email)
     if (!draft) { draftRestoredRef.current = true; return }
@@ -600,24 +600,87 @@ export default function ApplyPage() {
     setStep('details')
   }
 
+  const hasCustomFields = (): boolean => {
+    if (formPages.some(p => (p.fields?.length ?? 0) > 0)) return true
+    return formFields.length > 0
+  }
+
   const handleDetailsNext = () => {
     const errs: Record<string, string> = {}
-    if (!firstName.trim()) errs.firstName = 'Please enter your first name.'
-    if (!lastName.trim()) errs.lastName = 'Please enter your last name.'
-    if (!school.schoolId && !school.schoolNameRaw) errs.school = 'Please select or enter your school.'
-    if (!yearGroup) errs.yearGroup = 'Please select your year group.'
-    if (!schoolType) errs.schoolType = 'Please answer this question.'
-    if (!freeSchoolMeals) errs.freeSchoolMeals = 'Please answer the Free School Meals question.'
-    if (!householdIncome) errs.householdIncome = 'Please answer the household income question.'
+    const order: string[] = []
+    if (!firstName.trim()) { errs.firstName = 'Please enter your first name.'; order.push('firstName') }
+    if (!lastName.trim()) { errs.lastName = 'Please enter your last name.'; order.push('lastName') }
+    if (!school.schoolId && !school.schoolNameRaw) { errs.school = 'Please select or enter your school.'; order.push('school') }
+    if (!yearGroup) { errs.yearGroup = 'Please select your year group.'; order.push('yearGroup') }
+    if (!schoolType) { errs.schoolType = 'Please answer this question.'; order.push('schoolType') }
+    if (!freeSchoolMeals) { errs.freeSchoolMeals = 'Please answer the Free School Meals question.'; order.push('freeSchoolMeals') }
+    if (!householdIncome) { errs.householdIncome = 'Please answer the household income question.'; order.push('householdIncome') }
+
+    // GCSE + qualifications (moved from handleSubmit — now live on page 1)
+    if (!gcseResults.trim()) { errs.gcseResults = 'Please enter your GCSE results.'; order.push('gcseResults') }
+    else if (!/^\d+$/.test(gcseResults.trim())) { errs.gcseResults = 'GCSE results should contain only numbers (e.g. 999887766).'; order.push('gcseResults') }
+
+    const filledQuals = qualifications.filter(q => q.subject && q.grade)
+    const incompleteQuals = qualifications.filter(q => (q.subject && !q.grade) || (!q.subject && q.grade))
+    const ibMissingLevel = qualifications.filter(q => q.qualType === 'ib' && q.subject && !q.level)
+    if (filledQuals.length === 0) { errs.qualifications = 'Please add at least one subject with a grade.'; order.push('qualifications') }
+    else if (incompleteQuals.length > 0) { errs.qualifications = 'Please complete all subject rows — each needs both a subject and a grade.'; order.push('qualifications') }
+    else if (ibMissingLevel.length > 0) { errs.qualifications = 'Please select HL or SL for each IB subject.'; order.push('qualifications') }
+
     setFieldErrors(errs)
     const n = Object.keys(errs).length
     if (n > 0) {
       setError(`Please fix ${n} issue${n > 1 ? 's' : ''} below before continuing.`)
-      scrollToFirstError(errs, ['firstName','lastName','school','yearGroup','schoolType','freeSchoolMeals','householdIncome'])
+      scrollToFirstError(errs, order)
       return
     }
     setError(null)
-    setStep('application')
+    // Skip the event-specific page if the admin didn't configure any custom fields.
+    setStep(hasCustomFields() ? 'application' : 'wrapup')
+  }
+
+  /** Validate just the custom fields on the event-specific page before moving to wrap-up. */
+  const handleApplicationNext = () => {
+    const errs: Record<string, string> = {}
+    const order: string[] = []
+    // Collect required custom fields — same rules as handleSubmit's custom-fields block.
+    for (const field of formFields) {
+      if (!field.required) continue
+      const val = customFieldValues[field.id]
+      const key = `customField:${field.id}`
+      if (val === undefined || val === '' || val === null) {
+        errs[key] = `Please complete: ${stripToText(field.label)}`
+        order.push(key)
+        continue
+      }
+      if (field.type === 'ranked_dropdown' && typeof val === 'object' && !Array.isArray(val)) {
+        const ranks = field.config?.ranks ?? 3
+        const entries = val as Record<string, string>
+        const rankKeys = Array.from({ length: ranks }, (_, i) =>
+          i === 0 ? 'first' : i === 1 ? 'second' : i === 2 ? 'third' : `choice_${i + 1}`
+        )
+        for (const rk of rankKeys) {
+          if (!entries[rk]) { errs[key] = `Please complete all choices for: ${stripToText(field.label)}`; order.push(key); break }
+        }
+      }
+      if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
+        errs[key] = `Please select at least one option for: ${stripToText(field.label)}`
+        order.push(key)
+      }
+      if (field.type === 'paired_dropdown' && Array.isArray(val)) {
+        const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
+        if (completeRows.length === 0) { errs[key] = `Please complete at least one row for: ${stripToText(field.label)}`; order.push(key) }
+      }
+    }
+    setFieldErrors(errs)
+    const n = Object.keys(errs).length
+    if (n > 0) {
+      setError(`Please fix ${n} issue${n > 1 ? 's' : ''} below before continuing.`)
+      scrollToFirstError(errs, order)
+      return
+    }
+    setError(null)
+    setStep('wrapup')
   }
 
   const handleSubmit = async () => {
@@ -702,7 +765,7 @@ export default function ApplyPage() {
     const result = await submitApplication(event!.id, submission)
     if (result.error) {
       setError(result.error)
-      setStep('application')
+      setStep('wrapup')
       return
     }
     clearDraft(event!.id, email)
@@ -822,25 +885,32 @@ export default function ApplyPage() {
       </div>
 
       {/* Progress */}
-      {step !== 'loading' && step !== 'success' && step !== 'submitting' && step !== 'applied' && (
-        <div className="flex items-center gap-2 mb-8 justify-center">
-          {(['email', 'otp', 'details', 'application'] as Step[]).map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                step === s ? 'bg-steps-blue-600 text-white' :
-                (['email', 'otp', 'details', 'application'].indexOf(step) > i)
-                  ? 'bg-steps-blue-200 text-steps-blue-700' : 'bg-gray-200 text-gray-500'
-              }`}>
-                {i + 1}
+      {step !== 'loading' && step !== 'success' && step !== 'submitting' && step !== 'applied' && (() => {
+        // Progress bubbles. The middle 'application' step is only shown when
+        // the admin has configured custom questions; otherwise we collapse to
+        // a 4-bubble flow (email -> otp -> details -> wrapup).
+        const progressSteps: Step[] = hasCustomFields()
+          ? ['email', 'otp', 'details', 'application', 'wrapup']
+          : ['email', 'otp', 'details', 'wrapup']
+        const stepIdx = progressSteps.indexOf(step as Step)
+        return (
+          <div className="flex items-center gap-2 mb-8 justify-center">
+            {progressSteps.map((s, i) => (
+              <div key={s} className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                  step === s ? 'bg-steps-blue-600 text-white' :
+                  (stepIdx > i) ? 'bg-steps-blue-200 text-steps-blue-700' : 'bg-gray-200 text-gray-500'
+                }`}>
+                  {i + 1}
+                </div>
+                {i < progressSteps.length - 1 && <div className={`w-8 h-0.5 ${
+                  (stepIdx > i) ? 'bg-steps-blue-300' : 'bg-gray-200'
+                }`} />}
               </div>
-              {i < 3 && <div className={`w-8 h-0.5 ${
-                (['email', 'otp', 'details', 'application'].indexOf(step) > i)
-                  ? 'bg-steps-blue-300' : 'bg-gray-200'
-              }`} />}
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Error banner */}
       {error && (
@@ -855,11 +925,11 @@ export default function ApplyPage() {
       {/* ================================================================= */}
 
       {/* Back to Student Hub — shown on all form steps */}
-      {(step === 'details' || step === 'application') && (
+      {(step === 'details' || step === 'application' || step === 'wrapup') && (
         <div className="flex justify-end mb-2">
           <button
             onClick={() => {
-              if ((step === 'details' || step === 'application') && alreadyApplied && hasFormChanges) {
+              if ((step === 'details' || step === 'application' || step === 'wrapup') && alreadyApplied && hasFormChanges) {
                 setShowExitPrompt(true)
               } else {
                 window.location.href = '/my'
@@ -1226,20 +1296,6 @@ export default function ApplyPage() {
             </div>
           </div>
 
-          <button onClick={handleDetailsNext}
-            className="w-full py-3 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-press-blue">
-            Continue
-          </button>
-        </div>
-      )}
-
-      {/* ================================================================= */}
-      {/* STEP 4: Your Application */}
-      {/* ================================================================= */}
-      {step === 'application' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6">Your application</h2>
-
           {/* --- Academic section (fixed) --- */}
           <h3 className="text-base font-semibold text-gray-900 mb-1">Academic information</h3>
           <p className="text-gray-500 text-xs mb-4">
@@ -1345,6 +1401,20 @@ export default function ApplyPage() {
             {fieldErrors.qualifications && <p className="mt-2 text-xs text-red-600">{fieldErrors.qualifications}</p>}
           </div>
 
+          <button onClick={handleDetailsNext}
+            className="w-full py-3 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-press-blue">
+            Continue
+          </button>
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* STEP 4: Your Application */}
+      {/* ================================================================= */}
+      {step === 'application' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">Your application</h2>
+
           {/* --- Custom form fields from form_config --- */}
           {formPages.length > 0 ? (
             /* Multi-page mode */
@@ -1403,15 +1473,15 @@ export default function ApplyPage() {
                 </div>
               ))}
 
-              {/* Page navigation */}
-              <div className="flex gap-3 mt-4">
-                {customPageIdx > 0 && (
-                  <button type="button" onClick={() => setCustomPageIdx(customPageIdx - 1)}
-                    className="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition">
-                    ← Back
-                  </button>
-                )}
-                {customPageIdx < formPages.length - 1 && (
+              {/* Intra-form page navigation (between custom-question pages) */}
+              {customPageIdx < formPages.length - 1 && (
+                <div className="flex gap-3 mt-4">
+                  {customPageIdx > 0 && (
+                    <button type="button" onClick={() => setCustomPageIdx(customPageIdx - 1)}
+                      className="px-4 py-2 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition">
+                      ← Back
+                    </button>
+                  )}
                   <button type="button" onClick={() => {
                     // Evaluate routing rules for current page
                     const currentPage = formPages[customPageIdx]
@@ -1419,7 +1489,7 @@ export default function ApplyPage() {
                       for (const rule of currentPage.routing.rules) {
                         if (evaluateConditions(rule.conditions, customFieldValues)) {
                           if (rule.goToPageId === '__submit') {
-                            setCustomPageIdx(formPages.length) // past last page = show attribution
+                            handleApplicationNext()
                             return
                           }
                           const targetIdx = formPages.findIndex(p => p.id === rule.goToPageId)
@@ -1432,8 +1502,8 @@ export default function ApplyPage() {
                     className="flex-1 py-2 bg-steps-blue-600 text-white text-sm font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150">
                     Next →
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           ) : formFields.length > 0 ? (
             /* Single-page mode (backward compat) */
@@ -1453,6 +1523,32 @@ export default function ApplyPage() {
               ))}
             </div>
           ) : null}
+
+          {/* Step-level footer: Back to details + Continue to wrap-up.
+              Shown on single-page custom forms, and on the LAST page of
+              multi-page custom forms. Intermediate pages render their own
+              Next button above and we hide this one. */}
+          {(formPages.length === 0 || customPageIdx === formPages.length - 1) && (
+            <div className="flex gap-3">
+              <button onClick={() => { setStep('details'); setError(null) }}
+                className="px-6 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition">
+                Back
+              </button>
+              <button onClick={handleApplicationNext}
+                className="flex-1 py-3 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150">
+                Continue →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================= */}
+      {/* STEP 5: Wrap-up — anything else + attribution + submit */}
+      {/* ================================================================= */}
+      {step === 'wrapup' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-6">Before you submit</h2>
 
           {/* --- Anything else (std_anything_else) --- */}
           <div className="border-t border-gray-100 pt-6 mb-6">
@@ -1485,12 +1581,10 @@ export default function ApplyPage() {
               ))}
               {fieldErrors.attribution && <p className="mt-1 text-xs text-red-600">{fieldErrors.attribution}</p>}
             </fieldset>
-
-
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => { setStep('details'); setError(null) }}
+            <button onClick={() => { setStep(hasCustomFields() ? 'application' : 'details'); setError(null) }}
               className="px-6 py-3 border border-gray-200 text-gray-700 font-medium rounded-xl hover:bg-gray-50 transition">
               Back
             </button>
@@ -1503,7 +1597,6 @@ export default function ApplyPage() {
         </div>
       )}
 
-      {/* SUBMITTING */}
       {step === 'submitting' && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 text-center">
           <Spinner large />
