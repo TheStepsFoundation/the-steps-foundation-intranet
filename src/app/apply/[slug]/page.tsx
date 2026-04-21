@@ -153,6 +153,8 @@ export default function ApplyPage() {
   const params = useParams()
   const searchParams = useSearchParams()
   const editMode = searchParams.get('edit') === '1'
+  const previewMode = searchParams.get('preview') === '1'
+  const [previewBypassRequired, setPreviewBypassRequired] = useState(false)
   const slug = params.slug as string
   const [event, setEvent] = useState<EventRow | null>(null)
   const [eventLoading, setEventLoading] = useState(true)
@@ -348,6 +350,14 @@ export default function ApplyPage() {
   // Check for existing Supabase session on mount (e.g. page refresh after OTP)
   useEffect(() => {
     if (!event?.id) return
+    // Preview mode: skip all auth + existing-app lookup, drop the admin
+    // straight into the blank form as a fresh applicant would experience it.
+    if (previewMode) {
+      setEmail('preview@thestepsfoundation.com')
+      draftRestoredRef.current = true
+      setStep('details')
+      return
+    }
     let cancelled = false
     getExistingSession().then(async (session) => {
       if (cancelled || !session) { setStep('email'); return }
@@ -383,6 +393,7 @@ export default function ApplyPage() {
 
   // Restore draft from localStorage after auth is established (runs once)
   useEffect(() => {
+    if (previewMode) return
     if (!event?.id || !email || step === 'loading' || step === 'email' || step === 'otp' || step === 'success' || step === 'applied' || step === 'submitting') return
     if (draftRestoredRef.current) return
     const draft = loadDraft(event!.id, email)
@@ -478,6 +489,7 @@ export default function ApplyPage() {
   // Auto-save draft to localStorage on field changes (debounced)
   useEffect(() => {
     if (!event?.id || !email || restoringRef.current) return
+    if (previewMode) return
     if (step === 'loading' || step === 'email' || step === 'otp' || step === 'success' || step === 'applied' || step === 'submitting') return
 
     const t = setTimeout(() => {
@@ -597,6 +609,13 @@ export default function ApplyPage() {
   const hasApplicationContent = (): boolean => hasCustomFields() || hasFinishingContent()
 
   const handleDetailsNext = () => {
+    // Preview + bypass: skip validation and jump straight to the next step.
+    if (previewMode && previewBypassRequired) {
+      setError(null)
+      if (hasApplicationContent()) setStep('application')
+      else void handleSubmit()
+      return
+    }
     const errs: Record<string, string> = {}
     const order: string[] = []
     if (!firstName.trim()) { errs.firstName = 'Please enter your first name.'; order.push('firstName') }
@@ -653,6 +672,11 @@ export default function ApplyPage() {
 
   /** Validate just the custom fields on the event-specific page before moving to wrap-up. */
   const handleApplicationNext = () => {
+    if (previewMode && previewBypassRequired) {
+      setError(null)
+      void handleSubmit()
+      return
+    }
     const errs: Record<string, string> = {}
     const order: string[] = []
     // Collect required custom fields — same rules as handleSubmit's custom-fields block.
@@ -715,6 +739,14 @@ export default function ApplyPage() {
 
   const handleSubmit = async () => {
     if (submittingRef.current) return
+    // Preview mode with bypass: fast-forward to the submit branch with no validation.
+    if (previewMode && previewBypassRequired) {
+      setError(null)
+      submittingRef.current = true
+      setStep('submitting')
+      setTimeout(() => setStep('success'), 400)
+      return
+    }
     const errs: Record<string, string> = {}
     const order: string[] = []
 
@@ -811,6 +843,12 @@ export default function ApplyPage() {
     setError(null)
     submittingRef.current = true
     setStep('submitting')
+
+    // Preview mode: simulate a successful submit without hitting the API.
+    if (previewMode) {
+      setTimeout(() => setStep('success'), 400)
+      return
+    }
 
     const submission: ApplicationSubmission = {
       firstName,
@@ -929,6 +967,34 @@ export default function ApplyPage() {
   // --- Render ---
   return (
     <>
+      {previewMode && (
+        <div className="sticky top-0 z-50 bg-amber-500 text-white shadow-md">
+          <div className="max-w-5xl mx-auto px-4 py-2 flex flex-wrap items-center gap-3 text-sm">
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+              Preview mode
+            </span>
+            <span className="text-amber-50 text-xs hidden sm:inline">Nothing you enter will be saved or submitted.</span>
+            <label className="ml-auto inline-flex items-center gap-2 cursor-pointer select-none text-xs font-medium">
+              <input
+                type="checkbox"
+                checked={previewBypassRequired}
+                onChange={e => setPreviewBypassRequired(e.target.checked)}
+                className="rounded border-white/60 bg-white/20 text-amber-700 focus:ring-amber-300"
+              />
+              Bypass required fields
+            </label>
+            <button
+              type="button"
+              onClick={() => window.close()}
+              className="text-xs px-2 py-1 rounded-md bg-white/20 hover:bg-white/30 transition-colors"
+              title="Close preview"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
       {event.banner_image_url && (
         <div className="w-full bg-white">
           <div className="max-w-5xl mx-auto">

@@ -610,6 +610,46 @@ function EventImageUploader({
 // Page
 // ---------------------------------------------------------------------------
 
+// Collapsible section wrapper for the event edit view. Persists open/closed
+// state per section-id in localStorage so admins' preferred layout sticks.
+function Section({ id, title, subtitle, defaultOpen = false, children }: {
+  id: string
+  title: string
+  subtitle?: string
+  defaultOpen?: boolean
+  children: React.ReactNode
+}) {
+  const storageKey = `steps:event-editor-section:${id}`
+  const [open, setOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return defaultOpen
+    const v = window.localStorage.getItem(storageKey)
+    if (v === null) return defaultOpen
+    return v === '1'
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem(storageKey, open ? '1' : '0') } catch {}
+  }, [storageKey, open])
+  return (
+    <div className="border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
+      >
+        <svg
+          className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        ><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</div>
+          {subtitle && <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{subtitle}</div>}
+        </div>
+      </button>
+      {open && <div className="p-4 bg-white dark:bg-gray-900">{children}</div>}
+    </div>
+  )
+}
+
 export default function EventDetailPage() {
   const params = useParams()
   const eventId = params.id as string
@@ -723,6 +763,16 @@ export default function EventDetailPage() {
   const [editing, setEditing] = useState(false)
   const [editDraft, setEditDraft] = useState<Partial<EventRow>>({})
   const [editSaving, setEditSaving] = useState(false)
+  const [signupLinkCopied, setSignupLinkCopied] = useState<string | null>(null)
+  const copySignupLink = (slug: string) => {
+    const url = `${window.location.origin}/apply/${slug}`
+    navigator.clipboard.writeText(url).then(() => {
+      setSignupLinkCopied(slug)
+      window.setTimeout(() => setSignupLinkCopied(null), 1800)
+    }).catch(() => {
+      window.prompt('Copy this sign-up link:', url)
+    })
+  }
 
   const startEditing = () => {
     if (!event) return
@@ -1639,14 +1689,34 @@ export default function EventDetailPage() {
         {editing ? (
           /* ---- EDIT MODE ---- */
           <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Edit Event</h2>
-              <div className="flex items-center gap-2">
-                <button onClick={cancelEditing} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
-                <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
-              </div>
+            {/* Sticky action bar: always-visible Save / Cancel / Preview / Copy-link */}
+            <div className="sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 mb-2 flex flex-wrap items-center gap-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-b border-gray-200 dark:border-gray-800">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mr-auto">Edit Event</h2>
+              <button
+                type="button"
+                onClick={() => copySignupLink(editDraft.slug ?? event.slug)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
+                title="Copy sign-up link to clipboard"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                {signupLinkCopied === (editDraft.slug ?? event.slug) ? 'Copied!' : 'Copy link'}
+              </button>
+              <a
+                href={`/apply/${editDraft.slug ?? event.slug}?preview=1`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
+                title="Preview the form as a new applicant"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                Preview
+              </a>
+              <button onClick={cancelEditing} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Cancel</button>
+              <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
             </div>
 
+            {/* Section: Basics (Name, slug, status, date, times, location, capacity) */}
+            <Section id="basics" title="Basics" subtitle="Name, status, date, times, location, capacity" defaultOpen>
             {/* Row 1: Name + Slug + Status */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -1727,6 +1797,9 @@ export default function EventDetailPage() {
               </div>
             </div>
 
+            </Section>
+
+            <Section id="windows" title="Application windows" subtitle="When applications open and close">
             {/* Row 4: Application windows */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -1739,6 +1812,9 @@ export default function EventDetailPage() {
               </div>
             </div>
 
+            </Section>
+
+            <Section id="description" title="Description" subtitle="Overview shown to applicants on /apply">
             {/* Row 5: Description */}
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
@@ -1752,9 +1828,11 @@ export default function EventDetailPage() {
               />
             </div>
 
+            </Section>
+
+            <Section id="images" title="Event images" subtitle="Application banner + student hub card">
             {/* Row 5b: Event images */}
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Event images</h3>
+            <div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <EventImageUploader
                   label="Application banner"
@@ -1783,16 +1861,11 @@ export default function EventDetailPage() {
               </div>
             </div>
 
+            </Section>
+
+            <Section id="form" title="Form questions" subtitle="Application form questions, pages, and routing">
             {/* Row 6: Custom form fields */}
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-              <div className="flex items-center justify-between mb-2">
-                <span></span>
-                <a href={`/apply/${editDraft.slug ?? event.slug}?preview=1`} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                  Preview form
-                </a>
-              </div>
+            <div>
               <FormBuilder
                 fields={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides })?.fields ?? []}
                 pages={(editDraft.form_config as { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides })?.pages}
@@ -1807,6 +1880,7 @@ export default function EventDetailPage() {
                 }))}
               />
             </div>
+            </Section>
           </div>
         ) : (
           /* ---- VIEW MODE ---- */
@@ -1818,10 +1892,20 @@ export default function EventDetailPage() {
                   <button onClick={startEditing} className="p-1 rounded-md text-gray-400 hover:text-steps-blue-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Edit event details">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   </button>
-                  <a href={`/apply/${event.slug}`} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-steps-blue-50 text-steps-blue-700 border border-steps-blue-200 hover:bg-steps-blue-100 dark:bg-steps-blue-900/20 dark:text-steps-blue-400 dark:border-steps-blue-800 dark:hover:bg-steps-blue-900/30 transition-colors">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                    Sign up form
+                  <button
+                    type="button"
+                    onClick={() => copySignupLink(event.slug)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-steps-blue-50 text-steps-blue-700 border border-steps-blue-200 hover:bg-steps-blue-100 dark:bg-steps-blue-900/20 dark:text-steps-blue-400 dark:border-steps-blue-800 dark:hover:bg-steps-blue-900/30 transition-colors"
+                    title="Copy sign-up link to clipboard"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                    {signupLinkCopied === event.slug ? 'Copied!' : 'Copy sign-up link'}
+                  </button>
+                  <a href={`/apply/${event.slug}?preview=1`} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
+                    title="Preview the form as a new applicant">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                    Preview form
                   </a>
                 </div>
                 {/* Event detail tags */}
