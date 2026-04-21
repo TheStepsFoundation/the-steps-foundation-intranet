@@ -48,23 +48,17 @@ export default function HubSignInPage() {
     return () => { cancelled = true; sub.subscription.unsubscribe() }
   }, [router])
 
-  // After a successful OTP/password sign-in, Supabase writes the session to
-  // localStorage asynchronously. If we navigate to /my before that write
-  // lands, /my's own session poll can fail and bounce the user right back
-  // here. Wait (up to ~3s) until the session is visible before navigating.
-  const waitForHydratedSession = async (): Promise<boolean> => {
-    for (let i = 0; i < 30; i++) {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user?.email) return true
-      await new Promise(r => setTimeout(r, 100))
-    }
-    return false
-  }
-
-  const goToHub = async () => {
+  // After a successful OTP/password sign-in, navigate with a hard reload so
+  // /my always sees the freshly-persisted session from storage. Using
+  // router.replace here was racing Supabase's async localStorage write — the
+  // OTP verify succeeded, but /my's session poll came up empty and bounced
+  // back to sign-in. A full window navigation gives the browser time to
+  // flush storage before /my mounts.
+  const goToHub = () => {
     setStep('redirecting')
-    await waitForHydratedSession()
-    router.replace('/my')
+    // Small delay so the browser has a tick to flush the Supabase auth-token
+    // write to localStorage before the navigation fires.
+    setTimeout(() => { window.location.assign('/my') }, 200)
   }
 
   const handlePasswordSignIn = async () => {
@@ -79,8 +73,7 @@ export default function HubSignInPage() {
       }
       return
     }
-    await goToHub()
-    setLoading(false)
+    goToHub()
   }
 
   const handleSendOtp = async () => {
@@ -99,8 +92,7 @@ export default function HubSignInPage() {
       setError(err)
       return
     }
-    await goToHub()
-    setLoading(false)
+    goToHub()
   }
 
   if (step === 'redirecting') {

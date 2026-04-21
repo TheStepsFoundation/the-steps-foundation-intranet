@@ -168,26 +168,36 @@ export async function sendOtp(email: string): Promise<{ error: string | null }> 
 export async function verifyOtp(
   email: string,
   token: string,
-): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.verifyOtp({
+): Promise<{ error: string | null; hasSession: boolean }> {
+  const { data, error } = await supabase.auth.verifyOtp({
     email: email.toLowerCase().trim(),
     token,
     type: 'email',
   })
-  if (error) return { error: error.message }
-  return { error: null }
+  if (error) return { error: error.message, hasSession: false }
+  // verifyOtp should return a session on success. If it doesn't, that means
+  // the OTP was accepted but Supabase didn't actually sign us in (can happen
+  // if the user needs confirmation via a different flow). Surface as an
+  // error so the UI tells the user something useful.
+  if (!data?.session) {
+    return { error: 'Verified, but sign-in did not complete. Please try again.', hasSession: false }
+  }
+  return { error: null, hasSession: true }
 }
 
 export async function signInWithPassword(
   email: string,
   password: string,
-): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.signInWithPassword({
+): Promise<{ error: string | null; hasSession: boolean }> {
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: email.toLowerCase().trim(),
     password,
   })
-  if (error) return { error: error.message }
-  return { error: null }
+  if (error) return { error: error.message, hasSession: false }
+  if (!data?.session) {
+    return { error: 'Signed in, but session did not persist. Please try again.', hasSession: false }
+  }
+  return { error: null, hasSession: true }
 }
 
 export async function upgradeToPassword(
