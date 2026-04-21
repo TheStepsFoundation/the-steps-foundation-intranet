@@ -193,15 +193,14 @@ export default function StudentHub() {
         // client can't read it. Safe to leave in — only logs on failure.
         try {
           if (typeof window !== 'undefined') {
-            const keys = Object.keys(window.localStorage).filter(k => k.startsWith('sb-'))
-            console.warn('[hub] no session after 5s. sb-* localStorage keys:', keys)
-            for (const k of keys) {
-              const v = window.localStorage.getItem(k)
-              console.warn('[hub]   ', k, '=', v ? v.slice(0, 80) + '...' : '(empty)')
-            }
+            const allKeys = Object.keys(window.localStorage)
+            console.warn('[hub] no session after 5s. ALL localStorage keys:', allKeys)
             const s = await supabase.auth.getSession()
             const u = await supabase.auth.getUser()
-            console.warn('[hub] getSession:', s, 'getUser:', u)
+            console.warn('[hub] getSession.data.session:', s.data.session)
+            console.warn('[hub] getSession.error:', s.error)
+            console.warn('[hub] getUser.data.user:', u.data.user)
+            console.warn('[hub] getUser.error:', u.error)
           }
         } catch (e) { console.warn('[hub] diag failed:', e) }
         router.replace('/my/sign-in')

@@ -3,15 +3,18 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-// Using untyped client for flexibility - types handled in hooks.ts
-// Custom lock: bypasses the browser navigator.locks API which can orphan
-// during fast navigation or React Strict Mode double-mounts, causing
-// getSession() to hang indefinitely. This no-op lock just runs the
-// callback immediately — safe for a single-tab intranet app.
+// Explicit browser-only storage and auth config. Dropping the custom
+// no-op lock: in newer @supabase/supabase-js versions it appears to
+// interfere with session persistence (setSession returned no error but
+// nothing landed in localStorage). If navigator.locks wedges again we'll
+// switch to a proper lock implementation rather than a pass-through.
+const isBrowser = typeof window !== 'undefined'
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<any>) => {
-      return await fn()
-    },
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storage: isBrowser ? window.localStorage : undefined,
   },
 })
