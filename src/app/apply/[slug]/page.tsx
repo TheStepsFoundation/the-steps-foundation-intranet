@@ -1597,7 +1597,7 @@ export default function ApplyPage() {
 
               {/* Page fields */}
               {(formPages[customPageIdx]?.fields ?? []).map(field => (
-                <div key={field.id} data-error-key={`customField:${field.id}`}>
+                <div key={field.id} data-error-key={`customField:${field.id}`} className="mb-4 p-4 sm:p-5 bg-gray-50/50 rounded-xl border border-gray-100 last:mb-0">
                   <DynamicFormField
                     field={field}
                     value={customFieldValues[field.id]}
@@ -1646,7 +1646,7 @@ export default function ApplyPage() {
             /* Single-page mode (backward compat) */
             <div className="border-t border-gray-100 pt-6 mb-6">
               {formFields.map(field => (
-                <div key={field.id} data-error-key={`customField:${field.id}`}>
+                <div key={field.id} data-error-key={`customField:${field.id}`} className="mb-4 p-4 sm:p-5 bg-gray-50/50 rounded-xl border border-gray-100 last:mb-0">
                   <DynamicFormField
                     field={field}
                     value={customFieldValues[field.id]}
