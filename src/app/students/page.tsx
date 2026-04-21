@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
 import SelectAllBanner from '@/components/SelectAllBanner'
+import AddTestStudentModal from '@/components/AddTestStudentModal'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -84,6 +85,7 @@ export default function StudentsDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [students, setStudents] = useState<EnrichedStudent[]>([])
+  const [showAddStudent, setShowAddStudent] = useState(false)
   const [sortBy, setSortBy] = useState<SortKey>('engagement')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filters, setFilters] = useState<Filters>(defaultFilters())
@@ -343,6 +345,13 @@ export default function StudentsDashboard() {
           >
             Review schools
           </Link>
+          <button
+            onClick={() => setShowAddStudent(true)}
+            className="px-3 py-2 text-sm rounded-md border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+            title="Create a dummy student (auth account + students row) for testing."
+          >
+            + Add student
+          </button>
           <input
             value={filters.search}
             onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
@@ -690,6 +699,18 @@ export default function StudentsDashboard() {
             </button>
           </div>
         </div>
+      )}
+
+      {showAddStudent && (
+        <AddTestStudentModal
+          onClose={() => setShowAddStudent(false)}
+          onCreated={async () => {
+            setShowAddStudent(false)
+            // Refresh the list so the new test student appears immediately.
+            const fresh = await fetchAllStudentsEnriched({ forceRefresh: true })
+            setStudents(fresh)
+          }}
+        />
       )}
     </main>
   )
