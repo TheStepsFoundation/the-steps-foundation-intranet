@@ -130,7 +130,21 @@ export type EventRow = {
   banner_focal_y: number
   hub_focal_x: number
   hub_focal_y: number
+  dashboard_columns: DashboardColumnsConfig | null
   created_at: string
+}
+
+/**
+ * Per-event applicant-dashboard column config. Stored in events.dashboard_columns
+ * as JSONB. NULL means fall back to canonical defaults.
+ *
+ * - `order`: column ids in display order. Ids not in this list use canonical
+ *   position at the end. Custom-field ids are prefixed `cf_`.
+ * - `hidden`: column ids currently hidden from the applicants table.
+ */
+export type DashboardColumnsConfig = {
+  order?: string[]
+  hidden?: string[]
 }
 
 export type EventWithStats = EventRow & {
@@ -147,7 +161,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
@@ -224,7 +238,7 @@ export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
     'name' | 'slug' | 'location' | 'location_full' | 'format' | 'time_start' | 'time_end' | 'dress_code' |
-    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y'
+    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns'
   >>,
 ): Promise<EventRow> {
   // Guard against malformed form_config landing in the DB — a bad shape would

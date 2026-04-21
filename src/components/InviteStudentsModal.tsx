@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS, EVENT_BY_ID } from '@/lib/students-api'
 import { type EventRow, fetchEvent } from '@/lib/events-api'
+import SelectAllBanner from './SelectAllBanner'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -272,6 +273,27 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const selectAll = () => {
     setSelected(new Set(filtered.map(s => s.id)))
   }
+  const clearSelection = () => setSelected(new Set())
+
+  // Gmail-style banner state. pageStudents is what's rendered now; filtered is
+  // everything matching the filter. When the page is fully ticked, we offer an
+  // "extend to filter" action instead of silently doing it (too easy to send a
+  // bulk invite to 400 students when you meant 50).
+  const pageIds = useMemo(() => pageStudents.map(s => s.id), [pageStudents])
+  const filteredIds = useMemo(() => filtered.map(s => s.id), [filtered])
+  const allPageSelected = pageIds.length > 0 && pageIds.every(id => selected.has(id))
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => selected.has(id))
+
+  // Silently clear selection when the filter changes — consistent with the
+  // /students and applicants surfaces.
+  const filteredSigRef = useRef('')
+  useEffect(() => {
+    const sig = filteredIds.length === 0 ? '' : `${filteredIds.length}:${filteredIds[0]}:${filteredIds[filteredIds.length - 1]}`
+    if (filteredSigRef.current && filteredSigRef.current !== sig) {
+      setSelected(new Set())
+    }
+    filteredSigRef.current = sig
+  }, [filteredIds])
 
   // ---------------------------------------------------------------------------
   // Compose helpers
@@ -561,14 +583,22 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               {selected.size > 0 && (
                 <div className="mb-3 flex items-center gap-3 text-sm">
                   <span className="font-medium text-steps-blue-600 dark:text-steps-blue-400">{selected.size} selected</span>
-                  <button onClick={selectAll} className="text-xs text-steps-blue-600 dark:text-steps-blue-400 hover:underline">
-                    Select all {filtered.length}
-                  </button>
-                  <button onClick={() => setSelected(new Set())} className="text-xs text-gray-500 hover:underline">
+                  <button onClick={clearSelection} className="text-xs text-gray-500 hover:underline">
                     Clear
                   </button>
                 </div>
               )}
+
+              <SelectAllBanner
+                selectedCount={selected.size}
+                pageCount={pageIds.length}
+                filteredCount={filtered.length}
+                allPageSelected={allPageSelected}
+                allFilteredSelected={allFilteredSelected}
+                onSelectAllFiltered={selectAll}
+                onClear={clearSelection}
+                noun="students"
+              />
 
               {/* Table */}
               <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden">

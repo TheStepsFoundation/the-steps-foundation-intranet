@@ -12,6 +12,8 @@ import FormBuilder from "@/components/FormBuilder"
 import type { FormFieldConfig, FormPage, StandardOverrides } from "@/lib/events-api"
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 import LinkableInput from '@/components/LinkableInput'
+import ColumnPicker, { ColumnPickerItem } from '@/components/ColumnPicker'
+import SelectAllBanner from '@/components/SelectAllBanner'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -225,10 +227,13 @@ type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' |
 type SortDir = 'asc' | 'desc'
 
 
-// Built-in columns for the applicants table
-type BuiltInColId = 'school_type' | 'status' | 'grades' | 'engagement' | 'past_events' | 'rsvp' | 'attended'
-const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['school_type', 'status', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
+// Built-in columns for the applicants table. 'name' is a special column
+// (always rendered sticky-left when visible) but is still togglable via the
+// column picker so admins can run blind / anonymised reviews.
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'grades' | 'engagement' | 'past_events' | 'rsvp' | 'attended'
+const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
 const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
+  name: 'Name',
   school_type: 'School Type',
   status: 'Status',
   grades: 'Grades (Score)',
@@ -684,14 +689,15 @@ export default function EventDetailPage() {
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
   const [colOrder, setColOrder] = useState<string[]>([])  // empty = default order
 
-  // View state persistence — load once, save on change, keyed by event ID.
-  // Survives refresh so admins don't have to re-customise the table every visit.
-  // `v2` bump: stale hiddenCols from v1 were hiding new custom form fields
-  // (e.g. Man Group "divisions of interest" / "question for employee"). The
-  // key bump resets everyone's saved view so the new columns are visible by
-  // default. Can be bumped again if a future migration changes column IDs.
+  // View state persistence — filters & sort live in localStorage (per-admin),
+  // while column config (hidden + order) lives on the event row in the DB
+  // (shared across admins). Survives refresh so admins don't have to
+  // re-customise every visit.
   const [viewHydrated, setViewHydrated] = useState(false)
   const viewStorageKey = `steps:event-view:v3:${eventId}`
+  // Remember the last config we pushed so we don't thrash the DB on every
+  // state change that happens to coincide with the shared config.
+  const lastPushedColsRef = useRef<string>('')
 
   useEffect(() => {
     if (!eventId) return
@@ -715,8 +721,6 @@ export default function EventDetailPage() {
         if (typeof v.minGradeScore === 'number') setMinGradeScore(v.minGradeScore)
         if (typeof v.sortKey === 'string') setSortKey(v.sortKey)
         if (typeof v.sortDir === 'string') setSortDir(v.sortDir)
-        if (Array.isArray(v.hiddenCols)) setHiddenCols(new Set(v.hiddenCols))
-        if (Array.isArray(v.colOrder)) setColOrder(v.colOrder)
         if (typeof v.search === 'string') setSearch(v.search)
       }
     } catch {
@@ -736,15 +740,48 @@ export default function EventDetailPage() {
         minGradeScore,
         sortKey,
         sortDir,
-        hiddenCols: Array.from(hiddenCols),
-        colOrder,
         search,
       }
       window.localStorage.setItem(viewStorageKey, JSON.stringify(payload))
     } catch {
       // Storage full / disabled — view still works for this session.
     }
-  }, [viewHydrated, eventId, viewStorageKey, statusFilter, yearGroupFilter, schoolTypeFilter, minGradeScore, sortKey, sortDir, hiddenCols, colOrder, search])
+  }, [viewHydrated, eventId, viewStorageKey, statusFilter, yearGroupFilter, schoolTypeFilter, minGradeScore, sortKey, sortDir, search])
+
+  // Seed column config (hidden + order) from the event row when it loads.
+  // Shared across admins: lives in events.dashboard_columns. We only seed once,
+  // guarded by a ref so later saves don't clobber local state.
+  const colsSeededRef = useRef(false)
+  useEffect(() => {
+    if (colsSeededRef.current || !event) return
+    const cfg = event.dashboard_columns ?? null
+    if (cfg) {
+      if (Array.isArray(cfg.hidden)) setHiddenCols(new Set(cfg.hidden))
+      if (Array.isArray(cfg.order)) setColOrder(cfg.order)
+      lastPushedColsRef.current = JSON.stringify({
+        hidden: Array.isArray(cfg.hidden) ? cfg.hidden : [],
+        order: Array.isArray(cfg.order) ? cfg.order : [],
+      })
+    }
+    colsSeededRef.current = true
+  }, [event])
+
+  // Push column config to the event row whenever admins change it. Guarded by
+  // lastPushedColsRef so we don't PATCH the DB on every unrelated render.
+  const pushDashboardColumns = useCallback(async (hidden: Set<string>, order: string[]) => {
+    if (!eventId || !colsSeededRef.current) return
+    const payload = { hidden: Array.from(hidden), order }
+    const key = JSON.stringify(payload)
+    if (key === lastPushedColsRef.current) return
+    lastPushedColsRef.current = key
+    try {
+      const updated = await updateEvent(eventId, { dashboard_columns: payload })
+      if (updated) setEvent(updated)
+    } catch {
+      // Non-fatal: admin's local state is already updated; the next change will
+      // retry the push. Avoid blocking the UI on a transient network blip.
+    }
+  }, [eventId])
 
 
   // Selection for bulk actions
@@ -1298,6 +1335,31 @@ export default function EventDetailPage() {
     }
   }
 
+  // Select-all-in-filter helpers for the Gmail-style banner. When admins tick
+  // the page header checkbox on a 400-row filter, they likely want the full
+  // 400, not just the 50 visible ones — but silently selecting all of them
+  // would be a footgun for bulk actions, so we require a deliberate second
+  // click via the banner.
+  const filteredIds = useMemo(() => filtered.map(a => a.id), [filtered])
+  const allPageSelected = paged.length > 0 && paged.every(a => selected.has(a.id))
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => selected.has(id))
+  const selectAllFiltered = () => {
+    setSelected(prev => { const n = new Set(prev); filteredIds.forEach(id => n.add(id)); return n })
+  }
+  const clearSelection = () => setSelected(new Set())
+
+  // Silently clear selection when the set of filtered rows changes — otherwise
+  // admins could retain a stale selection that includes rows no longer visible,
+  // and end up running a bulk action on a ghost set.
+  const filteredSigRef = useRef('')
+  useEffect(() => {
+    const sig = filteredIds.length === 0 ? '' : `${filteredIds.length}:${filteredIds[0]}:${filteredIds[filteredIds.length - 1]}`
+    if (filteredSigRef.current && filteredSigRef.current !== sig) {
+      setSelected(new Set())
+    }
+    filteredSigRef.current = sig
+  }, [filteredIds])
+
   // ---------------------------------------------------------------------------
   // Email compose helpers
   // ---------------------------------------------------------------------------
@@ -1624,24 +1686,26 @@ export default function EventDetailPage() {
     })
   }, [allColumns, hiddenCols, statusFilter])
 
-  const moveCol = (id: string, dir: -1 | 1) => {
-    const order = colOrder.length > 0 ? [...colOrder] : allColumns.map(c => c.id)
-    const idx = order.indexOf(id)
-    if (idx < 0) return
-    const newIdx = idx + dir
-    if (newIdx < 0 || newIdx >= order.length) return
-    ;[order[idx], order[newIdx]] = [order[newIdx], order[idx]]
-    setColOrder(order)
-  }
-
-  const toggleCol = (id: string) => {
+  const toggleCol = useCallback((id: string) => {
     setHiddenCols(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
+      pushDashboardColumns(next, colOrder)
       return next
     })
-  }
+  }, [colOrder, pushDashboardColumns])
+
+  const reorderCols = useCallback((nextOrder: string[]) => {
+    setColOrder(nextOrder)
+    pushDashboardColumns(hiddenCols, nextOrder)
+  }, [hiddenCols, pushDashboardColumns])
+
+  const resetCols = useCallback(() => {
+    setHiddenCols(new Set())
+    setColOrder([])
+    pushDashboardColumns(new Set(), [])
+  }, [pushDashboardColumns])
 
   // ---------------------------------------------------------------------------
   // Render
@@ -2204,7 +2268,7 @@ export default function EventDetailPage() {
                 {/* Reset */}
                 {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || hiddenCols.size > 0 || colOrder.length > 0) && (
                   <button
-                    onClick={() => { setYearGroupFilter('all'); setSchoolTypeFilter('all'); setSortKey('submitted_at'); setSortDir('desc'); setMinGradeScore(0); setHiddenCols(new Set()); setColOrder([]); try { window.localStorage.removeItem(viewStorageKey) } catch {} }}
+                    onClick={() => { setYearGroupFilter('all'); setSchoolTypeFilter('all'); setSortKey('submitted_at'); setSortDir('desc'); setMinGradeScore(0); resetCols(); try { window.localStorage.removeItem(viewStorageKey) } catch {} }}
                     className="px-2.5 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline self-end"
                   >
                     Reset all
@@ -2212,49 +2276,24 @@ export default function EventDetailPage() {
                 )}
               </div>
 
-              {/* Row 2: Columns — show/hide & reorder */}
+              {/* Row 2: Columns — show/hide & reorder (shared across admins) */}
               <div className="p-3 border-t border-gray-200 dark:border-gray-700">
-                <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Columns</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {allColumns.map((col, i) => {
-                    const isVisible = !hiddenCols.has(col.id) && !(col.id === 'status' && statusFilter !== 'all')
-                    const autoHidden = col.id === 'status' && statusFilter !== 'all'
-                    return (
-                      <div key={col.id} className="flex items-center gap-0.5">
-                        {/* Reorder arrows */}
-                        <button
-                          onClick={() => moveCol(col.id, -1)}
-                          disabled={i === 0}
-                          className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed"
-                          title="Move left"
-                        >
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                        </button>
-                        {/* Column pill */}
-                        <button
-                          onClick={() => !autoHidden && toggleCol(col.id)}
-                          className={`px-2 py-1 text-xs rounded-md border transition-colors ${
-                            autoHidden
-                              ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed line-through'
-                              : isVisible
-                                ? 'border-steps-blue-200 dark:border-steps-blue-700 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-400'
-                                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-400 dark:text-gray-500 line-through'
-                          }`}
-                          title={autoHidden ? 'Auto-hidden (filtering by status)' : isVisible ? 'Click to hide' : 'Click to show'}
-                        >
-                          {col.label}
-                        </button>
-                        <button
-                          onClick={() => moveCol(col.id, 1)}
-                          disabled={i === allColumns.length - 1}
-                          className="p-0.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-20 disabled:cursor-not-allowed"
-                          title="Move right"
-                        >
-                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                        </button>
-                      </div>
-                    )
-                  })}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Columns</div>
+                  <ColumnPicker
+                    allColumns={allColumns.map<ColumnPickerItem>(c => ({
+                      id: c.id,
+                      label: c.label,
+                      group: c.kind === 'custom' ? 'Form question' : undefined,
+                      disabled: c.id === 'status' && statusFilter !== 'all',
+                      disabledReason: 'Auto-hidden while filtering by status',
+                    }))}
+                    hidden={hiddenCols}
+                    order={colOrder}
+                    onToggle={toggleCol}
+                    onReorder={reorderCols}
+                    onReset={resetCols}
+                  />
                 </div>
               </div>
             </div>
@@ -2325,6 +2364,17 @@ export default function EventDetailPage() {
             {applicants.length === 0 ? 'No applications yet.' : 'No applicants match your filters.'}
           </div>
         ) : (
+          <>
+            <SelectAllBanner
+              selectedCount={selected.size}
+              pageCount={paged.length}
+              filteredCount={filtered.length}
+              allPageSelected={allPageSelected}
+              allFilteredSelected={allFilteredSelected}
+              onSelectAllFiltered={selectAllFiltered}
+              onClear={clearSelection}
+              noun="applicants"
+            />
           <div className="overflow-x-scroll overflow-y-visible always-scrollbar" style={{ minHeight: Math.max((paged.length + 5) * 48, 336) }}>
             <table className="text-sm w-full border-collapse">
               <thead>
@@ -2337,8 +2387,10 @@ export default function EventDetailPage() {
                       className="rounded border-gray-300 dark:border-gray-600"
                     />
                   </th>
-                  <th className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900" style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}>Name</th>
-                  {visibleColumns.map(col => (
+                  {!hiddenCols.has('name') && (
+                    <th className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900" style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}>Name</th>
+                  )}
+                  {visibleColumns.filter(c => c.id !== 'name').map(col => (
                     <th
                       key={col.id}
                       className={
@@ -2379,26 +2431,28 @@ export default function EventDetailPage() {
                           className="rounded border-gray-300 dark:border-gray-600"
                         />
                       </td>
-                      <td
-                        className={`p-3 sticky left-8 z-10 ${rowBg}`}
-                        style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}
-                      >
-                        <Link
-                          href={`/students/${app.student_id}`}
-                          className={`font-medium hover:text-steps-blue-600 dark:hover:text-steps-blue-400 ${
-                            app.eligibility === 'ineligible'
-                              ? 'text-red-700 dark:text-red-400'
-                              : 'text-gray-900 dark:text-gray-100'
-                          }`}
+                      {!hiddenCols.has('name') && (
+                        <td
+                          className={`p-3 sticky left-8 z-10 ${rowBg}`}
+                          style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}
                         >
-                          {app.first_name} {app.last_name}
-                        </Link>
-                        {app.eligibility === 'ineligible' && (
-                          <span className="ml-1.5 text-[10px] font-medium text-red-500 dark:text-red-400 uppercase">Ineligible</span>
-                        )}
-                      </td>
+                          <Link
+                            href={`/students/${app.student_id}`}
+                            className={`font-medium hover:text-steps-blue-600 dark:hover:text-steps-blue-400 ${
+                              app.eligibility === 'ineligible'
+                                ? 'text-red-700 dark:text-red-400'
+                                : 'text-gray-900 dark:text-gray-100'
+                            }`}
+                          >
+                            {app.first_name} {app.last_name}
+                          </Link>
+                          {app.eligibility === 'ineligible' && (
+                            <span className="ml-1.5 text-[10px] font-medium text-red-500 dark:text-red-400 uppercase">Ineligible</span>
+                          )}
+                        </td>
+                      )}
                       {/* Dynamic columns based on visibility & order */}
-                      {visibleColumns.map((col, colIdx) => {
+                      {visibleColumns.filter(c => c.id !== 'name').map((col, colIdx) => {
                         // Built-in: school_type
                         if (col.id === 'school_type') return (
                           <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap">
@@ -2572,7 +2626,8 @@ export default function EventDetailPage() {
                           display = String(val)
                         }
                         const isLong = display.length > 80 || popoverContent != null
-                        const flipPopover = colIdx >= visibleColumns.length - 2
+                        const nonNameCount = hiddenCols.has('name') ? visibleColumns.length : visibleColumns.length - 1
+                        const flipPopover = colIdx >= nonNameCount - 2
                         return (
                           <td key={col.id} className="p-3 align-top min-w-[260px] max-w-[320px]">
                             {display === '—' ? (
@@ -2599,6 +2654,7 @@ export default function EventDetailPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
 
         {/* Footer with pagination */}

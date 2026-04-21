@@ -1,9 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
+import SelectAllBanner from '@/components/SelectAllBanner'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -240,6 +241,7 @@ export default function StudentsDashboard() {
   }
 
   const visibleIds = useMemo(() => filtered.slice(0, 500).map(s => s.id), [filtered])
+  const filteredIds = useMemo(() => filtered.map(s => s.id), [filtered])
 
   const toggleSelectAll = () => {
     const allSelected = visibleIds.every(id => selected.has(id))
@@ -249,6 +251,28 @@ export default function StudentsDashboard() {
       setSelected(prev => { const n = new Set(prev); visibleIds.forEach(id => n.add(id)); return n })
     }
   }
+
+  // Select-all-in-filter banner state. The table caps rendering at 500 rows for
+  // perf, so the "page" header tickbox only selects those 500 — but the filter
+  // may match many more. The Gmail-style banner lets admins extend selection to
+  // the entire filter (bypassing the 500-row cap) with one deliberate click.
+  const allPageSelected = visibleIds.length > 0 && visibleIds.every(id => selected.has(id))
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every(id => selected.has(id))
+  const selectAllFiltered = () => {
+    setSelected(prev => { const n = new Set(prev); filteredIds.forEach(id => n.add(id)); return n })
+  }
+  const clearSelection = () => setSelected(new Set())
+
+  // Silently clear selection when the filter result set changes — otherwise a
+  // bulk action could hit rows that are no longer in view.
+  const filteredSigRef = useRef('')
+  useEffect(() => {
+    const sig = filteredIds.length === 0 ? '' : `${filteredIds.length}:${filteredIds[0]}:${filteredIds[filteredIds.length - 1]}`
+    if (filteredSigRef.current && filteredSigRef.current !== sig) {
+      setSelected(new Set())
+    }
+    filteredSigRef.current = sig
+  }, [filteredIds])
 
   const selectedAdminEmails = useMemo(() => {
     const hits: string[] = []
@@ -524,6 +548,17 @@ export default function StudentsDashboard() {
         ) : filtered.length === 0 ? (
           <div className="p-10 text-center text-gray-500 dark:text-gray-400">No students match.</div>
         ) : (
+          <>
+            <SelectAllBanner
+              selectedCount={selected.size}
+              pageCount={visibleIds.length}
+              filteredCount={filtered.length}
+              allPageSelected={allPageSelected}
+              allFilteredSelected={allFilteredSelected}
+              onSelectAllFiltered={selectAllFiltered}
+              onClear={clearSelection}
+              noun="students"
+            />
           <div className="overflow-auto max-h-[calc(100vh-260px)] rounded-lg">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800/80 backdrop-blur text-gray-600 dark:text-gray-400 sticky top-0 z-10 shadow-[0_1px_0_0_rgba(0,0,0,0.06)]">
@@ -576,6 +611,7 @@ export default function StudentsDashboard() {
               </div>
             )}
           </div>
+          </>
         )}
       </div>
       {/* Delete confirmation modal */}
