@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS, EVENT_BY_ID } from '@/lib/students-api'
 import { type EventRow, fetchEvent } from '@/lib/events-api'
 import SelectAllBanner from './SelectAllBanner'
+import ColumnPicker, { type ColumnPickerItem } from './ColumnPicker'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,6 +135,84 @@ function getAvailableDynamicTags(students: EnrichedStudent[]): { tag: string; la
   return Array.from(tagSet).sort().map(tag => ({ tag, label: tagLabels[tag] || tag }))
 }
 
+/** Format an ISO timestamp as a compact relative age: "2d", "3w", "1mo".
+ *  Returns empty string if ts is null/undefined. */
+function formatRelativeAge(ts: string | null | undefined): string {
+  if (!ts) return ''
+  const diffMs = Date.now() - new Date(ts).getTime()
+  if (diffMs < 0) return 'just now'
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h`
+  const days = Math.floor(hrs / 24)
+  if (days < 14) return `${days}d`
+  const weeks = Math.floor(days / 7)
+  if (weeks < 9) return `${weeks}w`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo`
+  const years = Math.floor(days / 365)
+  return `${years}y`
+}
+
+/** Tooltip-friendly absolute formatter. */
+function formatAbsolute(ts: string | null | undefined): string {
+  if (!ts) return ''
+  try {
+    return new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ts
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Column picker config
+// ---------------------------------------------------------------------------
+
+/** All candidate columns in canonical default order. Name is pinned in the
+ *  render layer; this list is what the picker shows. */
+const INVITE_COLUMN_DEFS: ColumnPickerItem[] = [
+  { id: 'school_type', label: 'School type' },
+  { id: 'year', label: 'Year group' },
+  { id: 'events', label: 'Events attended' },
+  { id: 'past_events_detail', label: 'Past events (attended:accepted:submitted)' },
+  { id: 'eligibility', label: 'Eligibility' },
+  { id: 'score', label: 'Engagement score' },
+  { id: 'apps_total', label: 'Total applications' },
+  { id: 'last_contacted', label: 'Last contacted' },
+]
+
+const INVITE_COL_STORAGE_KEY = 'invite_modal_cols_v1'
+const INVITE_DEFAULT_HIDDEN = new Set<string>(['past_events_detail', 'apps_total'])
+
+type InviteColPrefs = { hidden: string[]; order: string[] }
+
+function loadInviteColPrefs(): InviteColPrefs {
+  if (typeof window === 'undefined') return { hidden: Array.from(INVITE_DEFAULT_HIDDEN), order: [] }
+  try {
+    const raw = window.localStorage.getItem(INVITE_COL_STORAGE_KEY)
+    if (!raw) return { hidden: Array.from(INVITE_DEFAULT_HIDDEN), order: [] }
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') throw new Error('bad shape')
+    return {
+      hidden: Array.isArray(parsed.hidden) ? parsed.hidden.filter((x: any) => typeof x === 'string') : Array.from(INVITE_DEFAULT_HIDDEN),
+      order: Array.isArray(parsed.order) ? parsed.order.filter((x: any) => typeof x === 'string') : [],
+    }
+  } catch {
+    return { hidden: Array.from(INVITE_DEFAULT_HIDDEN), order: [] }
+  }
+}
+
+function saveInviteColPrefs(prefs: InviteColPrefs) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(INVITE_COL_STORAGE_KEY, JSON.stringify(prefs))
+  } catch {
+    // quota errors are non-fatal — the defaults will kick in next session
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -148,6 +227,72 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [templates, setTemplates] = useState<Template[]>([])
+
+  // Last-contacted: when each student was last successfully emailed. Two maps:
+  //   - ForEvent: only rows for this event (what this modal is about to spam)
+  //   - Any:     rows across all events (broader anti-spam signal)
+  // Keyed by student_id, value = ISO timestamp of most recent 'sent' row.
+  const [lastContactedForEvent, setLastContactedForEvent] = useState<Record<string, string>>({})
+  const [lastContactedAny, setLastContactedAny] = useState<Record<string, string>>({})
+  // Anti-spam filter: hide students contacted within the last N days.
+  // 0 means 'show everyone'. Scope follows the hideScope toggle.
+  const [hideContactedDays, setHideContactedDays] = useState(0)
+  const [hideContactedScope, setHideContactedScope] = useState<'event' | 'any'>('event')
+
+  // Column picker — per-user localStorage-backed preferences. The picker
+  // doesn't cover 'name' (always pinned); the user's choice here drives the
+  // rest of the row.
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(INVITE_DEFAULT_HIDDEN))
+  const [colOrder, setColOrder] = useState<string[]>([])
+  // Seed from localStorage exactly once on mount.
+  const colsSeededRef = useRef(false)
+  useEffect(() => {
+    if (colsSeededRef.current) return
+    colsSeededRef.current = true
+    const prefs = loadInviteColPrefs()
+    setHiddenCols(new Set(prefs.hidden))
+    setColOrder(prefs.order)
+  }, [])
+
+  const persistCols = useCallback((nextHidden: Set<string>, nextOrder: string[]) => {
+    saveInviteColPrefs({ hidden: Array.from(nextHidden), order: nextOrder })
+  }, [])
+
+  const toggleCol = useCallback((id: string) => {
+    setHiddenCols(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      persistCols(next, colOrder)
+      return next
+    })
+  }, [colOrder, persistCols])
+
+  const reorderCols = useCallback((newOrder: string[]) => {
+    setColOrder(newOrder)
+    persistCols(hiddenCols, newOrder)
+  }, [hiddenCols, persistCols])
+
+  const resetCols = useCallback(() => {
+    const def = new Set<string>(INVITE_DEFAULT_HIDDEN)
+    setHiddenCols(def)
+    setColOrder([])
+    persistCols(def, [])
+  }, [persistCols])
+
+  // Visible columns resolved in display order.
+  const visibleCols = useMemo(() => {
+    const order = colOrder.length ? colOrder : INVITE_COLUMN_DEFS.map(c => c.id)
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const id of order) {
+      if (INVITE_COLUMN_DEFS.some(c => c.id === id) && !seen.has(id)) {
+        seen.add(id); result.push(id)
+      }
+    }
+    // Any new columns not yet in saved order
+    for (const c of INVITE_COLUMN_DEFS) if (!seen.has(c.id)) result.push(c.id)
+    return result.filter(id => !hiddenCols.has(id))
+  }, [colOrder, hiddenCols])
 
   // Filters
   const [yearFilter, setYearFilter] = useState<string[]>([])
@@ -169,8 +314,44 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody] = useState('')
 
+  // Draft persistence (localStorage, per event). Survives accidental modal
+  // close or a browser refresh mid-compose so nobody loses a 10-min edit.
+  const draftKey = `invite_modal_draft_v1:${eventId}`
+  const draftSeededRef = useRef(false)
+  useEffect(() => {
+    if (draftSeededRef.current) return
+    draftSeededRef.current = true
+    if (typeof window === 'undefined') return
+    try {
+      const raw = window.localStorage.getItem(draftKey)
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      if (parsed?.subject) setEmailSubject(String(parsed.subject))
+      if (parsed?.body) setEmailBody(String(parsed.body))
+      if (parsed?.templateId) setSelectedTemplate(String(parsed.templateId))
+    } catch {
+      // ignore — a corrupt draft shouldn't block the user
+    }
+  }, [draftKey])
+  useEffect(() => {
+    if (!draftSeededRef.current) return
+    if (typeof window === 'undefined') return
+    if (!emailSubject && !emailBody) {
+      // Empty draft — clear so the key doesn't linger stale
+      try { window.localStorage.removeItem(draftKey) } catch { /* noop */ }
+      return
+    }
+    try {
+      window.localStorage.setItem(draftKey, JSON.stringify({ subject: emailSubject, body: emailBody, templateId: selectedTemplate }))
+    } catch { /* quota — best-effort */ }
+  }, [draftKey, emailSubject, emailBody, selectedTemplate])
+
   // Send progress
   const [sendProgress, setSendProgress] = useState({ sent: 0, failed: 0, total: 0 })
+  // Ref flag polled between sends so an admin can stop a batch mid-flight
+  // (e.g. they noticed the subject line was wrong after 3 of 50 went out).
+  const sendAbortRef = useRef(false)
+  const [sendAborted, setSendAborted] = useState(false)
 
   // Template management
   const [showTemplateEditor, setShowTemplateEditor] = useState(false)
@@ -182,12 +363,44 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   // Load data
   // ---------------------------------------------------------------------------
 
+  // Pull the MAX(sent_at) per student from email_log, both scoped to this
+  // event and across all events. Called from loadData and again after a send
+  // so the UI reflects reality without a full reload.
+  const refreshLastContacted = useCallback(async () => {
+    // Paginate to avoid the default 1000-row PostgREST ceiling.
+    const pageSize = 1000
+    const forEvent: Record<string, string> = {}
+    const any: Record<string, string> = {}
+    const applyRow = (row: { student_id: string | null; event_id: string | null; sent_at: string | null }) => {
+      if (!row.student_id || !row.sent_at) return
+      if (!any[row.student_id] || row.sent_at > any[row.student_id]) any[row.student_id] = row.sent_at
+      if (row.event_id === eventId) {
+        if (!forEvent[row.student_id] || row.sent_at > forEvent[row.student_id]) forEvent[row.student_id] = row.sent_at
+      }
+    }
+    for (let page = 0; page < 20; page++) {
+      const { data } = await supabase
+        .from('email_log')
+        .select('student_id, event_id, sent_at')
+        .eq('status', 'sent')
+        .not('sent_at', 'is', null)
+        .order('sent_at', { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+      if (!data || data.length === 0) break
+      data.forEach((r: any) => applyRow(r))
+      if (data.length < pageSize) break
+    }
+    setLastContactedForEvent(forEvent)
+    setLastContactedAny(any)
+  }, [eventId])
+
   const loadData = useCallback(async () => {
     setLoading(true)
     const [enriched, { data: appData }, { data: tplData }] = await Promise.all([
       fetchAllStudentsEnriched({ forceRefresh: true }),
       supabase.from('applications').select('student_id').eq('event_id', eventId).is('deleted_at', null),
       supabase.from('email_templates').select('id, name, type, subject, body_html, event_id').is('deleted_at', null).order('created_at', { ascending: false }),
+      refreshLastContacted(),
     ])
     const applied = new Set((appData ?? []).map((a: any) => a.student_id))
     setAppliedIds(applied)
@@ -195,7 +408,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     setStudents(enriched.filter(s => !applied.has(s.id) && s.eligibility !== 'ineligible' && s.personal_email))
     setTemplates((tplData ?? []) as Template[])
     setLoading(false)
-  }, [eventId])
+  }, [eventId, refreshLastContacted])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -204,17 +417,35 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   // ---------------------------------------------------------------------------
 
   const yearGroups = useMemo(() => {
-    const yrs = new Set(students.map(s => s.year_group).filter((y): y is string => y != null))
-    return Array.from(yrs).sort((a, b) => Number(a) - Number(b))
+    const yrs = new Set<string>()
+    let hasUnknown = false
+    students.forEach(s => {
+      if (s.year_group != null) yrs.add(s.year_group)
+      else hasUnknown = true
+    })
+    const sorted = Array.from(yrs).sort((a, b) => Number(a) - Number(b))
+    if (hasUnknown) sorted.push('unknown')
+    return sorted
   }, [students])
 
   const filtered = useMemo(() => {
+    const cutoff = hideContactedDays > 0
+      ? new Date(Date.now() - hideContactedDays * 24 * 60 * 60 * 1000).toISOString()
+      : null
+    const contactMap = hideContactedScope === 'any' ? lastContactedAny : lastContactedForEvent
     return students.filter(s => {
-      if (yearFilter.length && s.year_group != null && !yearFilter.includes(s.year_group)) return false
+      if (yearFilter.length) {
+        const yr = s.year_group ?? 'unknown'
+        if (!yearFilter.includes(yr)) return false
+      }
       if (minScore > 0 && s.engagement_score < minScore) return false
       if (eventFilter.length > 0) {
         const attendedEventIds = new Set(s.applications.filter(a => a.attended).map(a => a.event_id))
         if (!eventFilter.some(eid => attendedEventIds.has(eid))) return false
+      }
+      if (cutoff) {
+        const lc = contactMap[s.id]
+        if (lc && lc > cutoff) return false
       }
       if (search) {
         const q = search.toLowerCase()
@@ -224,7 +455,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       }
       return true
     })
-  }, [students, yearFilter, minScore, eventFilter, search])
+  }, [students, yearFilter, minScore, eventFilter, search, hideContactedDays, hideContactedScope, lastContactedForEvent, lastContactedAny])
 
   // Pagination
   const PAGE_SIZE = 50
@@ -246,7 +477,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   }, [eventDropdownOpen])
 
   // Reset page when filters change
-  useEffect(() => { setPage(0) }, [yearFilter, minScore, eventFilter, search])
+  useEffect(() => { setPage(0) }, [yearFilter, minScore, eventFilter, search, hideContactedDays, hideContactedScope])
 
   // ---------------------------------------------------------------------------
   // Selection helpers
@@ -397,9 +628,12 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
 
   const sendInvites = async () => {
     setStep('sending')
+    sendAbortRef.current = false
+    setSendAborted(false)
     setSendProgress({ sent: 0, failed: 0, total: recipients.length })
 
     for (const student of recipients) {
+      if (sendAbortRef.current) break
       const renderedSubject = fillMerge(emailSubject, student)
       const renderedBody = fillMerge(emailBody, student)
       // Convert plain text to HTML paragraphs
@@ -409,9 +643,12 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
         .join('')
       const fullBody = htmlBody + EMAIL_SIGNATURE_HTML
 
+      // Insert email_log at 'pending' and capture the id so we can flip it to
+      // 'sent'/'failed' after the API call. If the insert itself fails we still
+      // attempt the send, but we won't have a log row to flip.
+      let emailLogId: string | null = null
       try {
-        // Insert email_log
-        await supabase.from('email_log').insert({
+        const { data: logRow } = await supabase.from('email_log').insert({
           student_id: student.id,
           event_id: eventId,
           template_id: selectedTemplate || null,
@@ -421,8 +658,13 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
           body_html: fullBody,
           status: 'pending',
           sent_by: teamMemberUuid,
-        })
+        }).select('id').single()
+        emailLogId = logRow?.id ?? null
+      } catch {
+        // swallow — the send is what matters; log row is best-effort
+      }
 
+      try {
         // Send via API route
         const res = await fetch('/api/send-email', {
           method: 'POST',
@@ -431,13 +673,39 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
         })
 
         if (res.ok) {
+          if (emailLogId) {
+            await supabase.from('email_log')
+              .update({ status: 'sent', sent_at: new Date().toISOString() })
+              .eq('id', emailLogId)
+          }
           setSendProgress(p => ({ ...p, sent: p.sent + 1 }))
         } else {
+          let errMsg = `HTTP ${res.status}`
+          try { const body = await res.json(); if (body?.error) errMsg = String(body.error).slice(0, 1000) } catch { /* noop */ }
+          if (emailLogId) {
+            await supabase.from('email_log')
+              .update({ status: 'failed', error_message: errMsg })
+              .eq('id', emailLogId)
+          }
           setSendProgress(p => ({ ...p, failed: p.failed + 1 }))
         }
-      } catch {
+      } catch (err: any) {
+        const errMsg = String(err?.message ?? 'Network error').slice(0, 1000)
+        if (emailLogId) {
+          await supabase.from('email_log')
+            .update({ status: 'failed', error_message: errMsg })
+            .eq('id', emailLogId)
+        }
         setSendProgress(p => ({ ...p, failed: p.failed + 1 }))
       }
+    }
+    // Refresh last-contacted timestamps so they reflect the just-sent invites
+    // without having to close and reopen the modal.
+    await refreshLastContacted()
+    // If the send ran to completion (not aborted), clear the draft — this
+    // copy has done its job.
+    if (!sendAbortRef.current && typeof window !== 'undefined') {
+      try { window.localStorage.removeItem(draftKey) } catch { /* noop */ }
     }
     setStep('done')
   }
@@ -518,8 +786,9 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                           ? 'bg-steps-blue-600 text-white border-steps-blue-600'
                           : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400'
                       }`}
+                      title={y === 'unknown' ? 'Students with no year group on file' : undefined}
                     >
-                      Y{y}
+                      {y === 'unknown' ? 'Unknown' : `Y${y}`}
                     </button>
                   ))}
                 </div>
@@ -534,6 +803,44 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                     className="w-14 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
                     min={0}
                   />
+                </div>
+
+                {/* Recent-contact filter — anti-spam guard. Scope follows the
+                     scope toggle (this event vs any event). */}
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-500">Hide contacted:</span>
+                  {[
+                    { v: 0, label: 'Off' },
+                    { v: 7, label: '7d' },
+                    { v: 14, label: '14d' },
+                    { v: 30, label: '30d' },
+                  ].map(opt => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setHideContactedDays(opt.v)}
+                      className={`px-2 py-1 text-xs rounded-md border ${
+                        hideContactedDays === opt.v
+                          ? 'bg-amber-600 text-white border-amber-600'
+                          : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400'
+                      }`}
+                      title={opt.v === 0
+                        ? 'Show everyone regardless of last-contact date'
+                        : `Hide students emailed in the last ${opt.v} days`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  {hideContactedDays > 0 && (
+                    <select
+                      value={hideContactedScope}
+                      onChange={e => setHideContactedScope(e.target.value as 'event' | 'any')}
+                      className="text-xs rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-1.5 py-1 ml-1"
+                      title="Scope: look at emails for this event only, or any event"
+                    >
+                      <option value="event">this event</option>
+                      <option value="any">any event</option>
+                    </select>
+                  )}
                 </div>
 
                 {/* Past events multi-select */}
@@ -577,6 +884,19 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                     </div>
                   )}
                 </div>
+
+                {/* Column picker — per-user persistence via localStorage */}
+                <div className="ml-auto">
+                  <ColumnPicker
+                    allColumns={INVITE_COLUMN_DEFS}
+                    hidden={hiddenCols}
+                    order={colOrder}
+                    onToggle={toggleCol}
+                    onReorder={reorderCols}
+                    onReset={resetCols}
+                    buttonLabel={`Columns (${visibleCols.length}/${INVITE_COLUMN_DEFS.length})`}
+                  />
+                </div>
               </div>
 
               {/* Bulk actions */}
@@ -609,11 +929,24 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                         <input type="checkbox" checked={pageStudents.length > 0 && pageStudents.every(s => selected.has(s.id))} onChange={toggleAll} />
                       </th>
                       <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Name</th>
-                      <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">School Type</th>
-                      <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Year</th>
-                      <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Events</th>
-                      <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Eligibility</th>
-                      <th className="text-right px-3 py-2 text-xs font-medium text-gray-500 uppercase">Score</th>
+                      {visibleCols.map(colId => {
+                        const def = INVITE_COLUMN_DEFS.find(c => c.id === colId)
+                        if (!def) return null
+                        const align =
+                          colId === 'score' ? 'text-right'
+                          : colId === 'school_type' ? 'text-left'
+                          : 'text-center'
+                        const titleHint =
+                          colId === 'last_contacted' ? 'Most recent email sent to this student (this event first, dimmed = any event)'
+                          : colId === 'past_events_detail' ? 'Attended : Accepted : Submitted (lifetime)'
+                          : colId === 'apps_total' ? 'Lifetime count of applications submitted'
+                          : undefined
+                        return (
+                          <th key={colId} className={`${align} px-3 py-2 text-xs font-medium text-gray-500 uppercase`} title={titleHint}>
+                            {colId === 'school_type' ? 'School Type' : def.label.replace(' (attended:accepted:submitted)', '')}
+                          </th>
+                        )
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -639,23 +972,87 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                           </button>
                           <div className="text-xs text-gray-400">{s.personal_email}</div>
                         </td>
-                        <td className="px-3 py-2 text-gray-600 dark:text-gray-400 text-xs">{s.school_type ? s.school_type.charAt(0).toUpperCase() + s.school_type.slice(1) : '—'}</td>
-                        <td className="px-3 py-2 text-center text-gray-600 dark:text-gray-400">{s.year_group ?? '—'}</td>
-                        <td className="px-3 py-2 text-center text-gray-600 dark:text-gray-400">
-                          {EVENTS.length > 0
-                            ? `${s.attended_count}/${EVENTS.length}`
-                            : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <span className={`px-1.5 py-0.5 rounded-full text-xs ${
-                            s.eligibility === 'eligible'
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                              : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                          }`}>
-                            {s.eligibility === 'eligible' ? 'Eligible' : 'Unknown'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-right font-semibold text-gray-900 dark:text-gray-100">{s.engagement_score}</td>
+                        {visibleCols.map(colId => {
+                          if (colId === 'school_type') {
+                            return (
+                              <td key={colId} className="px-3 py-2 text-gray-600 dark:text-gray-400 text-xs">
+                                {s.school_type ? s.school_type.charAt(0).toUpperCase() + s.school_type.slice(1) : '—'}
+                              </td>
+                            )
+                          }
+                          if (colId === 'year') {
+                            return (
+                              <td key={colId} className="px-3 py-2 text-center text-gray-600 dark:text-gray-400">
+                                {s.year_group ?? '—'}
+                              </td>
+                            )
+                          }
+                          if (colId === 'events') {
+                            return (
+                              <td key={colId} className="px-3 py-2 text-center text-gray-600 dark:text-gray-400">
+                                {EVENTS.length > 0 ? `${s.attended_count}/${EVENTS.length}` : '—'}
+                              </td>
+                            )
+                          }
+                          if (colId === 'past_events_detail') {
+                            const att = s.attended_count ?? 0
+                            const acc = s.accepted_count ?? 0
+                            const sub = s.submitted_count ?? 0
+                            return (
+                              <td key={colId} className="px-3 py-2 text-center text-xs text-gray-600 dark:text-gray-400 font-mono" title={`Attended ${att} • Accepted ${acc} • Submitted ${sub}`}>
+                                {att}:{acc}:{sub}
+                              </td>
+                            )
+                          }
+                          if (colId === 'eligibility') {
+                            return (
+                              <td key={colId} className="px-3 py-2 text-center">
+                                <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+                                  s.eligibility === 'eligible'
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                    : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                                }`}>
+                                  {s.eligibility === 'eligible' ? 'Eligible' : 'Unknown'}
+                                </span>
+                              </td>
+                            )
+                          }
+                          if (colId === 'score') {
+                            return (
+                              <td key={colId} className="px-3 py-2 text-right font-semibold text-gray-900 dark:text-gray-100">
+                                {s.engagement_score}
+                              </td>
+                            )
+                          }
+                          if (colId === 'apps_total') {
+                            const total = (s.applications ?? []).length
+                            return (
+                              <td key={colId} className="px-3 py-2 text-center text-gray-600 dark:text-gray-400">
+                                {total}
+                              </td>
+                            )
+                          }
+                          if (colId === 'last_contacted') {
+                            const evTs = lastContactedForEvent[s.id]
+                            const anyTs = lastContactedAny[s.id]
+                            return (
+                              <td key={colId} className="px-3 py-2 text-center text-xs">
+                                {evTs ? (
+                                  <span className="text-amber-700 dark:text-amber-400 font-medium" title={`This event — ${formatAbsolute(evTs)}`}>
+                                    {formatRelativeAge(evTs)}
+                                  </span>
+                                ) : anyTs ? (
+                                  <span className="text-gray-400" title={`Last email (any event) — ${formatAbsolute(anyTs)}`}>
+                                    {formatRelativeAge(anyTs)}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-300 dark:text-gray-600">—</span>
+                                )}
+                              </td>
+                            )
+                          }
+                          return <td key={colId} className="px-3 py-2">—</td>
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -880,21 +1277,35 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
             <div className="text-center py-10">
               <div className="text-4xl mb-3">&#9993;</div>
               <div className="text-sm text-gray-600 dark:text-gray-300">
-                Sending {sendProgress.sent + sendProgress.failed} / {sendProgress.total}…
+                {sendAborted ? 'Stopping after in-flight send…' : `Sending ${sendProgress.sent + sendProgress.failed} / ${sendProgress.total}…`}
               </div>
               <div className="w-48 mx-auto mt-3 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
                 <div className="h-full rounded-full bg-steps-blue-500 transition-all" style={{ width: `${sendProgress.total > 0 ? ((sendProgress.sent + sendProgress.failed) / sendProgress.total) * 100 : 0}%` }} />
               </div>
+              {!sendAborted && (
+                <button
+                  onClick={() => { sendAbortRef.current = true; setSendAborted(true) }}
+                  className="mt-4 px-3 py-1.5 text-xs rounded-md border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  title="Halt the batch after the in-flight send finishes. Sent emails can't be recalled."
+                >
+                  Stop sending
+                </button>
+              )}
             </div>
           )}
 
           {/* ======= STEP: DONE ======= */}
           {step === 'done' && (
             <div className="text-center py-10">
-              <div className="text-4xl mb-3">&#10003;</div>
-              <div className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Invites sent!</div>
+              <div className="text-4xl mb-3">{sendAborted ? '⚠️' : '✓'}</div>
+              <div className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">
+                {sendAborted ? 'Send stopped' : 'Invites sent!'}
+              </div>
               <div className="text-sm text-gray-500">
                 {sendProgress.sent} sent{sendProgress.failed > 0 ? `, ${sendProgress.failed} failed` : ''}
+                {sendAborted && sendProgress.total - sendProgress.sent - sendProgress.failed > 0
+                  ? `, ${sendProgress.total - sendProgress.sent - sendProgress.failed} skipped`
+                  : ''}
               </div>
             </div>
           )}
@@ -930,7 +1341,28 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
             <>
               <button onClick={() => setStep('compose')} className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">&larr; Edit</button>
               <button
-                onClick={sendInvites}
+                onClick={() => {
+                  // Anti-spam guard: if any recipients were emailed in the
+                  // last 7 days (this event or any event), make sure the
+                  // admin sees the count before committing.
+                  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+                  let recentForEvent = 0
+                  let recentAny = 0
+                  for (const r of recipients) {
+                    const evTs = lastContactedForEvent[r.id]
+                    const anyTs = lastContactedAny[r.id]
+                    if (evTs && new Date(evTs).getTime() > weekAgo) recentForEvent++
+                    else if (anyTs && new Date(anyTs).getTime() > weekAgo) recentAny++
+                  }
+                  const warnParts: string[] = []
+                  if (recentForEvent > 0) warnParts.push(`${recentForEvent} already emailed about this event in the last 7 days`)
+                  if (recentAny > 0) warnParts.push(`${recentAny} emailed about another event in the last 7 days`)
+                  if (warnParts.length > 0) {
+                    const ok = confirm(`Heads up: ${warnParts.join(' and ')}. Send anyway?`)
+                    if (!ok) return
+                  }
+                  sendInvites()
+                }}
                 className="px-4 py-2 text-sm rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
               >
                 Send {recipients.length} invite{recipients.length !== 1 ? 's' : ''}
