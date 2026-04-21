@@ -13,6 +13,7 @@ import {
 } from '@/lib/hub-api'
 import { getDisplayLocation } from '@/lib/event-display'
 import type { StudentSelf } from '@/lib/apply-api'
+import { clearAllDrafts } from '@/lib/apply-draft'
 import { supabase } from '@/lib/supabase'
 import { stripToText } from '@/lib/sanitize-html'
 
@@ -197,6 +198,7 @@ export default function StudentHub() {
   }
 
   const handleSignOut = async () => {
+    clearAllDrafts() // wipe any apply-page drafts before we drop the session
     await signOut()
     router.replace('/my/sign-in')
   }

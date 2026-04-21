@@ -15,6 +15,7 @@ import {
   type StudentSelf, type ApplicationSubmission,
   type QualificationEntry,
 } from '@/lib/apply-api'
+import { saveDraft, loadDraft, clearDraft, clearAllDrafts } from '@/lib/apply-draft'
 
 // ---------------------------------------------------------------------------
 // Event registry — maps slug to event metadata + form config
@@ -117,58 +118,6 @@ const SCHOOL_TYPE_OPTIONS = [
 
 function isIndependentSchool(typeGroup: string | null | undefined): boolean {
   return typeGroup === 'Independent schools'
-}
-
-
-// ---------------------------------------------------------------------------
-// Draft persistence — auto-save form state to localStorage
-// ---------------------------------------------------------------------------
-
-const DRAFT_VERSION = 1
-
-type DraftData = {
-  v: number
-  step: string
-  // Details
-  firstName: string
-  lastName: string
-  school: { schoolId: string | null; schoolNameRaw: string | null; typeGroup?: string | null; schoolName?: string | null }
-  yearGroup: number | ''
-  schoolType: string
-  freeSchoolMeals: string
-  householdIncome: string
-  additionalContext: string
-  anythingElse: string
-  // Application
-  gcseResults: string
-  qualifications: QualificationEntry[]
-  attribution: string
-  // Custom fields
-  customFieldValues: Record<string, unknown>
-}
-
-function draftKey(eventId: string, email: string): string {
-  return `steps_draft_${eventId}_${email.toLowerCase().trim()}`
-}
-
-function saveDraft(eventId: string, email: string, data: Omit<DraftData, 'v'>): void {
-  try {
-    localStorage.setItem(draftKey(eventId, email), JSON.stringify({ ...data, v: DRAFT_VERSION }))
-  } catch { /* quota exceeded or private mode — silently skip */ }
-}
-
-function loadDraft(eventId: string, email: string): DraftData | null {
-  try {
-    const raw = localStorage.getItem(draftKey(eventId, email))
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as DraftData
-    if (parsed.v !== DRAFT_VERSION) return null
-    return parsed
-  } catch { return null }
-}
-
-function clearDraft(eventId: string, email: string): void {
-  try { localStorage.removeItem(draftKey(eventId, email)) } catch { /* noop */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -911,6 +860,7 @@ export default function ApplyPage() {
   // Full sign-out: clear auth + all form state so nothing bleeds between accounts
   const handleSignOut = async () => {
     await signOutStudent()
+    clearAllDrafts() // drop any in-progress drafts so next user on this device doesn't see them
     setEmail('')
     setStep('email')
     setAlreadyApplied(false)

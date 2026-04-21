@@ -273,6 +273,7 @@ export async function fetchStudent(id: string): Promise<{ student: StudentRow | 
     .from('applications')
     .select('id,student_id,event_id,status,attended,submitted_at,attribution_source,bonus_points,bonus_reason')
     .eq('student_id', id)
+    .is('deleted_at', null)
     .order('submitted_at', { ascending: true })
   if (aErr) throw aErr
   return { student: (sData as StudentRow) ?? null, applications: (aData as ApplicationRow[]) ?? [] }

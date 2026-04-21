@@ -9,6 +9,7 @@ import {
   fetchEventOverview, signOut, withdrawApplication,
   type EventOverview,
 } from '@/lib/hub-api'
+import { clearAllDrafts } from '@/lib/apply-draft'
 import { getDisplayLocation, canSeeFullAddress } from '@/lib/event-display'
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 
@@ -145,7 +146,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
 
   useEffect(() => { load() }, [load])
 
-  const handleSignOut = async () => { await signOut(); router.push('/my/sign-in') }
+  const handleSignOut = async () => { clearAllDrafts(); await signOut(); router.push('/my/sign-in') }
 
   const confirmWithdraw = async () => {
     if (!overview?.application) return

@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { validateFormConfig } from './form-config-validator'
 
 // =============================================================================
 // Types
@@ -226,6 +227,12 @@ export async function updateEvent(
     'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y'
   >>,
 ): Promise<EventRow> {
+  // Guard against malformed form_config landing in the DB — a bad shape would
+  // break the apply page for every student on this event. Throws a descriptive
+  // error the admin UI can surface; leaves non-form patches untouched.
+  if (Object.prototype.hasOwnProperty.call(patch, 'form_config')) {
+    validateFormConfig(patch.form_config)
+  }
   const { data, error } = await supabase
     .from('events')
     .update(patch)
