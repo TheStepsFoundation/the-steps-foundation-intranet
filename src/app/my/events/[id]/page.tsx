@@ -100,6 +100,69 @@ function stringifyAnswer(val: unknown): string {
   return str.length ? str : '—'
 }
 
+// --- Profile-fallback helpers -------------------------------------------------
+// Old applications didn't always capture FSM / household income in their raw
+// snapshot. If the snapshot is blank but the student's current profile has
+// a value, show the profile value with a subtle "from your profile" hint so
+// the student isn't left staring at an empty field.
+
+const YES_NO_NA_LABEL: Record<string, string> = {
+  yes: 'Yes',
+  no: 'No',
+  prefer_not_to_say: 'Prefer not to say',
+  prefer_na: 'Prefer not to say',
+}
+
+const INCOME_BAND_TO_RAW: Record<string, string> = {
+  under_40k: 'yes',
+  over_40k: 'no',
+  prefer_na: 'prefer_not_to_say',
+}
+
+function formatYesNoAnswer(val: unknown): string | null {
+  if (val == null) return null
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+  const s = String(val).trim().toLowerCase()
+  if (!s) return null
+  return YES_NO_NA_LABEL[s] ?? String(val)
+}
+
+function isEmptyAnswer(val: unknown): boolean {
+  if (val == null) return true
+  if (typeof val === 'string') return val.trim().length === 0
+  if (Array.isArray(val)) return val.length === 0
+  if (typeof val === 'object') return Object.keys(val as object).length === 0
+  return false
+}
+
+type FallbackFieldProps = {
+  label: string
+  appValue: unknown
+  /** Rendered profile value, or null if the profile has nothing to offer. */
+  profileValue: string | null
+  /** Formatter applied to appValue when it's present. Defaults to stringifyAnswer. */
+  format?: (v: unknown) => string
+  className?: string
+}
+
+function FallbackField({ label, appValue, profileValue, format, className }: FallbackFieldProps) {
+  const appIsEmpty = isEmptyAnswer(appValue)
+  if (!appIsEmpty) {
+    return <Field label={label} className={className}>{(format ?? stringifyAnswer)(appValue)}</Field>
+  }
+  if (profileValue) {
+    return (
+      <Field label={label} className={className}>
+        <span>{profileValue}</span>
+        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide text-steps-blue-700 bg-steps-blue-50 border border-steps-blue-100 align-middle">
+          From your profile
+        </span>
+      </Field>
+    )
+  }
+  return <Field label={label} className={className}>—</Field>
+}
+
 // Render qualifications as a typed, readable list rather than a comma-joined blob.
 function renderQualifications(val: unknown): React.ReactNode {
   if (!Array.isArray(val) || val.length === 0) return '—'
@@ -339,8 +402,20 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
             <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4 mt-5">
               <Field label="GCSE results">{stringifyAnswer(raw.gcse_results)}</Field>
               <Field label="Current / predicted qualifications">{renderQualifications(raw.qualifications)}</Field>
-              <Field label="Household income (under £40k)">{stringifyAnswer(raw.household_income_under_40k)}</Field>
-              <Field label="Free school meals">{stringifyAnswer(raw.free_school_meals_raw)}</Field>
+              <FallbackField
+                label="Household income (under £40k)"
+                appValue={raw.household_income_under_40k}
+                profileValue={
+                  overview.profile?.parental_income_band
+                    ? (YES_NO_NA_LABEL[INCOME_BAND_TO_RAW[overview.profile.parental_income_band] ?? ''] ?? null)
+                    : null
+                }
+              />
+              <FallbackField
+                label="Free school meals"
+                appValue={raw.free_school_meals_raw}
+                profileValue={formatYesNoAnswer(overview.profile?.free_school_meals)}
+              />
               {raw.additional_context ? (
                 <Field label="Anything else" className="sm:col-span-2">{stringifyAnswer(raw.additional_context)}</Field>
               ) : null}

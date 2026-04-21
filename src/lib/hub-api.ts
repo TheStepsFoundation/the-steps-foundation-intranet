@@ -204,7 +204,16 @@ export type EventOverview = {
     capacity: number | null
   }) | null
   application: HubApplicationDetail | null
-  profile: { id: string; first_name: string | null; last_name: string | null } | null
+  /** Current student profile — used as a fallback for card fields that the
+   *  application snapshot didn't capture (e.g. FSM/income added after the
+   *  student first applied). Only the fallback-eligible columns are fetched. */
+  profile: {
+    id: string
+    first_name: string | null
+    last_name: string | null
+    free_school_meals: boolean | null
+    parental_income_band: string | null
+  } | null
 }
 
 export async function fetchEventOverview(eventId: string): Promise<EventOverview> {
@@ -223,7 +232,7 @@ export async function fetchEventOverview(eventId: string): Promise<EventOverview
   // Profile
   const { data: profile } = await supabase
     .from('students')
-    .select('id, first_name, last_name')
+    .select('id, first_name, last_name, free_school_meals, parental_income_band')
     .eq('personal_email', email)
     .maybeSingle()
 
