@@ -175,13 +175,17 @@ export async function verifyOtp(
     type: 'email',
   })
   if (error) return { error: error.message, hasSession: false }
-  // verifyOtp should return a session on success. If it doesn't, that means
-  // the OTP was accepted but Supabase didn't actually sign us in (can happen
-  // if the user needs confirmation via a different flow). Surface as an
-  // error so the UI tells the user something useful.
   if (!data?.session) {
     return { error: 'Verified, but sign-in did not complete. Please try again.', hasSession: false }
   }
+  // Belt-and-braces: explicitly set the session into the client so the tokens
+  // are both persisted to storage AND held in memory. Without this, there was
+  // a race where verifyOtp's internal persist hadn't flushed before the next
+  // page mount tried to read it via getSession.
+  await supabase.auth.setSession({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  })
   return { error: null, hasSession: true }
 }
 
@@ -197,6 +201,10 @@ export async function signInWithPassword(
   if (!data?.session) {
     return { error: 'Signed in, but session did not persist. Please try again.', hasSession: false }
   }
+  await supabase.auth.setSession({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+  })
   return { error: null, hasSession: true }
 }
 

@@ -146,11 +146,14 @@ export default function StudentHub() {
     let cancelled = false
 
     const waitForSession = async (): Promise<string | null> => {
-      for (let i = 0; i < 10; i++) {
+      // Up to ~5s — the session write from sign-in can be slow on
+      // cold-start because Supabase boots its internal state from
+      // storage and may need a tick to settle.
+      for (let i = 0; i < 50; i++) {
         if (cancelled) return null
         const email = await getAuthEmail()
         if (email) return email
-        await new Promise(r => setTimeout(r, 150))
+        await new Promise(r => setTimeout(r, 100))
       }
       return null
     }
@@ -184,7 +187,26 @@ export default function StudentHub() {
     ;(async () => {
       const email = await waitForSession()
       if (cancelled) return
-      if (!email) { router.replace('/my/sign-in'); return }
+      if (!email) {
+        // Diagnostic: dump what we see in storage so we can tell whether
+        // Supabase wrote the session at all, or whether it's there but the
+        // client can't read it. Safe to leave in — only logs on failure.
+        try {
+          if (typeof window !== 'undefined') {
+            const keys = Object.keys(window.localStorage).filter(k => k.startsWith('sb-'))
+            console.warn('[hub] no session after 5s. sb-* localStorage keys:', keys)
+            for (const k of keys) {
+              const v = window.localStorage.getItem(k)
+              console.warn('[hub]   ', k, '=', v ? v.slice(0, 80) + '...' : '(empty)')
+            }
+            const s = await supabase.auth.getSession()
+            const u = await supabase.auth.getUser()
+            console.warn('[hub] getSession:', s, 'getUser:', u)
+          }
+        } catch (e) { console.warn('[hub] diag failed:', e) }
+        router.replace('/my/sign-in')
+        return
+      }
       await loadAll(email)
     })()
 
