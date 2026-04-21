@@ -129,21 +129,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      // Confirmed not a team member. Just clear team state and let the
-      // admin UI decide what to render (redirect to /login, show empty, etc).
+      // Confirmed not a team member.
       //
-      // We used to call supabase.auth.signOut() here, but that was catastrophic
-      // in multi-tab scenarios: signing in to /my (student hub) in tab B
-      // broadcasts SIGNED_IN to tab A (admin). Tab A saw the student email,
-      // classified them as not_member, and called signOut — which cleared the
-      // shared sb-* key for BOTH tabs. Tab B then bounced back to sign-in
-      // because its session had just been wiped out from under it.
+      // Historical note: we once removed the signOut() here because a shared
+      // storageKey meant student sign-ins in another tab fired SIGNED_IN on
+      // the admin client, and signing out clobbered the shared session for
+      // both tabs. That's fixed now by using a separate Supabase client for
+      // the student hub (src/lib/supabase-student.ts) with its own storageKey,
+      // so admin onAuthStateChange only fires for actual admin actions or
+      // stale state on the admin key.
       //
-      // signIn / signUp in this provider already pre-check team_members and
-      // refuse to attempt auth for non-members, so reaching this branch now
-      // only ever means "a different tab just signed into a student session".
-      // Leaving that session alone is the correct behaviour.
+      // For INITIAL_SESSION, clear the stored admin session — it's leftover
+      // from before the client split (e.g. a student who used the admin
+      // client when both shared a key). Without this, the admin tab would
+      // boot with a stale student session and get bounced to /login forever.
       setTeamMember(null)
+      if (event === 'INITIAL_SESSION') {
+        try {
+          await supabase.auth.signOut({ scope: 'local' })
+          setSession(null)
+          setUser(null)
+          if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+            window.location.replace('/login')
+          }
+        } catch (err) {
+          console.warn('[auth] failed to clear stale admin session:', err)
+        }
+      }
     } catch (err) {
       console.error('[auth] handleAuthChange error:', err)
       // Do NOT clear team state on unexpected errors — same reasoning as
