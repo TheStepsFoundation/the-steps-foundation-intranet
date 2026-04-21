@@ -129,16 +129,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      // Confirmed not a team member. Only sign out if they're on an admin
-      // page; /apply and /my handle their own student auth.
+      // Confirmed not a team member. Just clear team state and let the
+      // admin UI decide what to render (redirect to /login, show empty, etc).
+      //
+      // We used to call supabase.auth.signOut() here, but that was catastrophic
+      // in multi-tab scenarios: signing in to /my (student hub) in tab B
+      // broadcasts SIGNED_IN to tab A (admin). Tab A saw the student email,
+      // classified them as not_member, and called signOut — which cleared the
+      // shared sb-* key for BOTH tabs. Tab B then bounced back to sign-in
+      // because its session had just been wiped out from under it.
+      //
+      // signIn / signUp in this provider already pre-check team_members and
+      // refuse to attempt auth for non-members, so reaching this branch now
+      // only ever means "a different tab just signed into a student session".
+      // Leaving that session alone is the correct behaviour.
       setTeamMember(null)
-      if (typeof window !== 'undefined'
-          && !window.location.pathname.startsWith('/apply')
-          && !window.location.pathname.startsWith('/my')) {
-        await supabase.auth.signOut()
-        setUser(null)
-        setSession(null)
-      }
     } catch (err) {
       console.error('[auth] handleAuthChange error:', err)
       // Do NOT clear team state on unexpected errors — same reasoning as
