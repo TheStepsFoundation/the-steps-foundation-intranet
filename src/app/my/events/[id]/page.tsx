@@ -10,6 +10,7 @@ import {
   type EventOverview,
 } from '@/lib/hub-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
+import { getStatusMeta } from '@/lib/application-status'
 import { getDisplayLocation, canSeeFullAddress } from '@/lib/event-display'
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 
@@ -17,14 +18,7 @@ import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 // Constants / helpers
 // ---------------------------------------------------------------------------
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  submitted: { label: 'Submitted', color: 'bg-sky-100 text-sky-700' },
-  shortlisted: { label: 'Shortlisted', color: 'bg-amber-100 text-amber-700' },
-  accepted: { label: 'Accepted', color: 'bg-emerald-100 text-emerald-700' },
-  rejected: { label: 'Not selected', color: 'bg-gray-100 text-gray-600' },
-  withdrew: { label: 'Withdrawn', color: 'bg-gray-100 text-gray-500' },
-  waitlisted: { label: 'Waitlisted', color: 'bg-steps-blue-100 text-steps-blue-700' },
-}
+
 
 function formatDate(d: string | null): string {
   if (!d) return ''
@@ -196,7 +190,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
   }
 
   const { event, application } = overview
-  const statusMeta = application ? (STATUS_LABELS[application.status] ?? { label: application.status, color: 'bg-gray-100 text-gray-600' }) : null
+  const statusMeta = application ? getStatusMeta(application.status) : null
   const isPast = event.event_date && new Date(event.event_date) < new Date()
   const privileged = canSeeFullAddress(application?.status ?? null, false) // team-side has its own routes
   const displayLocation = getDisplayLocation(event, privileged)
@@ -254,8 +248,8 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
             </div>
             {statusMeta && (
               <div className="flex flex-col items-end gap-1">
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${statusMeta.color}`}>
-                  {statusMeta.label}
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${statusMeta.badgeClasses}`}>
+                  {statusMeta.studentLabel}
                 </span>
                 {isPast && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400">Past event</span>

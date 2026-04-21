@@ -93,6 +93,11 @@ export default function StudentsDashboard() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [teamEmails, setTeamEmails] = useState<Set<string>>(new Set())
   const [confirmAdminDelete, setConfirmAdminDelete] = useState(false)
+  // View persistence — same pattern as /students/events/[id]. Hydrates on
+  // mount, then writes back on any filter/sort change. `viewHydrated` gates
+  // the writer so we don't overwrite stored state with defaults before load.
+  const [viewHydrated, setViewHydrated] = useState(false)
+  const viewStorageKey = 'steps:students-view:v1'
 
   useEffect(() => {
     let active = true
@@ -127,6 +132,41 @@ export default function StudentsDashboard() {
     smi2plus: students.filter(s => smiCount(s) >= 2).length,
     eligible: students.filter(s => s.eligibility === 'eligible').length,
   }), [students])
+
+  // Hydrate persisted view on mount.
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(viewStorageKey) : null
+      if (raw) {
+        const v = JSON.parse(raw) as Partial<{
+          sortBy: SortKey
+          sortDir: SortDir
+          filters: Filters
+        }>
+        if (typeof v.sortBy === 'string') setSortBy(v.sortBy)
+        if (typeof v.sortDir === 'string') setSortDir(v.sortDir)
+        if (v.filters && typeof v.filters === 'object') {
+          // Merge rather than replace — protects against newer filter keys added
+          // since the user last saved, without dropping their stored prefs.
+          setFilters(prev => ({ ...prev, ...v.filters }))
+        }
+      }
+    } catch {
+      // Corrupt/unavailable storage — fall through to defaults.
+    }
+    setViewHydrated(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Persist view on change.
+  useEffect(() => {
+    if (!viewHydrated) return
+    try {
+      window.localStorage.setItem(viewStorageKey, JSON.stringify({ sortBy, sortDir, filters }))
+    } catch {
+      // noop
+    }
+  }, [viewHydrated, sortBy, sortDir, filters])
 
   const activeFilterCount = useMemo(() => {
     let n = 0

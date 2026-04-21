@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import Image from 'next/image'
 import { PressableButton } from '@/components/PressableButton'
+import { OtpResendLink } from '@/components/OtpResendLink'
 
 // ---------------------------------------------------------------------------
 // Hub Sign-In — lightweight auth page that redirects to /my on success.
@@ -235,6 +236,13 @@ export default function HubSignInPage() {
                 >
                   ← Back
                 </button>
+                <OtpResendLink
+                  resetKey={email}
+                  onResend={async () => {
+                    const { error: err } = await sendOtp(email)
+                    return { error: err }
+                  }}
+                />
               </>
             )}
 

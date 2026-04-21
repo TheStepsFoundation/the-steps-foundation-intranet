@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EventRow, fetchEvent, updateEvent } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
+import { ADMIN_STATUS_OPTIONS } from '@/lib/application-status'
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
@@ -85,14 +86,10 @@ function computeEligibility(app: {
   return 'unknown'
 }
 
-const STATUSES = [
-  { code: 'submitted', label: 'Submitted', color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
-  { code: 'shortlisted', label: 'Shortlisted', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
-  { code: 'accepted', label: 'Accepted', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  { code: 'waitlist', label: 'Waitlist', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  { code: 'rejected', label: 'Rejected', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-  { code: 'withdrew', label: 'Withdrew', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
-]
+// Derived from the shared module so /my, /my/events/[id] and this page all
+// agree on labels + badge colours. Shape preserved (code/label/color) so the
+// existing call-sites elsewhere in this file keep working without changes.
+const STATUSES = ADMIN_STATUS_OPTIONS.map(s => ({ code: s.code, label: s.label, color: s.badgeClasses }))
 
 const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.code, s]))
 
@@ -1145,19 +1142,37 @@ export default function EventDetailPage() {
   const bulkUpdateStatus = async (newStatus: string) => {
     if (selected.size === 0) return
     const ids = [...selected]
+    // Breakdown by current status so the admin sees what's actually changing.
+    // Rows already on the target status are dropped from the UPDATE — that avoids
+    // pointless writes (and, downstream, any side effects like re-firing emails
+    // when a "notify" path is wired up later).
+    const selectedApps = applicants.filter(a => selected.has(a.id))
+    const changing = selectedApps.filter(a => a.status !== newStatus)
+    const alreadyMatching = selectedApps.length - changing.length
+    const targetLabel = STATUS_MAP[newStatus]?.label ?? newStatus
+    const byCurrent: Record<string, number> = {}
+    for (const a of changing) byCurrent[a.status] = (byCurrent[a.status] ?? 0) + 1
+    const breakdown = Object.entries(byCurrent)
+      .map(([code, n]) => `  • ${n} ${STATUS_MAP[code]?.label ?? code} → ${targetLabel}`)
+      .join('\n')
+    const summary = changing.length === 0
+      ? `All ${selectedApps.length} selected applicants are already "${targetLabel}". Nothing to update.`
+      : `Will update ${changing.length} of ${selectedApps.length} selected:\n${breakdown}` +
+        (alreadyMatching > 0 ? `\n  • ${alreadyMatching} already ${targetLabel} (no change)` : '')
+    if (!window.confirm(summary + '\n\nProceed?')) return
+    if (changing.length === 0) return
+
+    const changingIds = changing.map(a => a.id)
     const now = new Date().toISOString()
 
-    // Log history for each
-    for (const id of ids) {
-      const old = applicants.find(a => a.id === id)
-      if (old && old.status !== newStatus) {
-        await supabase.from('application_status_history').insert({
-          application_id: id,
-          old_status: old.status,
-          new_status: newStatus,
-          changed_by: teamMember?.auth_uuid ?? null,
-        })
-      }
+    // Log history for each row that actually changes.
+    for (const a of changing) {
+      await supabase.from('application_status_history').insert({
+        application_id: a.id,
+        old_status: a.status,
+        new_status: newStatus,
+        changed_by: teamMember?.auth_uuid ?? null,
+      })
     }
 
     await supabase
@@ -1169,10 +1184,10 @@ export default function EventDetailPage() {
         updated_by: teamMember?.auth_uuid ?? null,
         updated_at: now,
       } as any)
-      .in('id', ids)
+      .in('id', changingIds)
 
     setApplicants(prev => prev.map(a =>
-      selected.has(a.id) ? {
+      changingIds.includes(a.id) ? {
         ...a,
         status: newStatus,
         reviewed_by: teamMember?.auth_uuid ?? null,
@@ -2352,24 +2367,32 @@ export default function EventDetailPage() {
                           </td>
                         )
                         // Built-in: rsvp
-                        if (col.id === 'rsvp') return (
-                          <td key={col.id} className="p-3">
-                            {app.status === 'accepted' ? (
-                              app.rsvp_confirmed === true ? (
-                                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  Yes
-                                </span>
+                        if (col.id === 'rsvp') {
+                          // Surface the RSVP timestamp in the tooltip so admins
+                          // can see *when* a student confirmed without opening
+                          // the detail page.
+                          const rsvpTooltip = app.rsvp_confirmed === true && app.rsvp_confirmed_at
+                            ? `Confirmed ${new Date(app.rsvp_confirmed_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+                            : app.rsvp_confirmed === true ? 'Confirmed' : 'Awaiting RSVP'
+                          return (
+                            <td key={col.id} className="p-3">
+                              {app.status === 'accepted' ? (
+                                app.rsvp_confirmed === true ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400" title={rsvpTooltip}>
+                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Yes
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-amber-600 dark:text-amber-400" title={rsvpTooltip}>Pending</span>
+                                )
                               ) : (
-                                <span className="text-xs text-amber-600 dark:text-amber-400">Pending</span>
-                              )
-                            ) : (
-                              <span className="text-xs text-gray-400 dark:text-gray-600">—</span>
-                            )}
-                          </td>
-                        )
+                                <span className="text-xs text-gray-400 dark:text-gray-600">—</span>
+                              )}
+                            </td>
+                          )
+                        }
                         // Built-in: attended
                         if (col.id === 'attended') return (
                           <td key={col.id} className="p-3 text-center">
@@ -2399,28 +2422,35 @@ export default function EventDetailPage() {
                             </span>
                           </td>
                         )
-                        // Built-in: past events — attended / past applications ratio.
-                        // Subtract the current application's contribution so the cell shows
-                        // *past* activity only (not counting the row you're currently viewing).
+                        // Built-in: past events — attended / accepted / submitted.
+                        // Three-number funnel so admins can see at a glance:
+                        //   * how many past applications this student has submitted
+                        //   * how many we accepted (vs. waitlisted / rejected / submitted-only)
+                        //   * how many they actually showed up to
+                        // Subtract the current row's contribution so the cell reflects
+                        // past activity only — not the application being reviewed right now.
                         if (col.id === 'past_events') {
-                          const pastApps = Math.max(0, (app.totalApplications ?? 0) - 1)
-                          const pastAttended = Math.max(0, (app.attendedCount ?? 0) - (app.attended ? 1 : 0))
+                          const pastSubmitted = Math.max(0, (app.totalApplications ?? 0) - 1)
                           const pastAccepted = Math.max(0, (app.acceptedCount ?? 0) - (app.status === 'accepted' ? 1 : 0))
+                          const pastAttended = Math.max(0, (app.attendedCount ?? 0) - (app.attended ? 1 : 0))
                           const pastNoShows = app.noShowCount ?? 0
                           // Perfect attendance: they attended every event we accepted them to,
                           // with at least 2 under their belt so the tick carries weight.
                           const perfect = pastAttended === pastAccepted && pastAccepted >= 2
-                          const tooltip = pastApps === 0
+                          const tooltip = pastSubmitted === 0
                             ? 'First-time applicant'
-                            : `${pastAttended} attended · ${pastApps} past application${pastApps === 1 ? '' : 's'}${pastNoShows > 0 ? ` · ${pastNoShows} no-show${pastNoShows === 1 ? '' : 's'}` : ''}`
+                            : `${pastAttended} attended · ${pastAccepted} accepted · ${pastSubmitted} applied${pastNoShows > 0 ? ` · ${pastNoShows} no-show${pastNoShows === 1 ? '' : 's'}` : ''}`
                           return (
                             <td key={col.id} className="p-3 whitespace-nowrap">
-                              {pastApps === 0 ? (
+                              {pastSubmitted === 0 ? (
                                 <span className="text-xs text-gray-400 dark:text-gray-500" title={tooltip}>New</span>
                               ) : (
                                 <span className={`inline-flex items-center gap-1 text-sm ${perfect ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-700 dark:text-gray-300'}`} title={tooltip}>
                                   <span className="font-medium">{pastAttended}</span>
-                                  <span className="text-xs text-gray-400 dark:text-gray-500">/ {pastApps}</span>
+                                  <span className="text-xs text-gray-400 dark:text-gray-500">/</span>
+                                  <span className="font-medium">{pastAccepted}</span>
+                                  <span className="text-xs text-gray-400 dark:text-gray-500">/</span>
+                                  <span className="font-medium">{pastSubmitted}</span>
                                   {perfect && (
                                     <svg className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-hidden="true">
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

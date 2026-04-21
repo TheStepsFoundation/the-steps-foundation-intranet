@@ -16,6 +16,7 @@ import {
   type QualificationEntry,
 } from '@/lib/apply-api'
 import { saveDraft, loadDraft, clearDraft, clearAllDrafts } from '@/lib/apply-draft'
+import { OtpResendLink } from '@/components/OtpResendLink'
 
 // ---------------------------------------------------------------------------
 // Event registry — maps slug to event metadata + form config
@@ -311,6 +312,9 @@ export default function ApplyPage() {
   // Take a snapshot of the form state once application data is fully restored
   // This runs after React has re-rendered with the restored values
   const snapshotTaken = useRef(false)
+  // Lock while the submission is in flight. Prevents a second click between
+  // the click and setStep('submitting') from re-running handleSubmit.
+  const submittingRef = useRef(false)
   useEffect(() => {
     if (alreadyApplied && !snapshotTaken.current && (firstName || gcseResults || qualifications[0]?.subject)) {
       snapshotTaken.current = true
@@ -710,6 +714,7 @@ export default function ApplyPage() {
   }
 
   const handleSubmit = async () => {
+    if (submittingRef.current) return
     const errs: Record<string, string> = {}
     const order: string[] = []
 
@@ -804,6 +809,7 @@ export default function ApplyPage() {
     }
 
     setError(null)
+    submittingRef.current = true
     setStep('submitting')
 
     const submission: ApplicationSubmission = {
@@ -827,11 +833,13 @@ export default function ApplyPage() {
 
     const result = await submitApplication(event!.id, submission)
     if (result.error) {
+      submittingRef.current = false // release so the student can retry after reading the error
       setError(result.error)
       setStep('application')
       return
     }
     clearDraft(event!.id, email)
+    // Leave submittingRef true through success — the form is done with.
     setStep('success')
   }
 
@@ -1182,6 +1190,13 @@ export default function ApplyPage() {
           >
             Use a different email
           </button>
+          <OtpResendLink
+            resetKey={email}
+            onResend={async () => {
+              const { error: err } = await sendOtp(email)
+              return { error: err }
+            }}
+          />
         </div>
       )}
 
@@ -1689,7 +1704,7 @@ export default function ApplyPage() {
                   Back
                 </button>
                 <button onClick={handleSubmit}
-                  disabled={alreadyApplied && !hasFormChanges}
+                  disabled={(alreadyApplied && !hasFormChanges) || submittingRef.current}
                   className="flex-1 py-3 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-press-blue">
                   {alreadyApplied ? (hasFormChanges ? 'Update application' : 'No changes to update') : 'Submit application'}
                 </button>

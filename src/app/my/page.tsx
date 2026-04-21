@@ -14,6 +14,7 @@ import {
 import { getDisplayLocation } from '@/lib/event-display'
 import type { StudentSelf } from '@/lib/apply-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
+import { getStatusMeta } from '@/lib/application-status'
 import { supabase } from '@/lib/supabase'
 import { stripToText } from '@/lib/sanitize-html'
 
@@ -34,14 +35,7 @@ const INCOME_OPTIONS = [
   { value: 'prefer_na', label: 'Prefer not to say' },
 ]
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  submitted: { label: 'Submitted', color: 'bg-sky-100 text-sky-700' },
-  shortlisted: { label: 'Shortlisted', color: 'bg-amber-100 text-amber-700' },
-  accepted: { label: 'Accepted', color: 'bg-emerald-100 text-emerald-700' },
-  rejected: { label: 'Not selected', color: 'bg-gray-100 text-gray-600' },
-  withdrew: { label: 'Withdrawn', color: 'bg-gray-100 text-gray-500' },
-  waitlisted: { label: 'Waitlisted', color: 'bg-steps-blue-100 text-steps-blue-700' },
-}
+
 
 function formatDate(d: string | null): string {
   if (!d) return ''
@@ -318,15 +312,22 @@ export default function StudentHub() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">My applications</h2>
         {applications.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
-            <p className="text-gray-500 text-sm">You haven&apos;t applied to any events yet.</p>
-            {openEvents.length > 0 && (
-              <p className="text-steps-blue-600 text-sm mt-2 font-medium">Check out the open events above!</p>
+            {openEvents.length > 0 ? (
+              <>
+                <p className="text-gray-500 text-sm">You haven&apos;t applied to any events yet.</p>
+                <p className="text-steps-blue-600 text-sm mt-2 font-medium">Check out the open events above!</p>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-700 text-sm font-medium">No new opportunities right now</p>
+                <p className="text-gray-500 text-sm mt-1">We&apos;ll email you when the next round opens &mdash; keep an eye on your inbox.</p>
+              </>
             )}
           </div>
         ) : (
           <div className="space-y-3">
             {applications.map(app => {
-              const statusMeta = STATUS_LABELS[app.status] ?? { label: app.status, color: 'bg-gray-100 text-gray-600' }
+              const statusMeta = getStatusMeta(app.status)
               const isPast = app.event.event_date && new Date(app.event.event_date) < new Date()
               const canSeeFull = app.status === 'accepted'
               const displayLocation = getDisplayLocation(app.event, canSeeFull)
@@ -341,8 +342,8 @@ export default function StudentHub() {
                     <div className="flex-1 min-w-0 p-5 sm:p-6 flex flex-col">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-gray-900 text-lg group-hover:text-steps-blue-700 transition">{app.event.name}</h3>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusMeta.color}`}>
-                          {statusMeta.label}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusMeta.badgeClasses}`}>
+                          {statusMeta.studentLabel}
                         </span>
                         {isPast && (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400">
