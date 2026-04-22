@@ -433,3 +433,136 @@ export function MergeTagInsertBar({
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// Single-line merge-tag editor — used for subject lines. Renders the same
+// blue-pill chips for {{tag}} tokens but is contenteditable in a single
+// row: Enter/Shift+Enter are swallowed, newlines pasted in as spaces, no
+// formatting toolbar.
+// ---------------------------------------------------------------------------
+
+export type SingleLineMergeEditorHandle = {
+  insertMergeTag: (tag: string, label?: string) => void
+  focus: () => void
+}
+
+export type SingleLineMergeEditorProps = {
+  value: string
+  onChange: (next: string) => void
+  placeholder?: string
+  className?: string
+}
+
+export const SingleLineMergeEditor = React.forwardRef<SingleLineMergeEditorHandle, SingleLineMergeEditorProps>(function SingleLineMergeEditor(
+  { value, onChange, placeholder, className },
+  forwardedRef,
+) {
+  const divRef = useRef<HTMLDivElement | null>(null)
+  const savedRange = useRef<Range | null>(null)
+  const [isEmpty, setIsEmpty] = useState(!value)
+
+  // Re-seed when the external value identity changes (e.g. template picked).
+  // We compare the serialised contenteditable content against `value` to
+  // avoid overwriting the user's caret on every keystroke.
+  useEffect(() => {
+    if (!divRef.current) return
+    const current = chipsToTokens(divRef.current.innerHTML).replace(/&nbsp;/g, ' ')
+    if (current === value) return
+    divRef.current.innerHTML = tokensToChips(value || '')
+    setIsEmpty(!divRef.current.textContent)
+  }, [value])
+
+  const saveSelection = () => {
+    const sel = typeof window !== 'undefined' ? window.getSelection() : null
+    if (sel && sel.rangeCount > 0 && divRef.current?.contains(sel.anchorNode)) {
+      savedRange.current = sel.getRangeAt(0).cloneRange()
+    }
+  }
+
+  const restoreSelection = () => {
+    if (!savedRange.current || !divRef.current) return
+    const sel = window.getSelection()
+    if (!sel) return
+    sel.removeAllRanges()
+    sel.addRange(savedRange.current)
+  }
+
+  const emitChange = () => {
+    if (!divRef.current) return
+    // Collapse <div> / <br> that contenteditable sometimes injects on edit,
+    // since we want a strictly single-line value.
+    const raw = chipsToTokens(divRef.current.innerHTML)
+    const flattened = raw
+      .replace(/<div[^>]*>/gi, '')
+      .replace(/<\/div>/gi, '')
+      .replace(/<br\s*\/?>/gi, '')
+      .replace(/&nbsp;/g, ' ')
+    onChange(flattened)
+    setIsEmpty(!divRef.current.textContent)
+  }
+
+  const insertChipAtCaret = (tag: string, label?: string) => {
+    restoreSelection()
+    divRef.current?.focus()
+    const html = makeChipHtml(tag, label) + '&nbsp;'
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('insertHTML', false, html)
+    } catch {
+      const sel = window.getSelection()
+      if (sel && sel.rangeCount > 0 && divRef.current) {
+        const range = sel.getRangeAt(0)
+        const tpl = document.createElement('template')
+        tpl.innerHTML = html
+        range.deleteContents()
+        range.insertNode(tpl.content)
+      }
+    }
+    saveSelection()
+    emitChange()
+  }
+
+  React.useImperativeHandle(forwardedRef, () => ({
+    insertMergeTag: (tag: string, label?: string) => insertChipAtCaret(tag, label),
+    focus: () => divRef.current?.focus(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [onChange])
+
+  return (
+    <div className={`relative ${className ?? ''}`}>
+      {isEmpty && placeholder && (
+        <div className="absolute top-1/2 -translate-y-1/2 left-3 text-sm text-gray-400 pointer-events-none truncate max-w-[calc(100%-1.5rem)]">
+          {placeholder}
+        </div>
+      )}
+      <div
+        ref={divRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={emitChange}
+        onBlur={saveSelection}
+        onKeyUp={saveSelection}
+        onMouseUp={saveSelection}
+        onKeyDown={e => {
+          // Swallow Enter so the subject stays single-line.
+          if (e.key === 'Enter') {
+            e.preventDefault()
+          }
+        }}
+        onPaste={e => {
+          // Force plaintext paste to avoid dragging in formatting / line breaks.
+          e.preventDefault()
+          const text = e.clipboardData.getData('text/plain').replace(/[\r\n]+/g, ' ')
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
+            document.execCommand('insertText', false, text)
+          } catch {
+            // fall through
+          }
+        }}
+        className="min-h-[38px] w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-1 focus:ring-steps-blue-400 whitespace-nowrap overflow-x-auto"
+        style={{ lineHeight: '22px' }}
+      />
+    </div>
+  )
+})

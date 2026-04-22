@@ -7,6 +7,8 @@ import { useAuth } from '@/lib/auth-provider'
 import {
   RichTextEmailEditor,
   type RichTextEmailEditorHandle,
+  SingleLineMergeEditor,
+  type SingleLineMergeEditorHandle,
   MergeTagInsertBar,
   DEFAULT_MERGE_TAGS,
 } from '@/components/RichTextEmailEditor'
@@ -43,6 +45,7 @@ export default function EmailTemplatesPage() {
   const [bodySeedCounter, setBodySeedCounter] = useState(0)
 
   const bodyEditorRef = useRef<RichTextEmailEditorHandle | null>(null)
+  const subjectEditorRef = useRef<SingleLineMergeEditorHandle | null>(null)
 
   const emptyDraft = {
     name: '',
@@ -194,14 +197,30 @@ export default function EmailTemplatesPage() {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Subject line</label>
-            <input
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Subject line</label>
+              <div className="flex flex-wrap gap-1 justify-end">
+                <span className="text-[10px] text-gray-400 self-center mr-1">Insert:</span>
+                {DEFAULT_MERGE_TAGS.slice(0, 4).map(({ tag, label }) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => subjectEditorRef.current?.insertMergeTag(tag, label)}
+                    className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <SingleLineMergeEditor
+              key={`subj-${bodySeedCounter}`}
+              ref={subjectEditorRef}
               value={draft.subject}
-              onChange={e => setDraft(d => ({ ...d, subject: e.target.value }))}
+              onChange={v => setDraft(d => ({ ...d, subject: v }))}
               placeholder="e.g. Your application to {{event_name}} has been accepted!"
-              className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
             />
-            <p className="mt-1 text-[11px] text-gray-400">Merge tags like <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{'{{event_name}}'}</code> work in the subject too.</p>
           </div>
 
           <div>

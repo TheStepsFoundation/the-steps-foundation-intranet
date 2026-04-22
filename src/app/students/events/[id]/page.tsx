@@ -17,6 +17,8 @@ import SelectAllBanner from '@/components/SelectAllBanner'
 import {
   RichTextEmailEditor,
   type RichTextEmailEditorHandle,
+  SingleLineMergeEditor,
+  type SingleLineMergeEditorHandle,
   plainTextToHtml as sharedPlainTextToHtml,
   looksLikeHtml as sharedLooksLikeHtml,
 } from '@/components/RichTextEmailEditor'
@@ -660,6 +662,8 @@ export default function EventDetailPage() {
 
   // Rich-text editor ref — used to inject merge tags at the caret.
   const bodyEditorRef = useRef<RichTextEditorHandle | null>(null)
+  // Single-line subject editor ref — injects pill chips into the subject.
+  const subjectEditorRef = useRef<SingleLineMergeEditorHandle | null>(null)
   // HTML snapshot that seeds the editor — captured once per template load so
   // the contenteditable isn't overwritten on every keystroke. When a new
   // template is picked we bump a counter to re-seed with that body.
@@ -2745,14 +2749,36 @@ export default function EventDetailPage() {
                     </div>
                   </div>
 
-                  {/* Subject */}
+                  {/* Subject — contenteditable with pill-rendered merge tags */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Subject</label>
-                    <input
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Subject</label>
+                      <div className="flex flex-wrap gap-1 justify-end max-w-[65%]">
+                        <span className="text-[10px] text-gray-400 self-center mr-1">Insert:</span>
+                        {[
+                          { tag: 'first_name', label: 'First Name' },
+                          { tag: 'event_name', label: 'Event Name' },
+                        ].map(({ tag, label }) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onMouseDown={e => e.preventDefault()}
+                            onClick={() => {
+                              subjectEditorRef.current?.insertMergeTag(tag, label)
+                              if (selectedTemplate) setTemplateDirty(true)
+                            }}
+                            className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <SingleLineMergeEditor
+                      ref={subjectEditorRef}
                       value={emailSubject}
-                      onChange={e => { setEmailSubject(e.target.value); if (selectedTemplate) setTemplateDirty(true) }}
+                      onChange={v => { setEmailSubject(v); if (selectedTemplate) setTemplateDirty(true) }}
                       placeholder="e.g. An update on your {{event_name}} application"
-                      className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm"
                     />
                   </div>
 

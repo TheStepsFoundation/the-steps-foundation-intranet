@@ -5,6 +5,14 @@ import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, E
 import { type EventRow, fetchEvent } from '@/lib/events-api'
 import SelectAllBanner from './SelectAllBanner'
 import ColumnPicker, { type ColumnPickerItem } from './ColumnPicker'
+import {
+  RichTextEmailEditor,
+  type RichTextEmailEditorHandle,
+  SingleLineMergeEditor,
+  type SingleLineMergeEditorHandle,
+  MergeTagInsertBar,
+  type MergeTag,
+} from './RichTextEmailEditor'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -313,6 +321,12 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const [selectedTemplate, setSelectedTemplate] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody] = useState('')
+  // Rich-editor refs — used to inject merge-tag pills at the caret.
+  const bodyEditorRef = useRef<RichTextEmailEditorHandle | null>(null)
+  const subjectEditorRef = useRef<SingleLineMergeEditorHandle | null>(null)
+  // Re-seed counter: bumped whenever we programmatically set body/subject
+  // (template pick, draft restore) so the contenteditable re-initialises.
+  const [editorSeedCounter, setEditorSeedCounter] = useState(0)
 
   // Draft persistence (localStorage, per event). Survives accidental modal
   // close or a browser refresh mid-compose so nobody loses a 10-min edit.
@@ -329,6 +343,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       if (parsed?.subject) setEmailSubject(String(parsed.subject))
       if (parsed?.body) setEmailBody(String(parsed.body))
       if (parsed?.templateId) setSelectedTemplate(String(parsed.templateId))
+      setEditorSeedCounter(c => c + 1)
     } catch {
       // ignore — a corrupt draft shouldn't block the user
     }
@@ -572,6 +587,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     setSelectedTemplate(tplId)
     setEmailSubject(tpl.subject)
     setEmailBody(tpl.body_html)
+    setEditorSeedCounter(c => c + 1)
   }
 
   // ---------------------------------------------------------------------------
@@ -1077,15 +1093,44 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
           {/* ======= STEP: COMPOSE ======= */}
           {step === 'compose' && (
             <div className="space-y-4">
-              {/* Templates section */}
+              {/* Template picker — compact bar matching the notify flow */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Email Template</label>
-                  <button onClick={startNewTemplate} className="text-xs text-steps-blue-600 dark:text-steps-blue-400 hover:underline">+ New template</button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Template:</label>
+                  <select
+                    value={selectedTemplate}
+                    onChange={e => {
+                      const id = e.target.value
+                      if (id === '__new__') { startNewTemplate(); return }
+                      if (id) applyTemplate(id)
+                      else { setSelectedTemplate(''); }
+                    }}
+                    className="flex-1 min-w-[180px] text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                  >
+                    <option value="">No template — write from scratch</option>
+                    {templates
+                      .filter(t => t.event_id === eventId || !t.event_id)
+                      .map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}{!t.event_id ? ' — Global' : ''}
+                        </option>
+                      ))}
+                    <option value="__new__">+ New template…</option>
+                  </select>
+                  {selectedTemplate && (() => {
+                    const t = templates.find(tt => tt.id === selectedTemplate)
+                    return t ? (
+                      <>
+                        <button onClick={() => startEditTemplate(t)} className="text-[11px] text-steps-blue-600 dark:text-steps-blue-400 hover:underline">Edit</button>
+                        <button onClick={() => deleteTemplate(t.id)} className="text-[11px] text-red-500 hover:underline">Delete</button>
+                      </>
+                    ) : null
+                  })()}
                 </div>
 
-                {showTemplateEditor ? (
-                  <div className="rounded-md border border-gray-200 dark:border-gray-700 p-3 mb-3 space-y-3 bg-gray-50 dark:bg-gray-800/50">
+                {/* Inline template editor (compact — mirrors notify flow fields) */}
+                {showTemplateEditor && (
+                  <div className="mt-2 rounded-md border border-gray-200 dark:border-gray-700 p-3 space-y-3 bg-gray-50 dark:bg-gray-800/50">
                     <div className="grid grid-cols-2 gap-3">
                       <input
                         value={templateDraft.name}
@@ -1113,12 +1158,11 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                       placeholder="Subject line with {{merge_tags}}"
                       className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
                     />
-                    <textarea
-                      value={templateDraft.body_html}
-                      onChange={e => setTemplateDraft(d => ({ ...d, body_html: e.target.value }))}
-                      rows={6}
-                      placeholder="Email body with {{merge_tags}} — plain text, signature auto-appended"
-                      className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 font-mono"
+                    <RichTextEmailEditor
+                      key={`tpl-${editingTemplate?.id ?? 'new'}`}
+                      initialHtml={templateDraft.body_html}
+                      onChange={html => setTemplateDraft(d => ({ ...d, body_html: html }))}
+                      placeholder="Email body with {{merge_tags}} — tags render as pills"
                     />
                     <div className="flex gap-2">
                       <button onClick={() => setShowTemplateEditor(false)} className="px-3 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-700">Cancel</button>
@@ -1131,114 +1175,87 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <div className="space-y-1 mb-3">
-                    {/* Event-specific templates first, then global */}
-                    {templates
-                      .filter(t => t.event_id === eventId || !t.event_id)
-                      .map(t => (
-                        <div
-                          key={t.id}
-                          className={`flex items-center justify-between px-3 py-2 rounded-md cursor-pointer border ${
-                            selectedTemplate === t.id
-                              ? 'border-steps-blue-500 bg-steps-blue-50 dark:bg-steps-blue-900/20'
-                              : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/30'
-                          }`}
-                          onClick={() => applyTemplate(t.id)}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{t.name}</span>
-                            <span className="text-xs text-gray-400">{t.event_id ? 'Event' : 'Global'}</span>
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={e => { e.stopPropagation(); startEditTemplate(t) }} className="text-xs text-steps-blue-600 dark:text-steps-blue-400 hover:underline">Edit</button>
-                            <button onClick={e => { e.stopPropagation(); deleteTemplate(t.id) }} className="text-xs text-red-500 hover:underline">Delete</button>
-                          </div>
-                        </div>
-                      ))}
-                    {templates.filter(t => t.event_id === eventId || !t.event_id).length === 0 && (
-                      <p className="text-xs text-gray-400 py-2">No templates yet. Create one or write a custom email below.</p>
-                    )}
-                  </div>
                 )}
               </div>
 
-              {/* Subject */}
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Subject</label>
-                <input
-                  value={emailSubject}
-                  onChange={e => setEmailSubject(e.target.value)}
-                  placeholder="e.g. You're Invited to {{event_name}}!"
-                  className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
-                />
-              </div>
+              {(() => {
+                const mergeTags: MergeTag[] = [
+                  { tag: 'first_name', label: 'First Name' },
+                  { tag: 'event_name', label: 'Event Name' },
+                  { tag: 'apply_link', label: 'Apply Link' },
+                  { tag: 'last_attended_event', label: 'Last Event' },
+                  ...(eventData?.event_date ? [{ tag: 'event_date', label: 'Event Date' }] : []),
+                  ...(eventData?.time_start ? [{ tag: 'event_time', label: 'Event Time' }] : []),
+                  ...(eventData?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
+                  ...(eventData?.format ? [{ tag: 'event_format', label: 'Format' }] : []),
+                  ...(eventData?.dress_code ? [{ tag: 'event_dress_code', label: 'Dress Code' }] : []),
+                  ...getAvailableDynamicTags(recipients),
+                ]
+                const subjectTags = mergeTags.filter(t =>
+                  ['first_name', 'event_name', 'event_date', 'event_time', 'event_location'].includes(t.tag),
+                )
+                return (
+                  <>
+                    {/* Subject — pill-rendered single-line editor */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1 gap-2">
+                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Subject</label>
+                        <div className="flex flex-wrap gap-1 justify-end max-w-[65%]">
+                          <span className="text-[10px] text-gray-400 self-center mr-1">Insert:</span>
+                          {subjectTags.map(({ tag, label }) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              onMouseDown={e => e.preventDefault()}
+                              onClick={() => subjectEditorRef.current?.insertMergeTag(tag, label)}
+                              className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <SingleLineMergeEditor
+                        key={`subj-${editorSeedCounter}`}
+                        ref={subjectEditorRef}
+                        value={emailSubject}
+                        onChange={setEmailSubject}
+                        placeholder="e.g. You're Invited to {{event_name}}!"
+                      />
+                    </div>
 
-              {/* Body */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Body</label>
-                  <span className="text-[10px] text-gray-400">Plain text — signature is auto-appended</span>
-                </div>
+                    {/* Body */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Body</label>
+                        <span className="text-[10px] text-gray-400">Tags render as pills; replaced with real values on send.</span>
+                      </div>
 
-                {/* Merge tag buttons */}
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  <span className="text-[10px] text-gray-400 self-center mr-1">Insert:</span>
-                  {[
-                    { tag: 'first_name', label: 'First Name' },
-                    { tag: 'event_name', label: 'Event Name' },
-                    { tag: 'apply_link', label: 'Apply Link' },
-                    { tag: 'last_attended_event', label: 'Last Event' },
-                    ...(eventData?.event_date ? [{ tag: 'event_date', label: 'Event Date' }] : []),
-                    ...(eventData?.time_start ? [{ tag: 'event_time', label: 'Event Time' }] : []),
-                    ...(eventData?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
-                    ...(eventData?.format ? [{ tag: 'event_format', label: 'Format' }] : []),
-                    ...(eventData?.dress_code ? [{ tag: 'event_dress_code', label: 'Dress Code' }] : []),
-                    ...getAvailableDynamicTags(recipients),
-                  ].map(({ tag, label }) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => {
-                        setEmailBody(prev => {
-                          const el = document.getElementById('invite-body-textarea') as HTMLTextAreaElement | null
-                          if (el) {
-                            const start = el.selectionStart
-                            const end = el.selectionEnd
-                            const insert = `{{${tag}}}`
-                            const next = prev.slice(0, start) + insert + prev.slice(end)
-                            // Restore cursor after React re-render
-                            setTimeout(() => { el.selectionStart = el.selectionEnd = start + insert.length; el.focus() }, 0)
-                            return next
-                          }
-                          return prev + `{{${tag}}}`
-                        })
-                      }}
-                      className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                      <MergeTagInsertBar
+                        tags={mergeTags}
+                        onInsert={(tag, label) => bodyEditorRef.current?.insertMergeTag(tag, label)}
+                      />
 
-                <textarea
-                  id="invite-body-textarea"
-                  value={emailBody}
-                  onChange={e => setEmailBody(e.target.value)}
-                  rows={8}
-                  placeholder={`Hey {{first_name}},\n\nWe'd love for you to apply to {{event_name}}!\n\nApply here: {{apply_link}}\n\nBest wishes,\nThe Steps Foundation Team`}
-                  className="w-full px-3 py-2 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
-                />
+                      <RichTextEmailEditor
+                        key={`body-${editorSeedCounter}`}
+                        ref={bodyEditorRef}
+                        initialHtml={emailBody}
+                        onChange={setEmailBody}
+                        placeholder={`Hey {{first_name}},\n\nWe'd love for you to apply to {{event_name}}!\n\nApply here: {{apply_link}}\n\nBest wishes,\nThe Steps Foundation Team`}
+                      />
 
-                {/* Signature preview */}
-                <div className="mt-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3">
-                  <div className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Email signature (auto-appended)</div>
-                  <div
-                    className="text-xs opacity-60 pointer-events-none"
-                    dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
-                  />
-                </div>
-              </div>
+                      {/* Signature preview */}
+                      <div className="mt-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3">
+                        <div className="text-[10px] text-gray-400 mb-1.5 uppercase tracking-wide">Email signature (auto-appended)</div>
+                        <div
+                          className="text-xs opacity-60 pointer-events-none"
+                          dangerouslySetInnerHTML={{ __html: EMAIL_SIGNATURE_HTML }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           )}
 
