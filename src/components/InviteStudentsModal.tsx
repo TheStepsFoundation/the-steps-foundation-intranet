@@ -815,7 +815,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between shrink-0">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {step === 'select' ? 'Invite Students' : step === 'compose' ? 'Compose Invite Email' : step === 'preview' ? 'Preview' : step === 'sending' ? 'Sending…' : 'Done'}
+              {step === 'select' ? 'Invite Students' : step === 'compose' ? 'Compose Invite Email' : step === 'preview' ? 'Preview' : step === 'sending' ? 'Sending…' : 'Emails sent'}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {step === 'select' && (() => {
@@ -1393,7 +1393,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
             <div className="text-center py-10">
               <div className="text-4xl mb-3">{sendAborted ? '⚠️' : '✓'}</div>
               <div className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">
-                {sendAborted ? 'Send stopped' : 'Invites sent!'}
+                {sendAborted ? 'Send stopped' : 'Emails sent!'}
               </div>
               <div className="text-sm text-gray-500">
                 {sendProgress.sent} sent{sendProgress.failed > 0 ? `, ${sendProgress.failed} failed` : ''}
@@ -1401,6 +1401,9 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                   ? `, ${sendProgress.total - sendProgress.sent - sendProgress.failed} skipped`
                   : ''}
               </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                Sent from events@thestepsfoundation.com
+              </p>
             </div>
           )}
         </div>
@@ -1466,7 +1469,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
           {step === 'done' && (
             <div className="w-full text-right">
               <button onClick={() => { onSent(sendProgress.sent); onClose() }} className="px-4 py-2 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700">
-                Close
+                Done
               </button>
             </div>
           )}

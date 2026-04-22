@@ -2940,10 +2940,10 @@ export default function EventDetailPage() {
               )}
 
               {emailStep === 'sending' && (
-                <div className="text-center py-6">
+                <div className="text-center py-10">
                   <div className="text-4xl mb-3">&#9993;</div>
                   <div className="text-sm text-gray-600 dark:text-gray-300">
-                    Processing {sendProgress.sent + sendProgress.failed} / {sendProgress.total}…
+                    Sending {sendProgress.sent + sendProgress.failed} / {sendProgress.total}…
                   </div>
                   <div className="w-48 mx-auto mt-3 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
                     <div
@@ -2955,23 +2955,21 @@ export default function EventDetailPage() {
               )}
 
               {emailStep === 'done' && (
-                <div className="text-center py-6">
+                <div className="text-center py-10">
                   <div className="text-4xl mb-3">&#10003;</div>
-                  <div className="text-sm text-gray-900 dark:text-gray-100 font-medium">
-                    {sendProgress.sent} email{sendProgress.sent !== 1 ? 's' : ''} queued for sending
+                  <div className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">
+                    Emails sent!
                   </div>
-                  {sendProgress.failed > 0 && (
-                    <div className="text-sm text-red-600 dark:text-red-400 mt-1">
-                      {sendProgress.failed} failed to queue
-                    </div>
-                  )}
+                  <div className="text-sm text-gray-500">
+                    {sendProgress.sent} sent{sendProgress.failed > 0 ? `, ${sendProgress.failed} failed` : ''}
+                  </div>
                   {notifyAction && (
                     <div className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
                       Statuses updated to {STATUS_MAP[notifyAction]?.label ?? notifyAction}
                     </div>
                   )}
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                    Emails will be sent from events@thestepsfoundation.com
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                    Sent from events@thestepsfoundation.com
                   </p>
                 </div>
               )}
