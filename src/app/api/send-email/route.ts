@@ -3,6 +3,7 @@ import { google } from 'googleapis'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 import { createClient } from '@supabase/supabase-js'
+import { getMarketing24hCount, MARKETING_CAP_24H } from '@/lib/send-cap'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -62,22 +63,40 @@ export async function POST(req: NextRequest) {
     // e.g. event decision emails where the recipient deserves the reply
     // regardless of their newsletter preference.
     // ---------------------------------------------------------------------
-    if (studentId && kind !== 'transactional') {
+    if (kind !== 'transactional') {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
       const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
       if (supabaseUrl && serviceKey) {
         const sb = createClient(supabaseUrl, serviceKey, {
           auth: { persistSession: false, autoRefreshToken: false },
         })
-        const { data: s } = await sb
-          .from('students')
-          .select('subscribed_to_mailing')
-          .eq('id', studentId)
-          .maybeSingle()
-        if (s && s.subscribed_to_mailing === false) {
+
+        // Unsubscribe check (per-recipient)
+        if (studentId) {
+          const { data: s } = await sb
+            .from('students')
+            .select('subscribed_to_mailing')
+            .eq('id', studentId)
+            .maybeSingle()
+          if (s && s.subscribed_to_mailing === false) {
+            return NextResponse.json(
+              { error: 'Recipient has unsubscribed from the mailing list.', skipped: true },
+              { status: 409 }
+            )
+          }
+        }
+
+        // Rolling-24h marketing cap (global)
+        const used = await getMarketing24hCount(sb)
+        if (used >= MARKETING_CAP_24H) {
           return NextResponse.json(
-            { error: 'Recipient has unsubscribed from the mailing list.', skipped: true },
-            { status: 409 }
+            {
+              error: `Daily marketing cap reached (${used}/${MARKETING_CAP_24H} sent in last 24h). Try again later — the window is rolling, not midnight-based.`,
+              capReached: true,
+              used,
+              cap: MARKETING_CAP_24H,
+            },
+            { status: 429 }
           )
         }
       }

@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { getCapStatus, type CapStatus } from '@/lib/send-cap'
 import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, useEvents } from '@/lib/students-api'
 import { type EventRow, fetchEvent, formatOpenTo } from '@/lib/events-api'
 import SelectAllBanner from './SelectAllBanner'
@@ -340,6 +341,13 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
 
   // Send progress
   const [sendProgress, setSendProgress] = useState({ sent: 0, failed: 0, total: 0 })
+  // Daily marketing cap (rolling 24h). Refreshed on mount and after each
+  // send completes so the indicator stays honest without polling.
+  const [capStatus, setCapStatus] = useState<CapStatus | null>(null)
+  const refreshCapStatus = useCallback(async () => {
+    try { setCapStatus(await getCapStatus(supabase)) } catch { /* fail-open — server still enforces */ }
+  }, [])
+  useEffect(() => { refreshCapStatus() }, [refreshCapStatus])
   // Ref flag polled between sends so an admin can stop a batch mid-flight
   // (e.g. they noticed the subject line was wrong after 3 of 50 went out).
   const sendAbortRef = useRef(false)
@@ -779,13 +787,27 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
           setSendProgress(p => ({ ...p, sent: p.sent + 1 }))
         } else {
           let errMsg = `HTTP ${res.status}`
-          try { const body = await res.json(); if (body?.error) errMsg = String(body.error).slice(0, 1000) } catch { /* noop */ }
+          let capReached = false
+          try {
+            const body = await res.json()
+            if (body?.error) errMsg = String(body.error).slice(0, 1000)
+            if (body?.capReached) capReached = true
+          } catch { /* noop */ }
           if (emailLogId) {
             await supabase.from('email_log')
               .update({ status: 'failed', error_message: errMsg })
               .eq('id', emailLogId)
           }
           setSendProgress(p => ({ ...p, failed: p.failed + 1 }))
+          // Cap hit — stop the batch immediately so the remaining recipients
+          // aren't marked as 'failed' when the real reason is the 24h ceiling.
+          // The log row we already inserted for THIS recipient stays 'failed'
+          // with the cap message as a record.
+          if (capReached) {
+            sendAbortRef.current = true
+            setSendAborted(true)
+            break
+          }
         }
       } catch (err: any) {
         const errMsg = String(err?.message ?? 'Network error').slice(0, 1000)
@@ -800,6 +822,9 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     // Refresh last-contacted timestamps so they reflect the just-sent invites
     // without having to close and reopen the modal.
     await refreshLastContacted()
+    // Also refresh the cap indicator — we just pushed N emails into the
+    // rolling-24h window.
+    await refreshCapStatus()
     // If the send ran to completion (not aborted), clear the draft — this
     // copy has done its job.
     if (!sendAbortRef.current && typeof window !== 'undefined') {
@@ -1263,9 +1288,21 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                   .join('')
               })()}
               footerBanner={
-                <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">
-                  This will send <strong>{recipients.length}</strong> individual email{recipients.length !== 1 ? 's' : ''} to <strong>{recipients.length}</strong> student{recipients.length !== 1 ? 's' : ''}.
-                </div>
+                <>
+                  <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">
+                    This will send <strong>{recipients.length}</strong> individual email{recipients.length !== 1 ? 's' : ''} to <strong>{recipients.length}</strong> student{recipients.length !== 1 ? 's' : ''}.
+                  </div>
+                  {capStatus && recipients.length > capStatus.remaining && (
+                    <div className="mt-2 rounded-md border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20 p-3 text-sm text-rose-800 dark:text-rose-300">
+                      <strong>Daily cap warning.</strong> You've used {capStatus.used} of {capStatus.cap} marketing emails in the last 24h ({capStatus.remaining} remaining). Only the first <strong>{capStatus.remaining}</strong> of {recipients.length} will go through — the rest will be stopped at the cap. The window is rolling, so capacity frees up as older sends age past 24h.
+                    </div>
+                  )}
+                  {capStatus && recipients.length <= capStatus.remaining && capStatus.used >= capStatus.cap * 0.8 && (
+                    <div className="mt-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">
+                      FYI — {capStatus.used} of {capStatus.cap} marketing emails used in the last 24h. Sending these {recipients.length} will leave {Math.max(0, capStatus.remaining - recipients.length)} headroom.
+                    </div>
+                  )}
+                </>
               }
             />
           )}
@@ -1292,7 +1329,27 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-800 flex justify-between shrink-0">
           {step === 'select' && (
             <>
-              <button onClick={onClose} className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">Cancel</button>
+              <div className="flex items-center gap-3">
+                <button onClick={onClose} className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">Cancel</button>
+                {capStatus && (() => {
+                  const pct = Math.min(100, Math.round((capStatus.used / capStatus.cap) * 100))
+                  const over = selected.size > capStatus.remaining
+                  const tone = over
+                    ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-800'
+                    : pct >= 80
+                      ? 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+                      : 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800'
+                  return (
+                    <span
+                      className={`text-xs px-2 py-1 rounded-md border ${tone}`}
+                      title={`Marketing-email daily cap: ${capStatus.used} of ${capStatus.cap} used in the rolling 24h window. ${capStatus.remaining} remaining.`}
+                    >
+                      {capStatus.used}/{capStatus.cap} used · {capStatus.remaining} left
+                      {over && selected.size > 0 ? ` · ${selected.size - capStatus.remaining} over` : ''}
+                    </span>
+                  )
+                })()}
+              </div>
               <button
                 onClick={() => setStep('compose')}
                 disabled={selected.size === 0}
@@ -1336,6 +1393,15 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                   if (recentAny > 0) warnParts.push(`${recentAny} emailed about another event in the last 7 days`)
                   if (warnParts.length > 0) {
                     const ok = confirm(`Heads up: ${warnParts.join(' and ')}. Send anyway?`)
+                    if (!ok) return
+                  }
+                  // Cap pre-flight: if this batch would breach the rolling
+                  // 24h marketing cap, make sure the admin acknowledges
+                  // that only `remaining` will go through.
+                  if (capStatus && recipients.length > capStatus.remaining) {
+                    const ok = confirm(
+                      `Daily marketing cap: ${capStatus.used} of ${capStatus.cap} used in the last 24h — only ${capStatus.remaining} of ${recipients.length} recipients will go through before the cap stops the batch. Send anyway? (Window is rolling — capacity frees up as older sends age past 24h.)`
+                    )
                     if (!ok) return
                   }
                   sendInvites()
