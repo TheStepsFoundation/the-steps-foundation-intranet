@@ -1269,6 +1269,48 @@ export default function EventDetailPage() {
     }
   }
 
+  // Save current subject+body as a brand-new template. Typed by the
+  // current notifyAction (acceptance / rejection / waitlist) or 'custom',
+  // scoped to this event.
+  const saveCurrentAsNewTemplate = async () => {
+    const name = window.prompt('Name for the new template?')?.trim()
+    if (!name) return
+    if (!emailSubject.trim() || !emailBody.trim()) {
+      alert('Write a subject and body first, then save as a new template.')
+      return
+    }
+    const defaultType = notifyAction
+      ? NOTIFY_STATUSES.find(n => n.code === notifyAction)?.templateType ?? 'custom'
+      : 'custom'
+    setSavingTemplate(true)
+    try {
+      const { data, error } = await supabase.from('email_templates').insert({
+        name,
+        type: defaultType,
+        subject: emailSubject,
+        body_html: emailBody,
+        event_id: eventId,
+        created_by: teamMember?.auth_uuid ?? null,
+        updated_by: teamMember?.auth_uuid ?? null,
+      }).select('id').single()
+      if (error) throw error
+      const { data: refreshed } = await supabase
+        .from('email_templates')
+        .select('id, name, type, subject, body_html, event_id')
+        .is('deleted_at', null)
+        .order('name')
+      setTemplates((refreshed ?? []) as any[])
+      if (data?.id) {
+        setSelectedTemplate(data.id)
+        setTemplateDirty(false)
+      }
+    } catch (e: any) {
+      alert(`Couldn't save template: ${e?.message ?? e}`)
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
   // Persist subject/body edits back to the selected template so the next
   // send for this status starts from the customised version.
   const saveTemplateChanges = async () => {
@@ -2741,7 +2783,11 @@ export default function EventDetailPage() {
                       <div className="flex-1" />
                       <select
                         value={selectedTemplate}
-                        onChange={e => applyTemplate(e.target.value)}
+                        onChange={e => {
+                          const id = e.target.value
+                          if (id === '__new__') { saveCurrentAsNewTemplate(); return }
+                          applyTemplate(id)
+                        }}
                         className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 max-w-[220px]"
                       >
                         <option value="">Change template…</option>
@@ -2752,6 +2798,7 @@ export default function EventDetailPage() {
                               {t.name} ({t.type}){!t.event_id ? ' — Global' : ''}
                             </option>
                           ))}
+                        <option value="__new__">+ Save current as new template…</option>
                       </select>
                     </div>
                   </div>

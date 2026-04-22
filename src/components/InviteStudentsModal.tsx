@@ -369,11 +369,11 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const sendAbortRef = useRef(false)
   const [sendAborted, setSendAborted] = useState(false)
 
-  // Template management
-  const [showTemplateEditor, setShowTemplateEditor] = useState(false)
-  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null)
-  const [templateDraft, setTemplateDraft] = useState({ name: '', type: 'custom', subject: '', body_html: '' })
-  const [templateSaving, setTemplateSaving] = useState(false)
+  // Template management — mirrors the decision-flow (events/[id]) pattern:
+  // inline rename/delete + in-place 'Save to template' when the editor
+  // content diverges from the loaded template.
+  const [templateDirty, setTemplateDirty] = useState(false)
+  const [savingTemplate, setSavingTemplate] = useState(false)
 
   // ---------------------------------------------------------------------------
   // Load data
@@ -590,54 +590,107 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     setEmailSubject(tpl.subject)
     setEmailBody(tpl.body_html)
     setEditorSeedCounter(c => c + 1)
+    setTemplateDirty(false)
   }
 
-  // ---------------------------------------------------------------------------
-  // Template CRUD
-  // ---------------------------------------------------------------------------
-
-  const startNewTemplate = () => {
-    setTemplateDraft({ name: '', type: 'custom', subject: '', body_html: '' })
-    setEditingTemplate(null)
-    setShowTemplateEditor(true)
-  }
-
-  const startEditTemplate = (t: Template) => {
-    setTemplateDraft({ name: t.name, type: t.type, subject: t.subject, body_html: t.body_html })
-    setEditingTemplate(t)
-    setShowTemplateEditor(true)
-  }
-
-  const saveTemplate = async () => {
-    setTemplateSaving(true)
-    const payload = {
-      name: templateDraft.name,
-      type: templateDraft.type,
-      subject: templateDraft.subject,
-      body_html: templateDraft.body_html,
-      event_id: eventId,
-      updated_by: teamMemberUuid,
-    }
-    try {
-      if (editingTemplate) {
-        await supabase.from('email_templates').update(payload).eq('id', editingTemplate.id)
-      } else {
-        await supabase.from('email_templates').insert({ ...payload, created_by: teamMemberUuid })
-      }
-      // Reload templates
-      const { data } = await supabase.from('email_templates').select('id, name, type, subject, body_html, event_id').is('deleted_at', null).order('created_at', { ascending: false })
-      setTemplates((data ?? []) as Template[])
-      setShowTemplateEditor(false)
-    } finally {
-      setTemplateSaving(false)
-    }
-  }
-
-  const deleteTemplate = async (id: string) => {
-    if (!confirm('Delete this template?')) return
-    await supabase.from('email_templates').update({ deleted_at: new Date().toISOString() }).eq('id', id)
-    const { data } = await supabase.from('email_templates').select('id, name, type, subject, body_html, event_id').is('deleted_at', null).order('created_at', { ascending: false })
+  const reloadTemplates = async () => {
+    const { data } = await supabase
+      .from('email_templates')
+      .select('id, name, type, subject, body_html, event_id')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
     setTemplates((data ?? []) as Template[])
+  }
+
+  // ---------------------------------------------------------------------------
+  // Template CRUD — lightweight inline flow matching the decision notify UI:
+  // rename via prompt, delete via confirm, save current edits back via
+  // 'Save to template' CTA. Full-editor panel retired.
+  // ---------------------------------------------------------------------------
+
+  const renameSelectedTemplate = async () => {
+    if (!selectedTemplate) return
+    const current = templates.find(t => t.id === selectedTemplate)
+    if (!current) return
+    const next = window.prompt('Rename template', current.name)?.trim()
+    if (!next || next === current.name) return
+    setSavingTemplate(true)
+    try {
+      await supabase.from('email_templates').update({
+        name: next,
+        updated_by: teamMemberUuid,
+      }).eq('id', selectedTemplate)
+      await reloadTemplates()
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  const deleteSelectedTemplate = async () => {
+    if (!selectedTemplate) return
+    const current = templates.find(t => t.id === selectedTemplate)
+    if (!current) return
+    if (!confirm(`Delete template "${current.name}"? This can't be undone from the UI.`)) return
+    setSavingTemplate(true)
+    try {
+      await supabase.from('email_templates').update({
+        deleted_at: new Date().toISOString(),
+      }).eq('id', selectedTemplate)
+      setSelectedTemplate('')
+      setTemplateDirty(false)
+      await reloadTemplates()
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  const saveTemplateChanges = async () => {
+    if (!selectedTemplate) return
+    setSavingTemplate(true)
+    try {
+      await supabase.from('email_templates').update({
+        subject: emailSubject,
+        body_html: emailBody,
+        updated_by: teamMemberUuid,
+      }).eq('id', selectedTemplate)
+      setTemplateDirty(false)
+      await reloadTemplates()
+    } finally {
+      setSavingTemplate(false)
+    }
+  }
+
+  /** Save current subject+body as a brand-new template of type 'invite',
+   *  scoped to this event. Used by the '+ New template…' dropdown option. */
+  const saveCurrentAsNewTemplate = async () => {
+    const name = window.prompt('Name for the new template?')?.trim()
+    if (!name) return
+    if (!emailSubject.trim() || !emailBody.trim()) {
+      alert('Write a subject and body first, then save as a new template.')
+      return
+    }
+    setSavingTemplate(true)
+    try {
+      const { data, error } = await supabase.from('email_templates').insert({
+        name,
+        type: 'invite',
+        subject: emailSubject,
+        body_html: emailBody,
+        event_id: eventId,
+        created_by: teamMemberUuid,
+        updated_by: teamMemberUuid,
+      }).select('id').single()
+      if (error) throw error
+      await reloadTemplates()
+      if (data?.id) {
+        setSelectedTemplate(data.id)
+        setTemplateDirty(false)
+      }
+    } catch (e: any) {
+      alert(`Couldn't save template: ${e?.message ?? e}`)
+    } finally {
+      setSavingTemplate(false)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1120,89 +1173,63 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
           {/* ======= STEP: COMPOSE ======= */}
           {step === 'compose' && (
             <div className="space-y-4">
-              {/* Template picker — compact bar matching the notify flow */}
-              <div>
+              {/* Template controls header strip — mirrors decision notify UI */}
+              <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-3 py-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Template:</label>
+                  <span className="text-[10px] uppercase tracking-wide text-gray-400">Template</span>
+                  {selectedTemplate ? (
+                    <>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate max-w-[220px]" title={templates.find(t => t.id === selectedTemplate)?.name}>
+                        {templates.find(t => t.id === selectedTemplate)?.name ?? 'Untitled'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={renameSelectedTemplate}
+                        disabled={savingTemplate}
+                        title="Rename template"
+                        className="inline-flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-steps-blue-600 hover:bg-steps-blue-50 dark:hover:bg-steps-blue-900/20 disabled:opacity-40"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deleteSelectedTemplate}
+                        disabled={savingTemplate}
+                        title="Delete template"
+                        className="inline-flex items-center justify-center w-6 h-6 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a2 2 0 012-2h2a2 2 0 012 2v3" />
+                        </svg>
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-sm text-gray-500 italic">No template &mdash; writing from scratch</span>
+                  )}
+                  <div className="flex-1" />
                   <select
                     value={selectedTemplate}
                     onChange={e => {
                       const id = e.target.value
-                      if (id === '__new__') { startNewTemplate(); return }
+                      if (id === '__new__') { saveCurrentAsNewTemplate(); return }
                       if (id) applyTemplate(id)
-                      else { setSelectedTemplate(''); }
+                      else { setSelectedTemplate(''); setTemplateDirty(false) }
                     }}
-                    className="flex-1 min-w-[180px] text-xs px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800"
+                    className="text-xs px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 max-w-[220px]"
                   >
-                    <option value="">No template — write from scratch</option>
+                    <option value="">Change template…</option>
                     {templates
-                      .filter(t => t.event_id === eventId || !t.event_id)
+                      .filter(t => !t.event_id || t.event_id === eventId)
                       .map(t => (
                         <option key={t.id} value={t.id}>
-                          {t.name}{!t.event_id ? ' — Global' : ''}
+                          {t.name} ({t.type}){!t.event_id ? ' — Global' : ''}
                         </option>
                       ))}
-                    <option value="__new__">+ New template…</option>
+                    <option value="__new__">+ Save current as new template…</option>
                   </select>
-                  {selectedTemplate && (() => {
-                    const t = templates.find(tt => tt.id === selectedTemplate)
-                    return t ? (
-                      <>
-                        <button onClick={() => startEditTemplate(t)} className="text-[11px] text-steps-blue-600 dark:text-steps-blue-400 hover:underline">Edit</button>
-                        <button onClick={() => deleteTemplate(t.id)} className="text-[11px] text-red-500 hover:underline">Delete</button>
-                      </>
-                    ) : null
-                  })()}
                 </div>
-
-                {/* Inline template editor (compact — mirrors notify flow fields) */}
-                {showTemplateEditor && (
-                  <div className="mt-2 rounded-md border border-gray-200 dark:border-gray-700 p-3 space-y-3 bg-gray-50 dark:bg-gray-800/50">
-                    <div className="grid grid-cols-2 gap-3">
-                      <input
-                        value={templateDraft.name}
-                        onChange={e => setTemplateDraft(d => ({ ...d, name: e.target.value }))}
-                        placeholder="Template name"
-                        className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
-                      />
-                      <select
-                        value={templateDraft.type}
-                        onChange={e => setTemplateDraft(d => ({ ...d, type: e.target.value }))}
-                        className="px-2 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
-                      >
-                        <option value="custom">Custom</option>
-                        <option value="invite">Invite</option>
-                        <option value="acceptance">Acceptance</option>
-                        <option value="rejection">Rejection</option>
-                        <option value="waitlist">Waitlist</option>
-                        <option value="reminder">Reminder</option>
-                        <option value="follow_up">Follow-up</option>
-                      </select>
-                    </div>
-                    <input
-                      value={templateDraft.subject}
-                      onChange={e => setTemplateDraft(d => ({ ...d, subject: e.target.value }))}
-                      placeholder="Subject line with {{merge_tags}}"
-                      className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
-                    />
-                    <RichTextEmailEditor
-                      key={`tpl-${editingTemplate?.id ?? 'new'}`}
-                      initialHtml={templateDraft.body_html}
-                      onChange={html => setTemplateDraft(d => ({ ...d, body_html: html }))}
-                      placeholder="Email body with {{merge_tags}} — tags render as pills"
-                    />
-                    <div className="flex gap-2">
-                      <button onClick={() => setShowTemplateEditor(false)} className="px-3 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-700">Cancel</button>
-                      <button
-                        onClick={saveTemplate}
-                        disabled={templateSaving || !templateDraft.name || !templateDraft.subject || !templateDraft.body_html}
-                        className="px-3 py-1 text-xs rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        {templateSaving ? 'Saving…' : editingTemplate ? 'Update' : 'Save template'}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
 
               {(() => {
@@ -1234,7 +1261,10 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                               key={tag}
                               type="button"
                               onMouseDown={e => e.preventDefault()}
-                              onClick={() => subjectEditorRef.current?.insertMergeTag(tag, label)}
+                              onClick={() => {
+                                subjectEditorRef.current?.insertMergeTag(tag, label)
+                                if (selectedTemplate) setTemplateDirty(true)
+                              }}
                               className="px-2 py-0.5 text-[11px] rounded-full border border-steps-blue-200 dark:border-steps-blue-800 bg-steps-blue-50 dark:bg-steps-blue-900/20 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-100 dark:hover:bg-steps-blue-900/40 transition-colors"
                             >
                               {label}
@@ -1246,7 +1276,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                         key={`subj-${editorSeedCounter}`}
                         ref={subjectEditorRef}
                         value={emailSubject}
-                        onChange={setEmailSubject}
+                        onChange={v => { setEmailSubject(v); if (selectedTemplate) setTemplateDirty(true) }}
                         placeholder="e.g. You're Invited to {{event_name}}!"
                       />
                     </div>
@@ -1260,16 +1290,36 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
 
                       <MergeTagInsertBar
                         tags={mergeTags}
-                        onInsert={(tag, label) => bodyEditorRef.current?.insertMergeTag(tag, label)}
+                        onInsert={(tag, label) => {
+                          bodyEditorRef.current?.insertMergeTag(tag, label)
+                          if (selectedTemplate) setTemplateDirty(true)
+                        }}
                       />
 
                       <RichTextEmailEditor
                         key={`body-${editorSeedCounter}`}
                         ref={bodyEditorRef}
                         initialHtml={emailBody}
-                        onChange={setEmailBody}
+                        onChange={html => { setEmailBody(html); if (selectedTemplate) setTemplateDirty(true) }}
                         placeholder={`Hey {{first_name}},\n\nWe'd love for you to apply to {{event_name}}!\n\nApply here: {{apply_link}}\n\nBest wishes,\nThe Steps Foundation Team`}
                       />
+
+                      {/* Save-back-to-template CTA — mirrors decision flow */}
+                      {selectedTemplate && templateDirty && (
+                        <div className="mt-2 flex items-center justify-between rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
+                          <span className="text-xs text-amber-700 dark:text-amber-300">
+                            You&rsquo;ve edited this template. Save changes so future sends start from this version?
+                          </span>
+                          <button
+                            type="button"
+                            disabled={savingTemplate}
+                            onClick={saveTemplateChanges}
+                            className="text-xs font-medium px-3 py-1 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                          >
+                            {savingTemplate ? 'Saving...' : 'Save to template'}
+                          </button>
+                        </div>
+                      )}
 
                       {/* Signature preview */}
                       <div className="mt-2 rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3">
