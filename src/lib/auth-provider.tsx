@@ -133,10 +133,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      // 'unknown' means the check failed (timeout / network). Never sign out
-      // on this — keep whatever team state we already have.
+      // 'unknown' means the check failed (timeout / network). Retry with
+      // short backoff before giving up. Critical: we do NOT set loading=false
+      // in the finally block for 'unknown' status — we want pages/layouts to
+      // keep showing "Loading…" rather than see loading=false + !isTeamMember
+      // and bounce to /login. Only conclusive 'member' or 'not_member' should
+      // release the loading state.
       if (result.status === 'unknown') {
-        console.warn('[auth] team check returned unknown — keeping existing state')
+        const maxAttempts = 3
+        let attempt = 1
+        let conclusive: { status: 'member'; row: TeamMember } | { status: 'not_member' } | null = null
+        while (attempt < maxAttempts) {
+          console.warn(`[auth] team check unknown (attempt ${attempt}/${maxAttempts}) — retrying in ${attempt * 800}ms`)
+          await new Promise(r => setTimeout(r, attempt * 800))
+          const retry = await checkTeamMembership(newUser.email)
+          alog('team check retry result:', retry.status)
+          if (retry.status === 'member' || retry.status === 'not_member') {
+            conclusive = retry
+            break
+          }
+          attempt++
+        }
+        if (conclusive?.status === 'member') {
+          setTeamMember(conclusive.row)
+          return
+        }
+        if (conclusive?.status === 'not_member') {
+          // fall through to the not_member branch below by reassigning result
+          // (can't reassign a const — just duplicate the not-member path here)
+          setTeamMember(null)
+          return
+        }
+        // All retries returned 'unknown'. Give up: surface as not-a-member so
+        // the user ends up on /login rather than stuck in an infinite loader.
+        console.warn('[auth] team check still unknown after retries — treating as not-member')
+        setTeamMember(null)
         return
       }
 

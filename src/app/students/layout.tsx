@@ -11,30 +11,23 @@ export default function StudentsLayout({ children }: { children: React.ReactNode
   const router = useRouter()
   const pathname = usePathname()
 
-  // Grace period: when loading flips to false but teamMember hasn't been
-  // set yet (briefly possible on fast page loads where the team_members
-  // fetch lags the session read), don't redirect immediately — give it up
-  // to 1.2s to settle. If user is missing entirely (truly signed out),
-  // redirect immediately.
+  // Auth guard. AuthProvider now keeps `loading=true` until the team check
+  // is conclusive (with internal retries), so by the time we see loading=false
+  // the `isTeamMember` signal is trustworthy. No grace period needed —
+  // previously the 1.2s timer was masking an AuthProvider race where 'unknown'
+  // team-check results let loading flip to false with teamMember still null,
+  // which then caused /students/events → /login → /hub bounces.
   useEffect(() => {
     if (loading) {
       console.log('[students-layout] loading=true, waiting')
       return
     }
-    if (!user) {
-      console.log('[students-layout] no user, redirecting to /login')
+    if (!user || !isTeamMember) {
+      console.log('[students-layout] redirecting to /login — user=', !!user, 'isTeamMember=', isTeamMember)
       router.push('/login')
       return
     }
-    if (!isTeamMember) {
-      console.log('[students-layout] user present but not team member yet — waiting up to 1.2s')
-      const t = setTimeout(() => {
-        console.log('[students-layout] grace period expired, isTeamMember=', isTeamMember, '— redirecting to /login')
-        router.push('/login')
-      }, 1200)
-      return () => clearTimeout(t)
-    }
-    console.log('[students-layout] guard passed: user + isTeamMember')
+    console.log('[students-layout] guard passed')
   }, [user, loading, isTeamMember, router])
 
   if (loading || !user || !isTeamMember) {
