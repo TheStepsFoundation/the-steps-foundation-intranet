@@ -448,42 +448,69 @@ export default function StudentHub() {
       )}
 
       {/* ================================================================ */}
-      {/* SECTION 1b: Events for other year groups (greyed, non-clickable) */}
+      {/* SECTION 1b: Other upcoming events (greyed, non-clickable)        */}
+      {/* Mirrors the eligible card layout so the student can still see    */}
+      {/* the image, description, date, etc. — just muted, with a chip     */}
+      {/* explaining why it's not actionable.                              */}
       {/* ================================================================ */}
       {ineligibleOpenEvents.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-sm font-semibold text-gray-500 mb-3">Events for other year groups</h2>
-          <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Other upcoming events</h2>
+          <p className="text-sm text-gray-500 mb-4">These aren&apos;t open to your year group &mdash; but here&apos;s what&apos;s coming up.</p>
+          <div className="space-y-4">
             {ineligibleOpenEvents.map(event => {
               const publicLocation = getDisplayLocation(event, false)
               const yearList = (event.eligible_year_groups ?? []).sort((a, b) => a - b)
               const yearLabel = yearList.length === 1
-                ? `Year ${yearList[0]}`
+                ? `Year ${yearList[0]} only`
                 : yearList.length > 1
-                  ? `Years ${yearList.join(', ')}`
-                  : ''
+                  ? `Years ${yearList.join(', ')} only`
+                  : 'Not open to your year'
               return (
                 <div
                   key={event.id}
-                  className="relative block bg-gray-50 rounded-2xl border border-gray-100 overflow-hidden opacity-60 cursor-not-allowed"
+                  className="relative block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden opacity-60 cursor-not-allowed"
                   aria-disabled="true"
-                  title={`This event is for ${yearLabel.toLowerCase() || 'another year group'}.`}
+                  title={`This event is for ${yearLabel.toLowerCase()}.`}
                 >
-                  <div className="flex items-stretch min-h-[96px]">
-                    <div className="flex-1 min-w-0 p-4 sm:p-5 flex flex-col justify-center">
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="font-medium text-gray-700 text-base">{event.name}</h3>
-                        {yearLabel && (
-                          <span className="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-200 text-gray-600">
-                            {yearLabel} only
+                  <div className="flex items-stretch min-h-[160px] sm:min-h-[200px]">
+                    <div className="flex-1 min-w-0 p-5 sm:p-6 flex flex-col">
+                      <h3 className="font-semibold text-gray-900 text-lg">
+                        {event.name}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 mt-1.5">
+                        {event.event_date && <span>{formatDate(event.event_date)}</span>}
+                        {event.time_start && (
+                          <span>{event.time_start}{event.time_end ? ` – ${event.time_end}` : ''}</span>
+                        )}
+                        {publicLocation && <span>{publicLocation}</span>}
+                        {event.format && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                            {event.format === 'in_person' ? 'In person' : event.format === 'online' ? 'Online' : event.format}
                           </span>
                         )}
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-1">
-                        {event.event_date && <span>{formatDate(event.event_date)}</span>}
-                        {publicLocation && <span>{publicLocation}</span>}
+                      {event.description && (
+                        <p className="text-sm text-gray-500 mt-3 line-clamp-3">{stripToText(event.description)}</p>
+                      )}
+                      <div className="mt-auto pt-3 flex items-center justify-between gap-3">
+                        <span />
+                        <span className="flex-shrink-0 inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-200">
+                          {yearLabel}
+                        </span>
                       </div>
                     </div>
+                    {event.hub_image_url && (
+                      <div className="flex-shrink-0 w-32 sm:w-60 self-stretch bg-gray-100 relative border-l border-gray-100">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={event.hub_image_url}
+                          alt={event.name}
+                          className="absolute inset-0 w-full h-full object-cover grayscale"
+                          style={{ objectPosition: `${event.hub_focal_x ?? 50}% ${event.hub_focal_y ?? 50}%` }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )
