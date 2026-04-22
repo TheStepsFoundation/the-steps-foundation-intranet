@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
+import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,11 +35,12 @@ function getOAuth2Client() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { to, subject, html, attachments } = body as {
+    const { to, subject, html, attachments, studentId } = body as {
       to?: string
       subject?: string
       html?: string
       attachments?: unknown
+      studentId?: string
     }
 
     if (!to || !subject || !html) {
@@ -56,6 +58,7 @@ export async function POST(req: NextRequest) {
       subject,
       htmlBody: html,
       attachments: sanitiseAttachments(attachments),
+      unsubscribeUrl: studentId ? buildUnsubscribeUrl(studentId) : undefined,
     })
 
     const result = await gmail.users.messages.send({

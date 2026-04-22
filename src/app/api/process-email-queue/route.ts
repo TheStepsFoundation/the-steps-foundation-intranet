@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { createClient } from '@supabase/supabase-js'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
+import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -143,6 +144,7 @@ export async function POST(req: NextRequest) {
         subject: row.subject,
         htmlBody: row.body_html,
         attachments: sanitiseAttachments(row.attachments),
+        unsubscribeUrl: row.student_id ? buildUnsubscribeUrl(row.student_id) : undefined,
       })
       const result = await gmail.users.messages.send({
         userId: 'me',

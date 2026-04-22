@@ -63,12 +63,21 @@ async function fetchAttachmentBytes(att: EmailAttachment): Promise<Buffer> {
  * The outer table (with role="presentation") is the Outlook-safe way of
  * centring content; many Outlook versions ignore margin:auto on divs.
  */
-export function wrapHtmlForEmail(innerHtml: string): string {
+export function wrapHtmlForEmail(innerHtml: string, unsubscribeUrl?: string): string {
+  const footer = unsubscribeUrl
+    ? [
+        '<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e5e5;font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.5;color:#888;text-align:center">',
+        'You\'re receiving this because you\'re on The Steps Foundation mailing list. ',
+        `<a href="${unsubscribeUrl}" style="color:#888;text-decoration:underline">Unsubscribe</a>`,
+        '</div>',
+      ].join('')
+    : ''
   return [
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;background:transparent">',
     '<tr><td align="left" style="padding:0">',
     '<div style="max-width:600px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">',
     innerHtml,
+    footer,
     '</div>',
     '</td></tr>',
     '</table>',
@@ -80,6 +89,14 @@ export type BuildRawEmailOpts = {
   subject: string
   htmlBody: string
   attachments?: EmailAttachment[] | null
+  /**
+   * Absolute URL the recipient can click to unsubscribe. When provided:
+   *   - A visible "Unsubscribe" footer is appended to the HTML body.
+   *   - List-Unsubscribe and List-Unsubscribe-Post headers are added so
+   *     Gmail/Yahoo render the native "Unsubscribe" chip (RFC 2369/8058).
+   * Required for Google bulk-sender compliance (>5k/day threshold).
+   */
+  unsubscribeUrl?: string
 }
 
 /**
@@ -89,7 +106,7 @@ export type BuildRawEmailOpts = {
  */
 export async function buildRawEmail(opts: BuildRawEmailOpts): Promise<string> {
   const { to, subject } = opts
-  const htmlBody = wrapHtmlForEmail(opts.htmlBody)
+  const htmlBody = wrapHtmlForEmail(opts.htmlBody, opts.unsubscribeUrl)
   const attachments = (opts.attachments ?? []).filter(Boolean)
 
   const fromHeader = `${FROM_NAME} <${FROM_EMAIL}>`
@@ -99,6 +116,12 @@ export async function buildRawEmail(opts: BuildRawEmailOpts): Promise<string> {
     `Subject: =?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`,
     'MIME-Version: 1.0',
   ]
+  if (opts.unsubscribeUrl) {
+    // RFC 2369 visible-to-client link + RFC 8058 one-click POST support.
+    // Gmail inspects both before showing its native unsubscribe chip.
+    headers.push(`List-Unsubscribe: <${opts.unsubscribeUrl}>`)
+    headers.push('List-Unsubscribe-Post: List-Unsubscribe=One-Click')
+  }
 
   // Inner alternative part — text/plain + text/html
   const altBoundary = `alt_${Date.now()}_${Math.random().toString(36).slice(2)}`

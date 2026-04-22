@@ -400,7 +400,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     const applied = new Set((appData ?? []).map((a: any) => a.student_id))
     setAppliedIds(applied)
     // Only include students who haven't applied and aren't ineligible
-    setStudents(enriched.filter(s => !applied.has(s.id) && s.eligibility !== 'ineligible' && s.personal_email))
+    setStudents(enriched.filter(s => !applied.has(s.id) && s.eligibility !== 'ineligible' && s.personal_email && s.subscribed_to_mailing !== false))
     setTemplates((tplData ?? []) as Template[])
     setLoading(false)
   }, [eventId, refreshLastContacted])
@@ -766,6 +766,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
             subject: renderedSubject,
             html: fullBody,
             attachments: emailAttachments,
+            studentId: student.id,
           }),
         })
 
