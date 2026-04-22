@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   EVENTS,
   STAGE_CODES,
   A_LEVEL_GRADES,
+  useEvents,
   type SchoolType,
 } from '@/lib/students-api'
 import { fetchRandomSchool, type School } from '@/lib/schools-api'
@@ -164,6 +165,8 @@ type Props = {
 }
 
 export default function AddTestStudentModal({ onClose, onCreated }: Props) {
+  // Subscribe so renames in the event editor propagate into the event picker.
+  useEvents()
   // --- Auth fields ---
   const [email, setEmail] = useState('')
   const [emailBase, setEmailBase] = useState<string>(DEFAULT_EMAIL_BASE)
@@ -198,10 +201,9 @@ export default function AddTestStudentModal({ onClose, onCreated }: Props) {
   // instead of the useState initializer keeps SSR safe.
   useEffect(() => { setEmailBase(loadEmailBase()) }, [])
 
-  const pastEvents = useMemo(
-    () => EVENTS.filter(e => new Date(e.date).getTime() < Date.now()),
-    []
-  )
+  // Recomputed on every render so event-editor renames/date changes show up
+  // immediately (cheap: at most a handful of events).
+  const pastEvents = EVENTS.filter(e => new Date(e.date).getTime() < Date.now())
 
   const doRandomize = async () => {
     setRandomizing(true)

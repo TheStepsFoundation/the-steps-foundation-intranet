@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EventRow, fetchEvent, updateEvent, formatOpenTo } from '@/lib/events-api'
+import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS } from '@/lib/application-status'
 import { useAuth } from '@/lib/auth-provider'
@@ -625,6 +626,11 @@ export default function EventDetailPage() {
       if (Object.keys(patch).length > 0) {
         const updated = await updateEvent(event.id, patch as any)
         setEvent(updated)
+        // If name/date changed, propagate to the shared events cache so every
+        // student-facing page picks up the new label on next render.
+        if (patch.name !== undefined || patch.event_date !== undefined) {
+          void refreshEvents()
+        }
       }
       setEditing(false)
       setEditDraft({})

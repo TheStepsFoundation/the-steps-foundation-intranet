@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS, EVENT_BY_ID } from '@/lib/students-api'
+import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, useEvents } from '@/lib/students-api'
 import { type EventRow, fetchEvent, formatOpenTo } from '@/lib/events-api'
 import SelectAllBanner from './SelectAllBanner'
 import ColumnPicker, { type ColumnPickerItem } from './ColumnPicker'
@@ -195,6 +195,8 @@ function saveInviteColPrefs(prefs: InviteColPrefs) {
 // ---------------------------------------------------------------------------
 
 export default function InviteStudentsModal({ eventId, eventName, eventSlug, teamMemberUuid, onClose, onSent }: Props) {
+  // Canonical event list (names/dates live in the events table, not the old constant).
+  const { events: EVENTS, byId: EVENT_BY_ID } = useEvents()
   // Event details (for merge tags)
   const [eventData, setEventData] = useState<EventRow | null>(null)
   useEffect(() => { fetchEvent(eventId).then(e => setEventData(e)) }, [eventId])
@@ -801,11 +803,9 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
 
   const eventLabels = useMemo(() => {
     const map: Record<string, string> = {}
-    if (EVENTS) {
-      EVENTS.forEach((e: any) => { map[e.id] = e.short ?? e.name })
-    }
+    EVENTS.forEach(e => { map[e.id] = e.short ?? e.name })
     return map
-  }, [])
+  }, [EVENTS])
 
   // ---------------------------------------------------------------------------
   // Render

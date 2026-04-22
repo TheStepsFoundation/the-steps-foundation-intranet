@@ -1,14 +1,11 @@
 import { supabase } from './supabase'
-
-export const EVENTS: { id: string; name: string; short: string; date: string }[] = [
-  { id: 'e1467ac9-6742-48b2-aafc-81ab58a31ea0', name: 'Starting Point', short: 'SP', date: '2025-09-13' },
-  { id: '303a13ff-b33a-41d5-bdd0-8e5b5538b5a3', name: 'Oxbridge Interview Workshop', short: 'Oxb', date: '2025-12-07' },
-  { id: 'd29dc7cf-2336-44ee-994e-9a917bc837d3', name: 'Degree Apprenticeship Masterclass', short: 'DA', date: '2026-02-07' },
-  { id: 'dbcaf8b1-8bb0-4e09-8c73-43f1b75c7094', name: 'The Great Lock-In', short: 'Lock-In', date: '2026-03-21' },
-  { id: 'b5e7f8a1-3c9d-4b2e-8f1a-6d7c8e9f0a1b', name: 'Man Group Office Visit', short: 'MG', date: '2026-07-08' },
-]
-
-export const EVENT_BY_ID = Object.fromEntries(EVENTS.map(e => [e.id, e]))
+// EVENTS / EVENT_BY_ID used to be hardcoded here; they are now sourced from
+// the `events` table via a reactive cache. Re-exported for backwards
+// compatibility so `import { EVENTS } from '@/lib/students-api'` keeps working.
+// Anything rendering event names should subscribe via `useEvents()` to pick
+// up edits from the event editor without a full reload.
+export { EVENTS, EVENT_BY_ID, ensureEventsLoaded, refreshEvents, useEvents } from './events-cache'
+import { EVENT_BY_ID, ensureEventsLoaded } from './events-cache'
 
 export const ATTRIBUTION_SOURCES: { value: string; label: string }[] = [
   { value: 'word_of_mouth',     label: 'Word of mouth' },
@@ -153,6 +150,9 @@ const STUDENT_COLUMNS =
   'id,first_name,last_name,personal_email,school_name_raw,school_id,year_group,free_school_meals,parental_income_band,subscribed_to_mailing,school_type,bursary_90plus,notes,created_at'
 
 export async function fetchAllStudentsEnriched(opts?: { forceRefresh?: boolean }): Promise<EnrichedStudent[]> {
+  // Kick off event-name cache priming in parallel with the student fetch so
+  // any page rendering event columns has names ready by the time data lands.
+  void ensureEventsLoaded()
   if (!opts?.forceRefresh && enrichedCache && Date.now() - enrichedCache.at < CACHE_TTL_MS) {
     return enrichedCache.data
   }
@@ -251,6 +251,7 @@ export async function deleteApplication(id: string): Promise<void> {
 }
 
 export async function fetchEnrichedStudent(id: string): Promise<EnrichedStudent | null> {
+  void ensureEventsLoaded()
   const { data, error } = await supabase
     .from('students_enriched')
     .select('*')

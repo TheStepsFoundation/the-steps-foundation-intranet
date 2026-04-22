@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched } from '@/lib/students-api'
+import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched, useEvents } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
 import SelectAllBanner from '@/components/SelectAllBanner'
 import AddTestStudentModal from '@/components/AddTestStudentModal'
@@ -82,6 +82,7 @@ const defaultFilters = (): Filters => ({
 })
 
 export default function StudentsDashboard() {
+  const { events: EVENTS_LIVE } = useEvents()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [students, setStudents] = useState<EnrichedStudent[]>([])
@@ -204,7 +205,7 @@ export default function StudentsDashboard() {
       if (f.smiMin > 0 && smiCount(s) < f.smiMin) return false
       if (f.schoolTypes.length && (!s.school_type || !f.schoolTypes.includes(s.school_type))) return false
       if (f.eligibility.length && !f.eligibility.includes(s.eligibility)) return false
-      for (const ev of EVENTS) {
+      for (const ev of EVENTS_LIVE) {
         const want = f.eventStatus[ev.id]
         if (!want || want === 'any') continue
         const app = s.applications.find(a => a.event_id === ev.id)
@@ -436,7 +437,7 @@ export default function StudentsDashboard() {
 
           <Segment title="By event">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {EVENTS.map(ev => (
+              {EVENTS_LIVE.map(ev => (
                 <div key={ev.id} className="flex items-center gap-2">
                   <span className="text-sm text-gray-600 dark:text-gray-400 w-44 truncate" title={ev.name}>{ev.name}</span>
                   <select
@@ -612,7 +613,7 @@ export default function StudentsDashboard() {
                   <Th>Name</Th>
                   <Th>School</Th>
                   <Th>Year</Th>
-                  {EVENTS.map(e => <Th key={e.id} className="text-center">{e.short}</Th>)}
+                  {EVENTS_LIVE.map(e => <Th key={e.id} className="text-center">{e.short}</Th>)}
                   <Th className="text-right">Score</Th>
                 </tr>
               </thead>
@@ -634,7 +635,7 @@ export default function StudentsDashboard() {
                     </td>
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-400 truncate max-w-[240px]">{s.school_name_raw}</td>
                     <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{s.year_group}</td>
-                    {EVENTS.map(e => {
+                    {EVENTS_LIVE.map(e => {
                       const app = s.applications.find(a => a.event_id === e.id)
                       return <td key={e.id} className="px-3 py-2 text-center">{renderEventCell(app)}</td>
                     })}

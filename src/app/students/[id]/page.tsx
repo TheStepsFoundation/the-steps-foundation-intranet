@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  EVENTS,
   ATTRIBUTION_SOURCES,
   StudentRow,
   ApplicationRow,
@@ -14,6 +13,7 @@ import {
   updateStudent,
   upsertApplication,
   deleteApplication,
+  useEvents,
 } from '@/lib/students-api'
 import SchoolPicker from '@/components/SchoolPicker'
 import { useAuth } from '@/lib/auth-provider'
@@ -31,6 +31,7 @@ const STATUS_OPTIONS = ['submitted', 'shortlisted', 'accepted', 'waitlist', 'rej
 
 export default function StudentProfilePage({ params }: { params: { id: string } }) {
   const { id } = params
+  const { events: EVENTS } = useEvents()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [enriched, setEnriched] = useState<EnrichedStudent | null>(null)
