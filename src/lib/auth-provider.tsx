@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 
@@ -51,6 +51,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [teamMember, setTeamMember] = useState<TeamMember | null>(null)
 
+  // Refs that mirror teamMember + hold any in-flight team_members check.
+  // They power the dedup + cache-hit fast paths in checkTeamMembership (below).
+  // Why refs, not state: checkTeamMembership is a useCallback with a stable
+  // empty dep array — we intentionally want the SAME function identity across
+  // renders so handleAuthChange's deps don't churn and refire its useEffect.
+  // Reading state via a ref sidesteps the stale-closure problem without
+  // invalidating the callback.
+  const teamMemberRef = useRef<TeamMember | null>(null)
+  useEffect(() => {
+    teamMemberRef.current = teamMember
+  }, [teamMember])
+
+  type TeamCheckResult =
+    | { status: 'member'; row: TeamMember }
+    | { status: 'not_member' }
+    | { status: 'unknown' }
+  const inFlightCheckRef = useRef<{ email: string; promise: Promise<TeamCheckResult> } | null>(null)
+
   // Check if authenticated user is in team_members table.
   // This is the single source of truth — no hardcoded allowlist.
   //
@@ -61,35 +79,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   //
   // A failed check MUST NOT be treated as 'not_member', or transient network
   // slowness (e.g. during a big storage upload) will silently sign the user out.
-  const checkTeamMembership = useCallback(async (email: string | undefined): Promise<
-    | { status: 'member'; row: TeamMember }
-    | { status: 'not_member' }
-    | { status: 'unknown' }
-  > => {
+  //
+  // This function is the hot path for the /students/events bounce bug. Every
+  // duplicate/concurrent call here multiplies the odds that ONE of them times
+  // out under load, falls into the 'unknown' retry loop, and eventually gives
+  // up as 'not-member' — kicking the admin out. Two dedup layers protect it:
+  //
+  //   1. Cache hit — if teamMemberRef already holds a row for this email, we
+  //      return it without a network call. The team_members row doesn't change
+  //      mid-session, so a previously-validated email stays valid for any
+  //      follow-up INITIAL_SESSION / USER_UPDATED / re-mount event.
+  //   2. In-flight coalescing — if another call for the same email is already
+  //      querying, every subsequent caller awaits that one promise instead of
+  //      firing its own query. The race described in commit 977669a
+  //      (getSession INITIAL_SESSION + listener INITIAL_SESSION + SIGNED_IN
+  //      from hash parsing, all within ms of each other) collapses to one.
+  const checkTeamMembership = useCallback(async (email: string | undefined): Promise<TeamCheckResult> => {
     if (!email) return { status: 'not_member' }
-    try {
-      const result = await Promise.race([
-        supabase
-          .from('team_members')
-          .select('id, name, role, email, auth_uuid')
-          .eq('email', email.toLowerCase())
-          .limit(1)
-          .maybeSingle(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Team membership check timed out')), 8000)
-        ),
-      ])
-      const { data, error } = result
-      if (error) {
-        console.warn('[auth] checkTeamMembership DB error:', error.message)
-        return { status: 'unknown' }
-      }
-      if (!data) return { status: 'not_member' }
-      return { status: 'member', row: data as TeamMember }
-    } catch (err: any) {
-      console.warn('[auth] checkTeamMembership failed:', err?.message)
-      return { status: 'unknown' }
+    const lower = email.toLowerCase()
+
+    // 1. Cache hit — already validated this email in this session.
+    const cached = teamMemberRef.current
+    if (cached && cached.email.toLowerCase() === lower) {
+      alog('checkTeamMembership cache hit for', lower)
+      return { status: 'member', row: cached }
     }
+
+    // 2. Coalesce — reuse any in-flight check for the same email.
+    const inFlight = inFlightCheckRef.current
+    if (inFlight && inFlight.email === lower) {
+      alog('checkTeamMembership coalescing — awaiting in-flight for', lower)
+      return inFlight.promise
+    }
+
+    const runCheck = async (): Promise<TeamCheckResult> => {
+      try {
+        const result = await Promise.race([
+          supabase
+            .from('team_members')
+            .select('id, name, role, email, auth_uuid')
+            .eq('email', lower)
+            .limit(1)
+            .maybeSingle(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Team membership check timed out')), 8000)
+          ),
+        ])
+        const { data, error } = result
+        if (error) {
+          console.warn('[auth] checkTeamMembership DB error:', error.message)
+          return { status: 'unknown' } as const
+        }
+        if (!data) return { status: 'not_member' } as const
+        return { status: 'member', row: data as TeamMember } as const
+      } catch (err: any) {
+        console.warn('[auth] checkTeamMembership failed:', err?.message)
+        return { status: 'unknown' } as const
+      }
+    }
+
+    const promise: Promise<TeamCheckResult> = runCheck()
+    inFlightCheckRef.current = { email: lower, promise }
+    // Clear the in-flight entry once the promise settles (only if it's still
+    // ours — a check for a different email may have replaced it by then).
+    promise.finally(() => {
+      if (inFlightCheckRef.current?.promise === promise) {
+        inFlightCheckRef.current = null
+      }
+    })
+    return promise
   }, [])
 
   // Handle auth state changes. Runs on initial load, sign-in, sign-out, AND
@@ -111,8 +169,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const newUser = newSession?.user ?? null
       setUser(newUser)
 
-      // Signed out: clear and exit.
+      // Signed out: clear and exit. Synchronously invalidate the ref +
+      // in-flight cache so a concurrent checkTeamMembership call can't
+      // serve the stale row between now and the useEffect sync.
       if (event === 'SIGNED_OUT' || !newUser?.email) {
+        teamMemberRef.current = null
+        inFlightCheckRef.current = null
         setTeamMember(null)
         return
       }
@@ -326,6 +388,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut()
+    teamMemberRef.current = null
+    inFlightCheckRef.current = null
     setUser(null)
     setSession(null)
     setTeamMember(null)
