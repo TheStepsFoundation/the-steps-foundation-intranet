@@ -3,6 +3,7 @@ import { google } from 'googleapis'
 import { createClient } from '@supabase/supabase-js'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
+import { getMarketing24hCount, MARKETING_CAP_24H } from '@/lib/send-cap'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -42,6 +43,7 @@ type OutboxRow = {
   max_attempts: number
   queued_by: string | null
   attachments: unknown
+  kind: 'transactional' | 'marketing'
 }
 
 function getServiceClient() {
@@ -132,12 +134,62 @@ export async function POST(req: NextRequest) {
   const gmail = google.gmail({ version: 'v1', auth })
 
   const now = new Date().toISOString()
-  let sent = 0, failed = 0, retried = 0
+  let sent = 0, failed = 0, retried = 0, deferred = 0, skipped = 0
+
+  // Marketing-cap budgeting: read the current rolling-24h count once, then
+  // track local increments as we send during THIS batch so we never exceed
+  // 1,700 even mid-batch. Transactional rows ignore this budget.
+  const marketingUsedStart = await getMarketing24hCount(supabase)
+  let marketingUsedNow = marketingUsedStart
+  const deferOneHour = () => new Date(Date.now() + 60 * 60_000).toISOString()
 
   // Send in-flight; small concurrency to be kind to Gmail's per-sender quota.
   // Gmail's burst cap is ~20-50 sends/sec for Workspace, but 429s kick in fast.
   // Serial within a batch + BATCH_SIZE=50 per minute = 50/min cruise.
   for (const row of rows) {
+    // ---- MARKETING-ONLY GUARDS -------------------------------------------
+    // Defense-in-depth: the enqueue path already filters unsubscribed
+    // students, but if they unsub between enqueue and send we catch it here.
+    if (row.kind === 'marketing' && row.student_id) {
+      const { data: s } = await supabase
+        .from('students')
+        .select('subscribed_to_mailing')
+        .eq('id', row.student_id)
+        .maybeSingle()
+      if (s && s.subscribed_to_mailing === false) {
+        await supabase.from('email_log').insert({
+          student_id: row.student_id,
+          event_id: row.event_id,
+          template_id: row.template_id,
+          to_email: row.to_email,
+          from_email: FROM_EMAIL,
+          subject: row.subject,
+          body_html: row.body_html,
+          status: 'failed',
+          error_message: 'Recipient unsubscribed from mailing list (queue-time check).',
+          sent_by: row.queued_by,
+        })
+        await supabase.from('email_outbox').update({
+          status: 'failed',
+          last_error: 'Recipient unsubscribed between enqueue and send.',
+        }).eq('id', row.id)
+        skipped++
+        continue
+      }
+    }
+    // Cap exceeded? Defer this marketing row an hour out so the window can
+    // roll. Transactional rows pass through — they're never the bulk of
+    // volume and the cap's 300-row headroom is there precisely for them.
+    if (row.kind === 'marketing' && marketingUsedNow >= MARKETING_CAP_24H) {
+      await supabase.from('email_outbox').update({
+        status: 'queued',
+        next_attempt_at: deferOneHour(),
+        last_error: `Deferred: marketing cap reached (${marketingUsedNow}/${MARKETING_CAP_24H}).`,
+      }).eq('id', row.id)
+      deferred++
+      continue
+    }
+    // ----------------------------------------------------------------------
     try {
       const raw = await buildRawEmail({
         to: row.to_email,
@@ -178,6 +230,7 @@ export async function POST(req: NextRequest) {
         last_error: null,
       }).eq('id', row.id)
 
+      if (row.kind === 'marketing') marketingUsedNow++
       sent++
     } catch (err: any) {
       const msg = String(err?.message ?? 'Unknown send error').slice(0, 1000)
@@ -222,6 +275,10 @@ export async function POST(req: NextRequest) {
     sent,
     failed,
     retried,
+    deferred,
+    skipped,
+    marketingUsed: marketingUsedNow,
+    marketingCap: MARKETING_CAP_24H,
   })
 }
 

@@ -732,20 +732,24 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     setSendAborted(false)
     setSendProgress({ sent: 0, failed: 0, total: recipients.length })
 
-    for (const student of recipients) {
-      if (sendAbortRef.current) break
+    // Worker-pool send: 5 recipients in-flight at once.
+    //
+    // Gmail per-user quota is ~250 units/sec / 100-per-send = 2.5 sends/sec.
+    // Each round-trip (insert log -> /api/send-email -> update log) takes
+    // ~2-3s, so 5 concurrent workers land around the 2.5/sec ceiling without
+    // tripping 429s. Pure sequential was ~3-5s/email; this targets ~1s/email.
+    const queue = [...recipients]
+    const sendOne = async (student: EnrichedStudent) => {
       const renderedSubject = fillMerge(emailSubject, student)
       const renderedBody = fillMerge(emailBody, student)
-      // Convert plain text to HTML paragraphs
       const htmlBody = renderedBody
         .split('\n\n')
         .map(p => `<p style="margin:0 0 12px 0;font-family:arial,sans-serif;font-size:14px;color:#222">${p.replace(/\n/g, '<br>')}</p>`)
         .join('')
       const fullBody = htmlBody + EMAIL_SIGNATURE_HTML
 
-      // Insert email_log at 'pending' and capture the id so we can flip it to
-      // 'sent'/'failed' after the API call. If the insert itself fails we still
-      // attempt the send, but we won't have a log row to flip.
+      // Insert email_log at 'pending' so we can flip it to 'sent'/'failed'
+      // after the API call. If the insert fails we still attempt the send.
       let emailLogId: string | null = null
       try {
         const { data: logRow } = await supabase.from('email_log').insert({
@@ -760,12 +764,9 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
           sent_by: teamMemberUuid,
         }).select('id').single()
         emailLogId = logRow?.id ?? null
-      } catch {
-        // swallow — the send is what matters; log row is best-effort
-      }
+      } catch { /* swallow — log is best-effort */ }
 
       try {
-        // Send via API route
         const res = await fetch('/api/send-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -799,14 +800,12 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               .eq('id', emailLogId)
           }
           setSendProgress(p => ({ ...p, failed: p.failed + 1 }))
-          // Cap hit — stop the batch immediately so the remaining recipients
-          // aren't marked as 'failed' when the real reason is the 24h ceiling.
-          // The log row we already inserted for THIS recipient stays 'failed'
-          // with the cap message as a record.
+          // Cap hit — signal all workers to stop. Already-in-flight sends
+          // will finish (we can't cancel them mid-fetch) but nothing new
+          // will be picked up from the queue.
           if (capReached) {
             sendAbortRef.current = true
             setSendAborted(true)
-            break
           }
         }
       } catch (err: any) {
@@ -819,6 +818,17 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
         setSendProgress(p => ({ ...p, failed: p.failed + 1 }))
       }
     }
+
+    const CONCURRENCY = 5
+    const worker = async () => {
+      while (!sendAbortRef.current) {
+        const next = queue.shift()
+        if (!next) return
+        await sendOne(next)
+      }
+    }
+    const workers = Array.from({ length: Math.min(CONCURRENCY, recipients.length) }, worker)
+    await Promise.all(workers)
     // Refresh last-contacted timestamps so they reflect the just-sent invites
     // without having to close and reopen the modal.
     await refreshLastContacted()
@@ -830,6 +840,64 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     if (!sendAbortRef.current && typeof window !== 'undefined') {
       try { window.localStorage.removeItem(draftKey) } catch { /* noop */ }
     }
+    setStep('done')
+  }
+
+  // Queue path — bulk-insert rows into email_outbox with kind='marketing'.
+  // pg_cron (/api/process-email-queue) drains at 50/min with cap + unsubscribe
+  // checks. Returns near-instantly so the admin can close the browser tab.
+  const queueInvites = async () => {
+    setStep('sending')
+    sendAbortRef.current = false
+    setSendAborted(false)
+    setSendProgress({ sent: 0, failed: 0, total: recipients.length })
+
+    const outboxRows = recipients.map(student => {
+      const renderedSubject = fillMerge(emailSubject, student)
+      const renderedBody = fillMerge(emailBody, student)
+      const htmlBody = renderedBody
+        .split('\n\n')
+        .map(p => `<p style="margin:0 0 12px 0;font-family:arial,sans-serif;font-size:14px;color:#222">${p.replace(/\n/g, '<br>')}</p>`)
+        .join('')
+      const fullBody = htmlBody + EMAIL_SIGNATURE_HTML
+      return {
+        queued_by: teamMemberUuid,
+        event_id: eventId,
+        student_id: student.id,
+        template_id: selectedTemplate || null,
+        to_email: student.personal_email!,
+        from_email: 'events@thestepsfoundation.com',
+        subject: renderedSubject,
+        body_html: fullBody,
+        attachments: emailAttachments,
+        kind: 'marketing',
+      }
+    })
+
+    try {
+      // Supabase caps inserts at ~1000 rows per call by default; chunk to be
+      // safe for very large filters (e.g. the 1,399-student batch).
+      const CHUNK = 500
+      for (let i = 0; i < outboxRows.length; i += CHUNK) {
+        if (sendAbortRef.current) break
+        const chunk = outboxRows.slice(i, i + CHUNK)
+        const { error } = await supabase.from('email_outbox').insert(chunk)
+        if (error) {
+          setSendProgress(p => ({ ...p, failed: p.failed + chunk.length }))
+          continue
+        }
+        // From the admin's POV the work is handed off — count as 'sent'.
+        // The email-queue widget tracks actual send state separately.
+        setSendProgress(p => ({ ...p, sent: p.sent + chunk.length }))
+      }
+    } catch (err) {
+      console.error('enqueue exception:', err)
+    }
+
+    if (!sendAbortRef.current && typeof window !== 'undefined') {
+      try { window.localStorage.removeItem(draftKey) } catch { /* noop */ }
+    }
+    await refreshCapStatus()
     setStep('done')
   }
 
@@ -1371,47 +1439,54 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               </button>
             </>
           )}
-          {step === 'preview' && (
-            <>
-              <button onClick={() => setStep('compose')} className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">&larr; Edit</button>
-              <button
-                onClick={() => {
-                  // Anti-spam guard: if any recipients were emailed in the
-                  // last 7 days (this event or any event), make sure the
-                  // admin sees the count before committing.
-                  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
-                  let recentForEvent = 0
-                  let recentAny = 0
-                  for (const r of recipients) {
-                    const evTs = lastContactedForEvent[r.id]
-                    const anyTs = lastContactedAny[r.id]
-                    if (evTs && new Date(evTs).getTime() > weekAgo) recentForEvent++
-                    else if (anyTs && new Date(anyTs).getTime() > weekAgo) recentAny++
-                  }
-                  const warnParts: string[] = []
-                  if (recentForEvent > 0) warnParts.push(`${recentForEvent} already emailed about this event in the last 7 days`)
-                  if (recentAny > 0) warnParts.push(`${recentAny} emailed about another event in the last 7 days`)
-                  if (warnParts.length > 0) {
-                    const ok = confirm(`Heads up: ${warnParts.join(' and ')}. Send anyway?`)
-                    if (!ok) return
-                  }
-                  // Cap pre-flight: if this batch would breach the rolling
-                  // 24h marketing cap, make sure the admin acknowledges
-                  // that only `remaining` will go through.
-                  if (capStatus && recipients.length > capStatus.remaining) {
-                    const ok = confirm(
-                      `Daily marketing cap: ${capStatus.used} of ${capStatus.cap} used in the last 24h — only ${capStatus.remaining} of ${recipients.length} recipients will go through before the cap stops the batch. Send anyway? (Window is rolling — capacity frees up as older sends age past 24h.)`
-                    )
-                    if (!ok) return
-                  }
-                  sendInvites()
-                }}
-                className="px-4 py-2 text-sm rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
-              >
-                Send {recipients.length} invite{recipients.length !== 1 ? 's' : ''}
-              </button>
-            </>
-          )}
+          {step === 'preview' && (() => {
+            // Shared pre-flight. Returns true = ok to send, false = cancelled.
+            const preFlight = () => {
+              const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+              let recentForEvent = 0
+              let recentAny = 0
+              for (const r of recipients) {
+                const evTs = lastContactedForEvent[r.id]
+                const anyTs = lastContactedAny[r.id]
+                if (evTs && new Date(evTs).getTime() > weekAgo) recentForEvent++
+                else if (anyTs && new Date(anyTs).getTime() > weekAgo) recentAny++
+              }
+              const warnParts: string[] = []
+              if (recentForEvent > 0) warnParts.push(`${recentForEvent} already emailed about this event in the last 7 days`)
+              if (recentAny > 0) warnParts.push(`${recentAny} emailed about another event in the last 7 days`)
+              if (warnParts.length > 0) {
+                if (!confirm(`Heads up: ${warnParts.join(' and ')}. Send anyway?`)) return false
+              }
+              if (capStatus && recipients.length > capStatus.remaining) {
+                const ok = confirm(
+                  `Daily marketing cap: ${capStatus.used} of ${capStatus.cap} used in the last 24h — only ${capStatus.remaining} of ${recipients.length} recipients will go through before the cap stops the batch. Send anyway? (Window is rolling — capacity frees up as older sends age past 24h.)`
+                )
+                if (!ok) return false
+              }
+              return true
+            }
+            return (
+              <>
+                <button onClick={() => setStep('compose')} className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200">&larr; Edit</button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { if (preFlight()) queueInvites() }}
+                    className="px-4 py-2 text-sm rounded-md border border-steps-blue-600 text-steps-blue-700 dark:text-steps-blue-300 hover:bg-steps-blue-50 dark:hover:bg-steps-blue-900/20"
+                    title="Hand off to the background queue — returns instantly, drains at 50/min server-side, survives tab closure."
+                  >
+                    Queue in background
+                  </button>
+                  <button
+                    onClick={() => { if (preFlight()) sendInvites() }}
+                    className="px-4 py-2 text-sm rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
+                    title="Send now — 5 in parallel, ~10 min for 1,000 recipients. Keep this tab open."
+                  >
+                    Send now ({recipients.length})
+                  </button>
+                </div>
+              </>
+            )
+          })()}
           {step === 'done' && (
             <div className="w-full text-right">
               <button onClick={() => { onSent(sendProgress.sent); onClose() }} className="px-4 py-2 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700">
