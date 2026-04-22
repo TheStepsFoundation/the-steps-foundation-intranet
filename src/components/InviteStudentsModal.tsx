@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, EVENTS, EVENT_BY_ID } from '@/lib/students-api'
-import { type EventRow, fetchEvent } from '@/lib/events-api'
+import { type EventRow, fetchEvent, formatOpenTo } from '@/lib/events-api'
 import SelectAllBanner from './SelectAllBanner'
 import ColumnPicker, { type ColumnPickerItem } from './ColumnPicker'
 import {
@@ -535,6 +535,10 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       .replace(/\{\{event_format\}\}/g, eventData?.format === 'in_person' ? 'in person' : eventData?.format === 'online' ? 'online' : eventData?.format === 'hybrid' ? 'hybrid' : '')
       .replace(/\{\{event_dress_code\}\}/g, eventData?.dress_code ?? '')
       .replace(/\{\{event_capacity\}\}/g, eventData?.capacity != null ? String(eventData.capacity) : '')
+      .replace(/\{\{open_to\}\}/g, formatOpenTo(eventData?.eligible_year_groups, eventData?.open_to_gap_year ?? false))
+      .replace(/\{\{application_deadline\}\}/g, eventData?.applications_close_at
+        ? new Date(eventData.applications_close_at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' }).replace(',', ' at')
+        : '')
     // Last attended event — most recent event the student actually attended
     const attendedApps = (s.applications || [])
       .filter(a => a.attended)
@@ -1192,6 +1196,8 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               ...(eventData?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
               ...(eventData?.format ? [{ tag: 'event_format', label: 'Format' }] : []),
               ...(eventData?.dress_code ? [{ tag: 'event_dress_code', label: 'Dress Code' }] : []),
+              { tag: 'open_to', label: 'Open To' },
+              ...(eventData?.applications_close_at ? [{ tag: 'application_deadline', label: 'Application Deadline' }] : []),
               ...getAvailableDynamicTags(recipients),
             ]
             const subjectTags = mergeTags.filter(t =>

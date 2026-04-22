@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EventRow, fetchEvent, updateEvent } from '@/lib/events-api'
+import { EventRow, fetchEvent, updateEvent, formatOpenTo } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS } from '@/lib/application-status'
 import { useAuth } from '@/lib/auth-provider'
@@ -567,6 +567,7 @@ export default function EventDetailPage() {
       hub_focal_x: event.hub_focal_x,
       hub_focal_y: event.hub_focal_y,
       eligible_year_groups: event.eligible_year_groups ?? null,
+      open_to_gap_year: event.open_to_gap_year ?? false,
     })
     setEditing(true)
   }
@@ -610,6 +611,11 @@ export default function EventDetailPage() {
         ? [...event.eligible_year_groups].sort((a, b) => a - b)
         : null
       if (JSON.stringify(eygDraft) !== JSON.stringify(eygCurrent)) patch.eligible_year_groups = eygDraft
+
+      // open_to_gap_year — independent boolean. Default false.
+      const gapDraft = editDraft.open_to_gap_year ?? false
+      const gapCurrent = event.open_to_gap_year ?? false
+      if (gapDraft !== gapCurrent) patch.open_to_gap_year = gapDraft
 
       // Always include form_config if it was edited
       const currentFormConfig = JSON.stringify(event.form_config ?? { fields: [] })
@@ -1370,6 +1376,10 @@ export default function EventDetailPage() {
       .replace(/\{\{apply_link\}\}/g, applyLinkUrl)
       .replace(/\{\{portal_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
       .replace(/\{\{rsvp_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
+      .replace(/\{\{application_deadline\}\}/g, event?.applications_close_at
+        ? new Date(event.applications_close_at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' }).replace(',', ' at')
+        : 'TBC')
+      .replace(/\{\{open_to\}\}/g, formatOpenTo(event?.eligible_year_groups, event?.open_to_gap_year ?? false))
       // last_attended_event isn't meaningful in the decision flow (we're
       // emailing about THE event, not a past one). Clear it rather than
       // leaking the raw token.
@@ -1771,13 +1781,13 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            {/* Row 3c: Eligible year groups */}
+            {/* Row 3c: Open to */}
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Eligible year groups <span className="text-gray-400 font-normal">(unchecked all = open to any year)</span>
+                Open to <span className="text-gray-400 font-normal">(leave all unchecked = open to any student)</span>
               </label>
               <div className="flex flex-wrap gap-x-4 gap-y-2">
-                {[9, 10, 11, 12, 13].map(yr => {
+                {[12, 13].map(yr => {
                   const checked = Array.isArray(editDraft.eligible_year_groups) && editDraft.eligible_year_groups.includes(yr)
                   return (
                     <label key={yr} className="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-200">
@@ -1797,6 +1807,15 @@ export default function EventDetailPage() {
                     </label>
                   )
                 })}
+                <label className="inline-flex items-center gap-1.5 text-sm text-gray-700 dark:text-gray-200">
+                  <input
+                    type="checkbox"
+                    checked={editDraft.open_to_gap_year ?? false}
+                    onChange={e => setEditDraft(d => ({ ...d, open_to_gap_year: e.target.checked }))}
+                    className="rounded border-gray-300"
+                  />
+                  Gap year
+                </label>
               </div>
             </div>
 
@@ -2768,6 +2787,8 @@ export default function EventDetailPage() {
                   ...(event?.time_start ? [{ tag: 'event_time', label: 'Event Time' }] : []),
                   ...(event?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
                   ...(event?.dress_code ? [{ tag: 'dress_code', label: 'Dress Code' }] : []),
+                  { tag: 'open_to', label: 'Open To' },
+                  ...(event?.applications_close_at ? [{ tag: 'application_deadline', label: 'Application Deadline' }] : []),
                   { tag: 'rsvp_link', label: 'RSVP Link' },
                   { tag: 'portal_link', label: 'Portal Link' },
                 ]

@@ -55,6 +55,8 @@ export const DEFAULT_MERGE_TAGS: MergeTag[] = [
   { tag: 'event_time', label: 'Event Time' },
   { tag: 'event_location', label: 'Location' },
   { tag: 'dress_code', label: 'Dress Code' },
+  { tag: 'open_to', label: 'Open To' },
+  { tag: 'application_deadline', label: 'Application Deadline' },
   { tag: 'last_attended_event', label: 'Last Event' },
   { tag: 'apply_link', label: 'Apply Link' },
   { tag: 'rsvp_link', label: 'RSVP Link' },
@@ -295,12 +297,79 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
     }
   }
 
-  // Paste — if the clipboard holds a bare URL, auto-hyperlink it (wrap the
-  // current selection if any, otherwise insert as a clickable link).
-  // Anything else is passed through to the browser's default contenteditable
-  // paste so we keep formatting / images / etc.
+  // Style properties we keep when sanitising pasted HTML. Everything else
+  // (font-family, font-size, margin, line-height, color, background-color, …)
+  // is stripped so pasted text inherits the editor's own styling.
+  const PASTE_KEEP_STYLE_PROPS = new Set([
+    'font-weight',
+    'font-style',
+    'text-decoration',
+    'text-align',
+  ])
+
+  // Normalise a pasted HTML fragment: drop Gmail/Docs/Word wrapper classes and
+  // inline font/size/margin styles, but preserve bold/italic/underline, links,
+  // and lists. Merge-tag chips are not a concern here (pasted content comes
+  // from outside the editor).
+  const sanitisePastedHtml = (html: string): string => {
+    const tpl = document.createElement('template')
+    tpl.innerHTML = html
+    // Strip everything that isn't content.
+    tpl.content
+      .querySelectorAll('meta, style, link, script, title, head, base')
+      .forEach(n => n.remove())
+    // Remove HTML comments (handles Word's MSO conditional comments too).
+    const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_COMMENT)
+    const comments: Node[] = []
+    let c: Node | null
+    while ((c = walker.nextNode())) comments.push(c)
+    comments.forEach(n => n.parentNode?.removeChild(n))
+    // Unwrap <font> tags — move children up in place.
+    Array.from(tpl.content.querySelectorAll('font')).forEach(fontEl => {
+      const parent = fontEl.parentNode
+      if (!parent) return
+      while (fontEl.firstChild) parent.insertBefore(fontEl.firstChild, fontEl)
+      parent.removeChild(fontEl)
+    })
+    // Clean attributes on every surviving element.
+    tpl.content.querySelectorAll('*').forEach(el => {
+      el.removeAttribute('class')
+      el.removeAttribute('id')
+      el.removeAttribute('bgcolor')
+      el.removeAttribute('color')
+      el.removeAttribute('face')
+      el.removeAttribute('size')
+      const style = el.getAttribute('style')
+      if (!style) return
+      const kept: string[] = []
+      for (const decl of style.split(';')) {
+        const colonIdx = decl.indexOf(':')
+        if (colonIdx < 0) continue
+        const prop = decl.slice(0, colonIdx).trim().toLowerCase()
+        const val = decl.slice(colonIdx + 1).trim()
+        if (!prop || !val) continue
+        if (PASTE_KEEP_STYLE_PROPS.has(prop)) kept.push(`${prop}: ${val}`)
+      }
+      if (kept.length > 0) el.setAttribute('style', kept.join('; '))
+      else el.removeAttribute('style')
+    })
+    return tpl.innerHTML
+  }
+
+  // Paste handler. Priority:
+  //   1. If clipboard has HTML (Gmail, Docs, Word, any web page), sanitise and
+  //      insert — this strips wrapper font-family/size so pasted text matches
+  //      the editor's styling. Bold/italic/underline/links/lists survive.
+  //   2. Otherwise, if plain text looks like a bare URL, auto-hyperlink it.
+  //   3. Otherwise, fall through to the browser's default plain-text paste.
   const onEditorPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const html = e.clipboardData.getData('text/html')
     const plain = e.clipboardData.getData('text/plain')
+    if (html) {
+      e.preventDefault()
+      insertHtmlAtCaret(sanitisePastedHtml(html))
+      return
+    }
     if (!looksLikeBareUrl(plain)) return
     e.preventDefault()
     const sel = window.getSelection()
@@ -308,8 +377,8 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
     const url = normaliseUrl(plain)
     const text = hasSelection ? (sel?.toString() ?? plain) : plain
     const safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    const html = `<a href="${url}" target="_blank" rel="noopener noreferrer">${safeText}</a>&nbsp;`
-    insertHtmlAtCaret(html)
+    const urlHtml = `<a href="${url}" target="_blank" rel="noopener noreferrer">${safeText}</a>&nbsp;`
+    insertHtmlAtCaret(urlHtml)
   }
 
   const emitChange = () => {

@@ -132,6 +132,7 @@ export type EventRow = {
   hub_focal_y: number
   dashboard_columns: DashboardColumnsConfig | null
   eligible_year_groups: number[] | null
+  open_to_gap_year: boolean
   created_at: string
 }
 
@@ -162,7 +163,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
@@ -239,7 +240,7 @@ export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
     'name' | 'slug' | 'location' | 'location_full' | 'format' | 'time_start' | 'time_end' | 'dress_code' |
-    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns'
+    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year'
   >>,
 ): Promise<EventRow> {
   // Guard against malformed form_config landing in the DB — a bad shape would
@@ -285,4 +286,37 @@ export async function fetchEventFormConfigBySlug(slug: string): Promise<{ fields
     .maybeSingle()
   if (error) throw error
   return (data as { form_config: { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides } })?.form_config ?? null
+}
+
+
+/**
+ * Render the "Open to" audience for an event as a short human-readable string
+ * that fits inside sentences. Examples:
+ *   []          open_to_gap_year=false -> "all students"
+ *   [13]        open_to_gap_year=false -> "Year 13 students"
+ *   [12, 13]    open_to_gap_year=false -> "Year 12 and Year 13 students"
+ *   [13]        open_to_gap_year=true  -> "Year 13 and gap year students"
+ *   [12, 13]    open_to_gap_year=true  -> "Year 12, Year 13 and gap year students"
+ *   []          open_to_gap_year=true  -> "Gap year students"
+ *
+ * Year numbers are sorted ascending. Only the first audience part is capitalised,
+ * matching how it reads inside running prose (e.g. "This event is open to ...").
+ */
+export function formatOpenTo(
+  years: number[] | null | undefined,
+  openToGapYear: boolean,
+): string {
+  const yrParts =
+    Array.isArray(years) && years.length > 0
+      ? [...years].sort((a, b) => a - b).map(y => `Year ${y}`)
+      : []
+  const parts: string[] = [...yrParts]
+  if (openToGapYear) parts.push('gap year')
+  if (parts.length === 0) return 'all students'
+  parts[0] = parts[0][0].toUpperCase() + parts[0].slice(1)
+  let joined: string
+  if (parts.length === 1) joined = parts[0]
+  else if (parts.length === 2) joined = `${parts[0]} and ${parts[1]}`
+  else joined = `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+  return `${joined} students`
 }
