@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
-import QualificationsEditor from '@/components/QualificationsEditor'
+import QualificationsEditor, { defaultQualifications } from '@/components/QualificationsEditor'
 import DynamicFormField, { type FieldValue, evaluateConditions } from '@/components/DynamicFormField'
 import { STANDARD_QUESTIONS } from '@/components/FormBuilder'
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
@@ -127,11 +127,7 @@ export default function ApplyPage() {
 
   // Form state — application step (fixed fields)
   const [gcseResults, setGcseResults] = useState('')
-  const [qualifications, setQualifications] = useState<QualificationEntry[]>([
-    { qualType: 'a_level', subject: '', grade: '' },
-    { qualType: 'a_level', subject: '', grade: '' },
-    { qualType: 'a_level', subject: '', grade: '' },
-  ])
+  const [qualifications, setQualifications] = useState<QualificationEntry[]>(defaultQualifications())
   const [attribution, setAttribution] = useState('')
 
   // Form state — custom fields (from form_config)
@@ -913,11 +909,7 @@ export default function ApplyPage() {
     profileStudentIdRef.current = null
     // Reset application
     setGcseResults('')
-    setQualifications([
-      { qualType: 'a_level', subject: '', grade: '' },
-      { qualType: 'a_level', subject: '', grade: '' },
-      { qualType: 'a_level', subject: '', grade: '' },
-    ])
+    setQualifications(defaultQualifications())
     setAttribution('')
     setCustomFieldValues({})
     setCustomPageIdx(0)

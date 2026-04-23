@@ -79,6 +79,15 @@ export function emptyQualification(): QualificationEntry {
   return { qualType: 'a_level', subject: '', grade: '' }
 }
 
+// Most UK students do 3 A-levels, so both the hub profile editor and the
+// apply form seed the editor with 3 empty rows. Change this constant and
+// both surfaces update in lockstep.
+export const DEFAULT_QUALIFICATION_ROW_COUNT = 3
+
+export function defaultQualifications(): QualificationEntry[] {
+  return Array.from({ length: DEFAULT_QUALIFICATION_ROW_COUNT }, emptyQualification)
+}
+
 type Props = {
   value: QualificationEntry[]
   onChange: (next: QualificationEntry[]) => void

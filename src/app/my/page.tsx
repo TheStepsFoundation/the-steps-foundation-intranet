@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
-import QualificationsEditor, { emptyQualification } from '@/components/QualificationsEditor'
+import QualificationsEditor, { emptyQualification, defaultQualifications } from '@/components/QualificationsEditor'
 import { TopNav } from '@/components/TopNav'
 import { PressableButton } from '@/components/PressableButton'
 import Link from 'next/link'
@@ -153,7 +153,7 @@ export default function StudentHub() {
   // DB boolean on save (DB stores TRUE when the student IS first-gen).
   const [firstGenerationUni, setFirstGenerationUni] = useState<'yes' | 'no' | ''>('')
   const [gcseResults, setGcseResults] = useState('')
-  const [qualifications, setQualifications] = useState<import('@/lib/apply-api').QualificationEntry[]>([emptyQualification()])
+  const [qualifications, setQualifications] = useState<import('@/lib/apply-api').QualificationEntry[]>(defaultQualifications())
   const [additionalContext, setAdditionalContext] = useState('')
   const [qualificationsError, setQualificationsError] = useState<string | null>(null)
 
@@ -173,7 +173,7 @@ export default function StudentHub() {
     setQualifications(
       Array.isArray(p.qualifications) && p.qualifications.length > 0
         ? p.qualifications.map(q => ({ ...q }))
-        : [emptyQualification()]
+        : defaultQualifications()
     )
     setAdditionalContext(p.additional_context ?? '')
     setQualificationsError(null)
