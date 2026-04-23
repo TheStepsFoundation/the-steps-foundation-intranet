@@ -351,6 +351,26 @@ function EventImageUploader({
 
 // Collapsible section wrapper for the event edit view. Persists open/closed
 // state per section-id in localStorage so admins' preferred layout sticks.
+// ---------------------------------------------------------------------------
+// Timezone-safe datetime-local conversion.
+// <input type="datetime-local"> binds to a naive local-time string like
+// "2026-05-01T17:00". JS treats that string as LOCAL time when parsed via
+// new Date(), so on save we already correctly produce a UTC timestamp.
+// But the inverse — loading a stored UTC ISO string — needs the SAME
+// local-projection, or round-trips drift (UTC 2026-04-30T23:00Z was sliced
+// to "2026-04-30T23:00" and then re-parsed as LOCAL 23:00 BST = UTC
+// 2026-04-30T22:00Z, losing an hour per save; at midnight, losing a day too).
+// This helper projects an ISO timestamp into the same local naive format
+// datetime-local expects.
+// ---------------------------------------------------------------------------
+function toLocalDatetimeInputValue(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 function Section({ id, title, subtitle, defaultOpen = false, children }: {
   id: string
   title: string
@@ -560,8 +580,8 @@ export default function EventDetailPage() {
       time_end: event.time_end ?? '',
       dress_code: event.dress_code ?? '',
       status: event.status,
-      applications_open_at: event.applications_open_at ? event.applications_open_at.slice(0, 16) : '',
-      applications_close_at: event.applications_close_at ? event.applications_close_at.slice(0, 16) : '',
+      applications_open_at: toLocalDatetimeInputValue(event.applications_open_at),
+      applications_close_at: toLocalDatetimeInputValue(event.applications_close_at),
       form_config: event.form_config ?? { fields: [] },
       banner_image_url: event.banner_image_url,
       hub_image_url: event.hub_image_url,
@@ -1714,7 +1734,7 @@ export default function EventDetailPage() {
             </div>
 
             {/* Section: Basics (Name, slug, status, date, times, location, capacity) */}
-            <Section id="basics" title="Basics" subtitle="Name, status, date, times, location, capacity" defaultOpen>
+            <Section id="basics" title="Basics" subtitle="Name, status, date, times, location, capacity, application window, description" defaultOpen>
             {/* Row 1: Name + Slug + Status */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -1833,10 +1853,7 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            </Section>
-
-            <Section id="windows" title="Application windows" subtitle="When applications open and close">
-            {/* Row 4: Application windows */}
+            {/* Row 4: Application windows (merged into Basics) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Applications open at</label>
@@ -1848,10 +1865,7 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            </Section>
-
-            <Section id="description" title="Description" subtitle="Overview shown to applicants on /apply">
-            {/* Row 5: Description */}
+            {/* Row 5: Description (merged into Basics) */}
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Description</label>
               <LinkableInput
