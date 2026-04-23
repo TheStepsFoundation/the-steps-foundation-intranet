@@ -12,7 +12,7 @@
 
 import type { QualificationEntry } from '@/lib/apply-api'
 
-export const DRAFT_VERSION = 1
+export const DRAFT_VERSION = 2
 export const DRAFT_KEY_PREFIX = 'steps_draft_'
 
 export type DraftData = {
@@ -31,6 +31,7 @@ export type DraftData = {
   schoolType: string
   freeSchoolMeals: string
   householdIncome: string
+  firstGenerationUni: string  // 'yes' | 'no' | '' — see apply page for semantics
   additionalContext: string
   anythingElse: string
   // Application

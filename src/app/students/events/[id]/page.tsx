@@ -70,6 +70,10 @@ type Applicant = {
   anythingElse: string | null
   attributionSource: string | null
   attributionChannel: string | null
+  // Profile fields live on students (not raw_response) as of the two-stage
+  // apply refactor. See migrations 0024 + 0025.
+  firstGenerationUni: boolean | null
+  gcseResults: string | null
   engagementScore: number
   attendedCount: number
   acceptedCount: number
@@ -764,6 +768,7 @@ export default function EventDetailPage() {
           attribution_source, channel,
           students!inner(first_name, last_name, preferred_name, personal_email, year_group, school_id,
             school_type, bursary_90plus, free_school_meals, parental_income_band,
+            first_generation_uni, gcse_results, qualifications, additional_context,
             schools(name)
           ),
           application_rsvp(confirmed, confirmed_at)
@@ -821,15 +826,17 @@ export default function EventDetailPage() {
       const rsvp = row.application_rsvp
       const raw = row.raw_response ?? {}
 
-      // Parse qualifications from raw_response
-      const quals: QualEntry[] = Array.isArray(raw.qualifications)
-        ? raw.qualifications.map((q: any) => ({
-            qualType: q.type ?? q.qualType ?? '',
-            subject: q.subject ?? '',
-            grade: q.grade ?? '',
-            level: q.level,
-          }))
-        : []
+      // Qualifications now live on students (two-stage refactor). Fall back to
+      // raw_response for any legacy row that missed the backfill.
+      const qualsSource = Array.isArray(s.qualifications)
+        ? s.qualifications
+        : (Array.isArray(raw.qualifications) ? raw.qualifications : [])
+      const quals: QualEntry[] = qualsSource.map((q: any) => ({
+        qualType: q.type ?? q.qualType ?? '',
+        subject: q.subject ?? '',
+        grade: q.grade ?? '',
+        level: q.level,
+      }))
 
       // Parse custom field answers
       const customFields: Record<string, unknown> = {}
@@ -867,8 +874,12 @@ export default function EventDetailPage() {
         parental_income_band: s.parental_income_band ?? null,
         qualifications: quals,
         customFields,
-        additionalContext: typeof raw.additional_context === 'string' ? raw.additional_context : null,
+        additionalContext: typeof s.additional_context === 'string' && s.additional_context.trim()
+          ? s.additional_context
+          : (typeof raw.additional_context === 'string' ? raw.additional_context : null),
         anythingElse: typeof raw.anything_else === 'string' ? raw.anything_else : null,
+        firstGenerationUni: typeof s.first_generation_uni === 'boolean' ? s.first_generation_uni : null,
+        gcseResults: typeof s.gcse_results === 'string' ? s.gcse_results : null,
         attributionSource: typeof row.attribution_source === 'string' ? row.attribution_source : null,
         attributionChannel: typeof row.channel === 'string' ? row.channel : null,
         engagementScore: enrichedMap[row.student_id]?.engagement_score ?? 0,
@@ -1562,6 +1573,7 @@ export default function EventDetailPage() {
     if (!event?.form_config) return []
     const overrides = (event.form_config as { standard_overrides?: StandardOverrides }).standard_overrides ?? {}
     const entries: { id: string; defaultLabel: string }[] = [
+      { id: 'std_first_gen',     defaultLabel: 'First-generation university student?' },
       { id: 'std_additional',    defaultLabel: 'Any additional contextual information?' },
       { id: 'std_anything_else', defaultLabel: 'Anything else you’d like us to know?' },
       { id: 'std_attribution',   defaultLabel: 'How did you hear about this opportunity?' },
@@ -2652,6 +2664,23 @@ export default function EventDetailPage() {
                                   )}
                                 </div>
                               )}
+                            </td>
+                          )
+                        }
+                        // First-gen uni — UI polarity: DB true means IS first-gen
+                        // (i.e. no parent went to uni). The column header is phrased
+                        // "First-generation university student?" so we render directly.
+                        if (col.id === 'std_first_gen') {
+                          const v = app.firstGenerationUni
+                          const label = v === true ? 'Yes' : v === false ? 'No' : '—'
+                          const klass = v === true
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
+                            : v === false
+                              ? 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
+                              : 'bg-transparent text-gray-400'
+                          return (
+                            <td key={col.id} className="p-3 whitespace-nowrap">
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${klass}`}>{label}</span>
                             </td>
                           )
                         }

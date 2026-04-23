@@ -107,6 +107,11 @@ export const STD_FSM_OPTIONS: { value: string; label: string }[] = [
   { value: "previously",  label: "Previously eligible" },
   { value: "no",          label: "Not eligible" },
 ]
+export const STD_FIRST_GEN_OPTIONS: { value: string; label: string }[] = [
+  { value: "yes",                label: "Yes" },
+  { value: "no",                 label: "No" },
+  { value: "prefer_not_to_say",  label: "Prefer not to say" },
+]
 export const STD_ATTRIBUTION_OPTIONS: { value: string; label: string }[] = [
   { value: "email_invite",                 label: "Email invite" },
   { value: "school_teacher",                label: "School / teacher" },
@@ -129,7 +134,8 @@ export const STANDARD_QUESTIONS: StandardQuestion[] = [
   { id: "std_school_type",   label: "What type of school do you currently attend?", type: "radio", group: "context", section: "Contextual", defaultOptions: STD_SCHOOL_TYPE_OPTIONS },
   { id: "std_income",        label: "Is your average household income less than £40,000?", type: "radio", group: "context", section: "Contextual", defaultOptions: STD_INCOME_OPTIONS },
   { id: "std_fsm",           label: "Are you eligible for Free School Meals?", type: "radio", group: "context", section: "Contextual", defaultOptions: STD_FSM_OPTIONS },
-  { id: "std_additional",    label: "Any additional contextual information?", type: "textarea", group: "context", section: "Contextual", description: "E.g. young carer, extenuating circumstances, school disruption, etc." },
+  { id: "std_first_gen",     label: "Did you grow up in a household where at least one parent went to university?", type: "radio", group: "context", section: "Contextual", defaultOptions: STD_FIRST_GEN_OPTIONS },
+  { id: "std_additional",    label: "Any additional contextual information you’d like us to know", type: "textarea", group: "context", section: "Contextual", description: "E.g. young carer, care-experienced, extenuating circumstances, school disruption, anything else contextual." },
   { id: "std_gcse",          label: "Achieved GCSE results",        type: "number",           group: "context", section: "Academic", description: "Enter your grades as numbers only, highest to lowest (e.g. 999887766)." },
   { id: "std_qualifications",label: "Subjects and predicted/achieved grades", type: "paired_dropdown", group: "context", section: "Academic", description: "Add each subject you study. Select your qualification type, subject, and current predicted (or achieved) grade." },
   // Finishing questions — shown after event-specific questions on the same page

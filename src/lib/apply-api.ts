@@ -113,6 +113,12 @@ export type StudentSelf = {
   school_type: string | null
   free_school_meals: boolean | null
   parental_income_band: string | null
+  // Profile fields promoted from application raw_response in migration 0024/0025.
+  // These persist across applications so students don't re-enter them each time.
+  first_generation_uni: boolean | null
+  gcse_results: string | null
+  qualifications: QualificationEntry[] | null
+  additional_context: string | null
 }
 
 export type QualificationEntry = {
@@ -122,30 +128,6 @@ export type QualificationEntry = {
   grade: string           // A*–U for A-Level, 7–1 for IB, D*/D/M/P for BTEC, etc.
 }
 
-export type ApplicationSubmission = {
-  // Student identity (upserted)
-  firstName: string
-  lastName: string
-  email: string
-  schoolId: string | null
-  schoolNameRaw: string | null
-  yearGroup: number
-  // Socioeconomic
-  schoolType: string       // state | grammar | independent | independent_bursary
-  freeSchoolMeals: boolean | null
-  householdIncomeUnder40k: string  // yes | no | prefer_not_to_say
-  additionalContext: string
-  anythingElse: string
-  // Academics
-  gcseResults: string
-  qualifications: QualificationEntry[]
-  // Custom form fields (configured per event via form_config)
-  customFields: Record<string, unknown>
-  // Attribution
-  attributionSource: string
-  // Raw form values for raw_response (preserves granularity lost in boolean mapping)
-  freeSchoolMealsRaw: string  // 'yes' | 'previously' | 'no'
-}
 
 
 // ---------------------------------------------------------------------------
@@ -168,7 +150,7 @@ export function normalizeName(raw: string): string {
 
 // Non-sensitive columns we fetch for the pre-fill
 const STUDENT_SELF_COLUMNS =
-  'id,first_name,last_name,personal_email,school_id,school_name_raw,year_group,school_type,free_school_meals,parental_income_band'
+  'id,first_name,last_name,personal_email,school_id,school_name_raw,year_group,school_type,free_school_meals,parental_income_band,first_generation_uni,gcse_results,qualifications,additional_context'
 
 // ---------------------------------------------------------------------------
 // OTP Auth
@@ -417,25 +399,62 @@ export async function fetchEventFormConfig(
   }
 }
 
+
 // ---------------------------------------------------------------------------
-// Submit Application
+// Two-stage apply flow (2026-04-23)
+// ---------------------------------------------------------------------------
+//
+// Stage 1 captures profile data that persists across applications (stored on
+// the students row). Stage 2 captures event-specific data (custom form fields,
+// attribution) and writes the applications row.
+//
+// Eligibility is checked between stages: ineligible students complete a
+// shortened stage 2 (attribution only) and their application row is written
+// with status 'ineligible'. No email is sent.
 // ---------------------------------------------------------------------------
 
+export type ProfileSubmission = {
+  // Identity
+  firstName: string
+  lastName: string
+  email: string
+  schoolId: string | null
+  schoolNameRaw: string | null
+  yearGroup: number
+  // Socioeconomic
+  schoolType: string       // state | grammar | independent | independent_bursary
+  freeSchoolMeals: boolean | null
+  householdIncomeUnder40k: string  // yes | no | prefer_not_to_say
+  freeSchoolMealsRaw: string
+  // New profile fields (students columns)
+  firstGenerationUni: boolean | null
+  additionalContext: string
+  gcseResults: string
+  qualifications: QualificationEntry[]
+}
+
+export type Stage2Submission = {
+  customFields: Record<string, unknown>
+  anythingElse: string
+  attributionSource: string
+}
+
+export type ProfileResult = {
+  error: string | null
+  studentId?: string
+  isEligible?: boolean
+  openToLabel?: string   // "year 13 and gap year students" — for the ineligibility message
+}
+
 /**
- * Upserts the student record and creates an application in two steps.
- * Both operations go through RLS (student can only write their own row).
+ * Stage 1: upsert the student profile and return eligibility for the event.
+ * No application row is written here — the caller decides which stage-2
+ * flow to show based on isEligible.
  */
-export async function submitApplication(
+export async function submitProfile(
   eventId: string,
-  submission: ApplicationSubmission,
-): Promise<{ error: string | null; studentId?: string; applicationId?: string }> {
-  // -------------------------------------------------------------------------
-  // Pre-flight: make sure we have a fresh, valid session before we start
-  // hitting the DB. A student who spent 5 minutes on the form may have a
-  // token that's minutes from expiry; refreshing up front prevents a
-  // mid-pipeline hang and gives us an early-exit signal if the refresh token
-  // is itself dead.
-  // -------------------------------------------------------------------------
+  profile: ProfileSubmission,
+): Promise<ProfileResult> {
   const session = await ensureFreshSession()
   if (!session.ok) {
     return { error: 'Your session has expired. Please sign out and sign back in, then resubmit. Your answers are saved on this device.' }
@@ -446,14 +465,7 @@ export async function submitApplication(
     return { error: 'Your session has expired. Please sign out and sign back in, then resubmit. Your answers are saved on this device.' }
   }
 
-  // -------------------------------------------------------------------------
-  // Pre-flight: year-group eligibility.
-  // Prevents students navigating to an ineligible event by slug and submitting
-  // anyway. Source of truth: the event row's eligible_year_groups (int[]) and
-  // open_to_gap_year (bool). Gap-year students are year_group=14 in the
-  // students table and are eligible iff open_to_gap_year=true, independent of
-  // what's in eligible_year_groups.
-  // -------------------------------------------------------------------------
+  // Fetch event eligibility criteria upfront (same call shape as submitApplication)
   const eligibilityCheck = await runWithRetry(
     () => supabase.from('events').select('eligible_year_groups, open_to_gap_year').eq('id', eventId).maybeSingle(),
     'events.eligibility',
@@ -463,69 +475,58 @@ export async function submitApplication(
   }
   const allowedYears = (eligibilityCheck.data?.eligible_year_groups ?? null) as number[] | null
   const openToGapYear = !!eligibilityCheck.data?.open_to_gap_year
+  const openToLabel = formatOpenTo(allowedYears, openToGapYear)
+
   const hasFilter = (allowedYears && allowedYears.length > 0) || openToGapYear
+  let isEligible = true
   if (hasFilter) {
-    const yg = submission.yearGroup
+    const yg = profile.yearGroup
     const inYears = yg != null && !!allowedYears && allowedYears.includes(yg)
     const isEligibleGap = yg === 14 && openToGapYear
-    if (yg == null || (!inYears && !isEligibleGap)) {
-      const label = formatOpenTo(allowedYears, openToGapYear)
-      return { error: `This event is open to ${label.toLowerCase()} only. If this looks wrong, contact hello@thestepsfoundation.com.` }
-    }
+    isEligible = yg != null && (inYears || isEligibleGap)
   }
 
-  // Map the household income answer to an income band code
-  const incomeBand = submission.householdIncomeUnder40k === 'yes'
+  // Map household income answer to income band code
+  const incomeBand = profile.householdIncomeUnder40k === 'yes'
     ? 'under_40k'
-    : submission.householdIncomeUnder40k === 'no'
+    : profile.householdIncomeUnder40k === 'no'
       ? 'over_40k'
       : 'prefer_na'
 
-  // -------------------------------------------------------------------------
-  // Step 1: Upsert student.
-  // independent_bursary is now a first-class school_type (migrated 2026-04-19);
-  // no more collapsing it into 'independent' + bursary_90plus=true.
-  // -------------------------------------------------------------------------
+  // Build student payload — includes the new profile columns (gcse_results,
+  // qualifications, additional_context, first_generation_uni). RLS allows the
+  // student to write their own row. `coalesce(... , null)` semantics via
+  // `?? null` keep empty strings out of text columns.
   const studentPayload = {
-    first_name: normalizeName(submission.firstName),
-    last_name: normalizeName(submission.lastName),
+    first_name: normalizeName(profile.firstName),
+    last_name: normalizeName(profile.lastName),
     personal_email: email,
-    school_id: submission.schoolId,
-    school_name_raw: submission.schoolNameRaw,
-    year_group: submission.yearGroup,
-    school_type: submission.schoolType,
-    bursary_90plus: submission.schoolType === 'independent_bursary' ? true : null,
-    free_school_meals: submission.freeSchoolMeals,
+    school_id: profile.schoolId,
+    school_name_raw: profile.schoolNameRaw,
+    year_group: profile.yearGroup,
+    school_type: profile.schoolType,
+    bursary_90plus: profile.schoolType === 'independent_bursary' ? true : null,
+    free_school_meals: profile.freeSchoolMeals,
     parental_income_band: incomeBand,
+    first_generation_uni: profile.firstGenerationUni,
+    gcse_results: profile.gcseResults?.trim() || null,
+    qualifications: profile.qualifications?.length ? profile.qualifications : null,
+    additional_context: profile.additionalContext?.trim() || null,
   }
 
   let studentId: string
   try {
-    // One round-trip: UPDATE ... WHERE personal_email=? RETURNING id.
-    // If the student doesn't exist yet, rows=[], so we INSERT on the next
-    // step. Previously this was a SELECT then UPDATE — two trips instead of one.
     const upd = await runWithRetry(
-      () => supabase
-        .from('students')
-        .update(studentPayload)
-        .eq('personal_email', email)
-        .select('id'),
+      () => supabase.from('students').update(studentPayload).eq('personal_email', email).select('id'),
       'students.update',
     )
-    if (upd.error) {
-      return { error: `Failed to save your details: ${upd.error.message}` }
-    }
+    if (upd.error) return { error: `Failed to save your details: ${upd.error.message}` }
 
     if (upd.data && upd.data.length > 0) {
       studentId = upd.data[0].id
     } else {
-      // No existing row — INSERT.
       const ins = await runWithRetry(
-        () => supabase
-          .from('students')
-          .insert(studentPayload)
-          .select('id')
-          .single(),
+        () => supabase.from('students').insert(studentPayload).select('id').single(),
         'students.insert',
       )
       if (ins.error || !ins.data) {
@@ -534,7 +535,6 @@ export async function submitApplication(
       studentId = ins.data.id
     }
   } catch (err: any) {
-    // Timeout / network error after retry
     return {
       error: err?.message?.includes('timed out')
         ? 'The server is responding slowly. Please check your connection and try again — your answers are saved on this device.'
@@ -542,19 +542,21 @@ export async function submitApplication(
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Step 2: Upsert application.
-  // -------------------------------------------------------------------------
-  const rawResponse = {
-    gcse_results: submission.gcseResults,
-    qualifications: submission.qualifications,
-    custom_fields: submission.customFields,
-    additional_context: submission.additionalContext,
-    anything_else: submission.anythingElse,
-    household_income_under_40k: submission.householdIncomeUnder40k,
-    free_school_meals_raw: submission.freeSchoolMealsRaw,
-  }
+  return { error: null, studentId, isEligible, openToLabel }
+}
 
+/**
+ * Stage 2: upsert the application row. Status is 'submitted' if eligible and
+ * 'ineligible' otherwise. For ineligible rows the raw_response is minimal
+ * (no custom fields, no anythingElse) — we just record the attempt so admins
+ * can see who tried and where they heard about the event.
+ */
+export async function submitEventApplication(
+  eventId: string,
+  studentId: string,
+  stage2: Stage2Submission,
+  options: { eligible: boolean },
+): Promise<{ error: string | null; applicationId?: string }> {
   const attributionMap: Record<string, string> = {
     'email_invite': 'email',
     'school_teacher': 'teacher_newsletter',
@@ -567,51 +569,69 @@ export async function submitApplication(
     'other': 'other',
   }
 
+  const status = options.eligible ? 'submitted' : 'ineligible'
+
+  // For ineligible applicants we only persist attribution. Custom fields and
+  // `anythingElse` are event-specific + only shown to eligible applicants.
+  const rawResponse = options.eligible
+    ? {
+        custom_fields: stage2.customFields,
+        anything_else: stage2.anythingElse,
+      }
+    : {
+        // Flag the row so future admin UIs can distinguish auto-screened
+        // attempts from manual ineligibility edits.
+        ineligible_attempt: true,
+      }
+
   try {
-    // Check for an existing LIVE application (edit mode). Soft-deleted rows
-    // (deleted_at IS NOT NULL) must be ignored so a student who previously
-    // withdrew / was soft-deleted can submit a fresh application. Matching
-    // partial unique index: applications_student_event_live_uniq (0019).
     const existingLookup = await runWithRetry(
       () => supabase
         .from('applications')
-        .select('id')
+        .select('id, status')
         .eq('student_id', studentId)
         .eq('event_id', eventId)
         .is('deleted_at', null)
         .maybeSingle(),
       'applications.lookup',
     )
-    const existingApp = existingLookup.data
+    const existingApp = existingLookup.data as { id: string; status: string } | null
 
     if (existingApp) {
+      // Don't overwrite a meaningful status (e.g. accepted/shortlisted) just
+      // because the student re-submitted. Only promote 'ineligible' → 'submitted'
+      // if they've become eligible, or keep existing status otherwise.
+      const nextStatus =
+        existingApp.status === 'ineligible' && options.eligible ? 'submitted' :
+        existingApp.status === 'submitted' && !options.eligible ? 'ineligible' :
+        existingApp.status
       const upd = await runWithRetry(
         () => supabase
           .from('applications')
           .update({
+            status: nextStatus,
             raw_response: rawResponse,
-            channel: submission.attributionSource,
-            attribution_source: attributionMap[submission.attributionSource] || 'other',
+            channel: stage2.attributionSource,
+            attribution_source: attributionMap[stage2.attributionSource] || 'other',
             updated_at: new Date().toISOString(),
           })
           .eq('id', existingApp.id),
         'applications.update',
       )
       if (upd.error) return { error: `Failed to update application: ${upd.error.message}` }
-      return { error: null, studentId, applicationId: existingApp.id }
+      return { error: null, applicationId: existingApp.id }
     }
 
-    // INSERT new application
     const ins = await runWithRetry(
       () => supabase
         .from('applications')
         .insert({
           student_id: studentId,
           event_id: eventId,
-          status: 'submitted',
+          status,
           raw_response: rawResponse,
-          channel: submission.attributionSource,
-          attribution_source: attributionMap[submission.attributionSource] || 'other',
+          channel: stage2.attributionSource,
+          attribution_source: attributionMap[stage2.attributionSource] || 'other',
         })
         .select('id')
         .single(),
@@ -624,7 +644,7 @@ export async function submitApplication(
       }
       return { error: `Failed to submit application: ${m || 'unknown error'}` }
     }
-    return { error: null, studentId, applicationId: ins.data.id }
+    return { error: null, applicationId: ins.data.id }
   } catch (err: any) {
     return {
       error: err?.message?.includes('timed out')

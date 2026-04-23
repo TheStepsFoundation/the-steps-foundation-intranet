@@ -10,9 +10,9 @@ import type { FormFieldConfig, FormPage, EventRow, StandardOverrides } from '@/l
 import { fetchEventBySlug } from '@/lib/events-api'
 import {
   sendOtp, verifyOtp, signInWithPassword, lookupSelf, hasExistingApplication, fetchExistingApplication, getExistingSession,
-  submitApplication, upgradeToPassword, signOutStudent, userHasPassword,
+  submitProfile, submitEventApplication, upgradeToPassword, signOutStudent, userHasPassword,
   fetchEventFormConfig,
-  type StudentSelf, type ApplicationSubmission,
+  type StudentSelf, type ProfileSubmission, type Stage2Submission,
   type QualificationEntry,
 } from '@/lib/apply-api'
 import { saveDraft, loadDraft, clearDraft, clearAllDrafts } from '@/lib/apply-draft'
@@ -180,8 +180,14 @@ export default function ApplyPage() {
   const [schoolType, setSchoolType] = useState('')
   const [freeSchoolMeals, setFreeSchoolMeals] = useState('')
   const [householdIncome, setHouseholdIncome] = useState('')
+  const [firstGenerationUni, setFirstGenerationUni] = useState<'yes' | 'no' | ''>('')  // 'yes' = at least one parent went to uni → first_generation_uni = false
   const [additionalContext, setAdditionalContext] = useState('')
   const [anythingElse, setAnythingElse] = useState('')
+
+  // Eligibility (set by stage-1 submitProfile result). null = not yet checked.
+  const [isEligible, setIsEligible] = useState<boolean | null>(null)
+  const [openToLabel, setOpenToLabel] = useState<string>('')
+
 
   // Form state — application step (fixed fields)
   const [gcseResults, setGcseResults] = useState('')
@@ -248,6 +254,9 @@ export default function ApplyPage() {
   const restoringRef = useRef(false)
   const draftRestoredRef = useRef(false)
   const originalFormSnapshot = useRef<string>('')
+  // Studentid returned from submitProfile — handleSubmit needs this to write
+  // the application row without a second lookup.
+  const profileStudentIdRef = useRef<string | null>(null)
   const [showExitPrompt, setShowExitPrompt] = useState(false)
 
   // Success step
@@ -292,6 +301,23 @@ export default function ApplyPage() {
       else if (s.parental_income_band === 'prefer_na') setHouseholdIncome('prefer_not_to_say')
       else setHouseholdIncome('no')
     }
+    // First-generation-uni: DB stores true/false with semantic
+    //   true  = student IS first-gen (no parent went to uni)
+    //   false = at least one parent went to uni
+    // UI polarity is flipped: question is "did at least one parent go to uni?"
+    if (s.first_generation_uni === true) setFirstGenerationUni('no')
+    else if (s.first_generation_uni === false) setFirstGenerationUni('yes')
+    // Profile fields promoted from applications (migration 0024)
+    if (s.gcse_results) setGcseResults(s.gcse_results)
+    if (Array.isArray(s.qualifications) && s.qualifications.length > 0) {
+      setQualifications(s.qualifications.map((q: any) => ({
+        qualType: q.qualType || 'a_level',
+        subject: q.subject || '',
+        grade: q.grade || '',
+        level: q.level,
+      })))
+    }
+    if (s.additional_context) setAdditionalContext(s.additional_context)
   }, [])
 
 
@@ -300,11 +326,11 @@ export default function ApplyPage() {
   const getFormSnapshot = useCallback(() => {
     return JSON.stringify({
       firstName, lastName, school, yearGroup, schoolType, freeSchoolMeals,
-      householdIncome, additionalContext, anythingElse, gcseResults, qualifications,
+      householdIncome, firstGenerationUni, additionalContext, anythingElse, gcseResults, qualifications,
       attribution, customFieldValues,
     })
   }, [firstName, lastName, school, yearGroup, schoolType, freeSchoolMeals,
-      householdIncome, additionalContext, anythingElse, gcseResults, qualifications,
+      householdIncome, firstGenerationUni, additionalContext, anythingElse, gcseResults, qualifications,
       attribution, customFieldValues])
 
   const hasFormChanges = alreadyApplied && originalFormSnapshot.current
@@ -496,7 +522,7 @@ export default function ApplyPage() {
       saveDraft(event!.id, email, {
         step,
         firstName, lastName, school, yearGroup, schoolType,
-        freeSchoolMeals, householdIncome, additionalContext, anythingElse,
+        freeSchoolMeals, householdIncome, firstGenerationUni, additionalContext, anythingElse,
         gcseResults, qualifications, attribution,
         customFieldValues,
       })
@@ -505,7 +531,7 @@ export default function ApplyPage() {
   }, [
     event?.id, email, step,
     firstName, lastName, school, yearGroup, schoolType,
-    freeSchoolMeals, householdIncome, additionalContext,
+    freeSchoolMeals, householdIncome, firstGenerationUni, additionalContext,
     gcseResults, qualifications, attribution,
     customFieldValues,
   ])
@@ -608,10 +634,11 @@ export default function ApplyPage() {
    *  and/or finishing questions). When false we submit directly from details. */
   const hasApplicationContent = (): boolean => hasCustomFields() || hasFinishingContent()
 
-  const handleDetailsNext = () => {
+  const handleDetailsNext = async () => {
     // Preview + bypass: skip validation and jump straight to the next step.
     if (previewMode && previewBypassRequired) {
       setError(null)
+      setIsEligible(true)
       if (hasApplicationContent()) setStep('application')
       else void handleSubmit()
       return
@@ -625,6 +652,7 @@ export default function ApplyPage() {
     if (!stdHidden('std_school_type') && !schoolType) { errs.schoolType = 'Please answer this question.'; order.push('schoolType') }
     if (!stdHidden('std_fsm') && !freeSchoolMeals) { errs.freeSchoolMeals = 'Please answer the Free School Meals question.'; order.push('freeSchoolMeals') }
     if (!stdHidden('std_income') && !householdIncome) { errs.householdIncome = 'Please answer the household income question.'; order.push('householdIncome') }
+    if (!stdHidden('std_first_gen') && !firstGenerationUni) { errs.firstGenerationUni = 'Please answer this question.'; order.push('firstGenerationUni') }
 
     // Optional "additional context" word bounds (only checked when field is shown).
     if (!stdHidden('std_additional')) {
@@ -640,7 +668,7 @@ export default function ApplyPage() {
       }
     }
 
-    // GCSE + qualifications (moved from handleSubmit — now live on page 1)
+    // GCSE + qualifications (stage-1 profile fields)
     if (!stdHidden('std_gcse')) {
       if (!gcseResults.trim()) { errs.gcseResults = 'Please enter your GCSE results.'; order.push('gcseResults') }
       else if (!/^\d+$/.test(gcseResults.trim())) { errs.gcseResults = 'GCSE results should contain only numbers (e.g. 999887766).'; order.push('gcseResults') }
@@ -663,6 +691,49 @@ export default function ApplyPage() {
       return
     }
     setError(null)
+
+    // -------------------------------------------------------------------------
+    // Stage 1 — persist profile + check eligibility for this event.
+    // We commit the student's profile answers (name, school, income, first-gen,
+    // GCSEs, qualifications, additional context) before the eligibility branch,
+    // so an ineligible applicant's data is still saved and carries over to any
+    // future events they're eligible for. No application row is written here.
+    // -------------------------------------------------------------------------
+    setLoading(true)
+    const profile: ProfileSubmission = {
+      firstName,
+      lastName,
+      email,
+      schoolId: school.schoolId,
+      schoolNameRaw: school.schoolNameRaw,
+      yearGroup: yearGroup as number,
+      schoolType,
+      freeSchoolMeals: (freeSchoolMeals === 'yes' || freeSchoolMeals === 'previously') ? true : freeSchoolMeals === 'no' ? false : null,
+      householdIncomeUnder40k: householdIncome,
+      freeSchoolMealsRaw: freeSchoolMeals,
+      firstGenerationUni: firstGenerationUni === 'no' ? true : firstGenerationUni === 'yes' ? false : null,
+      additionalContext,
+      gcseResults,
+      qualifications: filledQuals,
+    }
+    const result = await submitProfile(event!.id, profile)
+    setLoading(false)
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+    profileStudentIdRef.current = result.studentId ?? null
+    setIsEligible(result.isEligible ?? true)
+    setOpenToLabel(result.openToLabel ?? '')
+
+    // Ineligible students see a short stage 2 (attribution + hub CTA).
+    if (result.isEligible === false) {
+      setStep('application')
+      return
+    }
+
+    // Eligible — continue to event-specific questions, or short-circuit if the
+    // event has no stage-2 content at all.
     if (hasApplicationContent()) {
       setStep('application')
     } else {
@@ -750,86 +821,78 @@ export default function ApplyPage() {
     const errs: Record<string, string> = {}
     const order: string[] = []
 
-    // GCSE
-    if (!stdHidden('std_gcse')) {
-      if (!gcseResults.trim()) { errs.gcseResults = 'Please enter your GCSE results.'; order.push('gcseResults') }
-      else if (!/^\d+$/.test(gcseResults.trim())) { errs.gcseResults = 'GCSE results should contain only numbers (e.g. 999887766).'; order.push('gcseResults') }
-    }
+    // -------------------------------------------------------------------------
+    // Stage-2 validation.
+    // Ineligible students only answer attribution + see the "Return to Hub"
+    // CTA, so skip custom-field / anything-else validation for them.
+    // -------------------------------------------------------------------------
+    if (isEligible !== false) {
+      for (const field of formFields) {
+        const val = customFieldValues[field.id]
+        const key = `customField:${field.id}`
+        if (field.type === 'textarea') {
+          const minW = field.config?.minWords
+          const maxW = field.config?.maxWords
+          const str = typeof val === 'string' ? val : ''
+          const count = wordCount(str)
+          if (typeof minW === 'number' && minW > 0 && count > 0 && count < minW) {
+            errs[key] = `${stripToText(field.label)}: please write at least ${minW} words (currently ${count}).`
+            order.push(key)
+            continue
+          }
+          if (typeof maxW === 'number' && count > maxW) {
+            errs[key] = `${stripToText(field.label)}: please keep this under ${maxW} words (currently ${count}).`
+            order.push(key)
+            continue
+          }
+        }
+        if (!field.required) continue
+        if (val === undefined || val === '' || val === null) {
+          errs[key] = `Please complete: ${stripToText(field.label)}`
+          order.push(key)
+          continue
+        }
+        if (field.type === 'ranked_dropdown' && typeof val === 'object' && !Array.isArray(val)) {
+          const ranks = field.config?.ranks ?? 3
+          const entries = val as Record<string, string>
+          const rankKeys = Array.from({ length: ranks }, (_, i) =>
+            i === 0 ? 'first' : i === 1 ? 'second' : i === 2 ? 'third' : `choice_${i + 1}`
+          )
+          for (const rk of rankKeys) {
+            if (!entries[rk]) { errs[key] = `Please complete all choices for: ${stripToText(field.label)}`; order.push(key); break }
+          }
+        }
+        if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
+          errs[key] = `Please select at least one option for: ${stripToText(field.label)}`
+          order.push(key)
+        }
+        if (field.type === 'paired_dropdown' && Array.isArray(val)) {
+          const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
+          if (completeRows.length === 0) { errs[key] = `Please complete at least one row for: ${stripToText(field.label)}`; order.push(key) }
+        }
+      }
 
-    // Qualifications
-    const filledQuals = qualifications.filter(q => q.subject && q.grade)
-    const incompleteQuals = qualifications.filter(q => (q.subject && !q.grade) || (!q.subject && q.grade))
-    const ibMissingLevel = qualifications.filter(q => q.qualType === 'ib' && q.subject && !q.level)
-    if (!stdHidden('std_qualifications')) {
-      if (filledQuals.length === 0) { errs.qualifications = 'Please add at least one subject with a grade.'; order.push('qualifications') }
-      else if (incompleteQuals.length > 0) { errs.qualifications = 'Please complete all subject rows — each needs both a subject and a grade.'; order.push('qualifications') }
-      else if (ibMissingLevel.length > 0) { errs.qualifications = 'Please select HL or SL for each IB subject.'; order.push('qualifications') }
-    }
-
-    // Custom fields
-    for (const field of formFields) {
-      const val = customFieldValues[field.id]
-      const key = `customField:${field.id}`
-      if (field.type === 'textarea') {
-        const minW = field.config?.minWords
-        const maxW = field.config?.maxWords
-        const str = typeof val === 'string' ? val : ''
-        const count = wordCount(str)
+      // "Anything else" word bounds (only if the field is shown).
+      if (!stdHidden('std_anything_else')) {
+        const minW = stdOverrides.std_anything_else?.minWords
+        const maxW = stdOverrides.std_anything_else?.maxWords
+        const count = wordCount(anythingElse)
         if (typeof minW === 'number' && minW > 0 && count > 0 && count < minW) {
-          errs[key] = `${stripToText(field.label)}: please write at least ${minW} words (currently ${count}).`
-          order.push(key)
-          continue
+          errs.anythingElse = `Please write at least ${minW} words for "Anything else" (currently ${count}).`
+          order.push('anythingElse')
+        } else if (typeof maxW === 'number' && count > maxW) {
+          errs.anythingElse = `Please keep "Anything else" under ${maxW} words (currently ${count}).`
+          order.push('anythingElse')
         }
-        if (typeof maxW === 'number' && count > maxW) {
-          errs[key] = `${stripToText(field.label)}: please keep this under ${maxW} words (currently ${count}).`
-          order.push(key)
-          continue
-        }
-      }
-      if (!field.required) continue
-      if (val === undefined || val === '' || val === null) {
-        errs[key] = `Please complete: ${stripToText(field.label)}`
-        order.push(key)
-        continue
-      }
-      if (field.type === 'ranked_dropdown' && typeof val === 'object' && !Array.isArray(val)) {
-        const ranks = field.config?.ranks ?? 3
-        const entries = val as Record<string, string>
-        const rankKeys = Array.from({ length: ranks }, (_, i) =>
-          i === 0 ? 'first' : i === 1 ? 'second' : i === 2 ? 'third' : `choice_${i + 1}`
-        )
-        for (const rk of rankKeys) {
-          if (!entries[rk]) { errs[key] = `Please complete all choices for: ${stripToText(field.label)}`; order.push(key); break }
-        }
-      }
-      if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
-        errs[key] = `Please select at least one option for: ${stripToText(field.label)}`
-        order.push(key)
-      }
-      if (field.type === 'paired_dropdown' && Array.isArray(val)) {
-        const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
-        if (completeRows.length === 0) { errs[key] = `Please complete at least one row for: ${stripToText(field.label)}`; order.push(key) }
       }
     }
 
-    // Attribution (only required if admin hasn't hidden the question)
+    // Attribution is asked for both eligible and ineligible flows — it's how
+    // we learn where they heard about the event, which is useful regardless
+    // of whether they can attend.
     if (!stdHidden('std_attribution') && !attribution) {
       errs.attribution = 'Please tell us how you heard about this opportunity.'
       order.push('attribution')
-    }
-
-    // "Anything else" word bounds (only if the field is shown).
-    if (!stdHidden('std_anything_else')) {
-      const minW = stdOverrides.std_anything_else?.minWords
-      const maxW = stdOverrides.std_anything_else?.maxWords
-      const count = wordCount(anythingElse)
-      if (typeof minW === 'number' && minW > 0 && count > 0 && count < minW) {
-        errs.anythingElse = `Please write at least ${minW} words for "Anything else" (currently ${count}).`
-        order.push('anythingElse')
-      } else if (typeof maxW === 'number' && count > maxW) {
-        errs.anythingElse = `Please keep "Anything else" under ${maxW} words (currently ${count}).`
-        order.push('anythingElse')
-      }
     }
 
     setFieldErrors(errs)
@@ -850,26 +913,28 @@ export default function ApplyPage() {
       return
     }
 
-    const submission: ApplicationSubmission = {
-      firstName,
-      lastName,
-      email,
-      schoolId: school.schoolId,
-      schoolNameRaw: school.schoolNameRaw,
-      yearGroup: yearGroup as number,
-      schoolType,
-      freeSchoolMeals: (freeSchoolMeals === 'yes' || freeSchoolMeals === 'previously') ? true : freeSchoolMeals === 'no' ? false : null,
-      householdIncomeUnder40k: householdIncome,
-      additionalContext,
-      anythingElse,
-      gcseResults,
-      qualifications: filledQuals,
-      customFields: customFieldValues,
-      attributionSource: attribution,
-      freeSchoolMealsRaw: freeSchoolMeals,
+    // -------------------------------------------------------------------------
+    // Stage 2 — write the application row. Student is already persisted by
+    // handleDetailsNext via submitProfile(), so we only need the studentId
+    // cached in profileStudentIdRef.
+    // -------------------------------------------------------------------------
+    const studentId = profileStudentIdRef.current
+    if (!studentId) {
+      submittingRef.current = false
+      setError('We lost track of your profile mid-submit. Please click Continue on the previous step and try again.')
+      setStep('details')
+      return
     }
 
-    const result = await submitApplication(event!.id, submission)
+    const stage2: Stage2Submission = {
+      customFields: isEligible === false ? {} : customFieldValues,
+      anythingElse: isEligible === false ? '' : anythingElse,
+      attributionSource: attribution,
+    }
+
+    const result = await submitEventApplication(event!.id, studentId, stage2, {
+      eligible: isEligible !== false,
+    })
     if (result.error) {
       submittingRef.current = false // release so the student can retry after reading the error
       setError(result.error)
@@ -922,7 +987,11 @@ export default function ApplyPage() {
     setSchoolType('')
     setFreeSchoolMeals('')
     setHouseholdIncome('')
+    setFirstGenerationUni('')
     setAdditionalContext('')
+    setIsEligible(null)
+    setOpenToLabel('')
+    profileStudentIdRef.current = null
     // Reset application
     setGcseResults('')
     setQualifications([
@@ -1438,12 +1507,33 @@ export default function ApplyPage() {
             </fieldset>
             )}
 
+            {!stdHidden('std_first_gen') && (
+            <fieldset className="mb-4" data-error-key="firstGenerationUni">
+              <legend className="block text-sm font-medium text-gray-700 mb-2">
+                {stdLabel('std_first_gen', 'Did you grow up in a household where at least one parent went to university?')} <span className="text-red-400">*</span>
+              </legend>
+              {stdDesc('std_first_gen') && (
+                <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_first_gen')) }} />
+              )}
+              {[{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }].map(opt => (
+                <label key={opt.v} className="flex items-center gap-3 py-1.5 cursor-pointer">
+                  <input type="radio" name="firstGenerationUni" value={opt.v}
+                    checked={firstGenerationUni === opt.v}
+                    onChange={e => { setFirstGenerationUni(e.target.value as 'yes' | 'no'); clearFieldError('firstGenerationUni') }}
+                    className="accent-steps-blue-600" />
+                  <span className="text-sm text-gray-700">{opt.l}</span>
+                </label>
+              ))}
+              {fieldErrors.firstGenerationUni && <p className="mt-1 text-xs text-red-600">{fieldErrors.firstGenerationUni}</p>}
+            </fieldset>
+            )}
+
             {!stdHidden('std_additional') && (
               <div data-error-key="additionalContext">
                 <label htmlFor="additionalContext" className="block text-sm font-medium text-gray-700 mb-1">
-                  {stdLabel('std_additional', 'Any additional contextual information?')}
+                  {stdLabel('std_additional', 'Any additional contextual information you\u2019d like us to know')}
                 </label>
-                <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_additional', 'E.g. young carer, extenuating circumstances, school disruption, etc.')) }} />
+                <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_additional', 'E.g. young carer, care experience, extenuating circumstances, school disruption — anything you think we should know.')) }} />
                 <textarea id="additionalContext" value={additionalContext}
                   onChange={e => setAdditionalContext(e.target.value)} rows={3}
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition resize-none" />
@@ -1589,7 +1679,50 @@ export default function ApplyPage() {
       {/* ================================================================= */}
       {/* STEP 4: Your Application */}
       {/* ================================================================= */}
-      {step === 'application' && (
+      {step === 'application' && isEligible === false && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">Thanks for applying</h2>
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-sm">
+            <p className="font-medium mb-1">This event is open to {openToLabel ? openToLabel.toLowerCase() : 'other year groups'} only.</p>
+            <p className="text-amber-800">We’ve saved your profile details so you won’t need to enter them again for future events you’re eligible for.</p>
+          </div>
+
+          {/* Still ask "how did you hear" — useful signal even from ineligible applicants. */}
+          {!stdHidden('std_attribution') && (
+            <div className="mb-6" data-error-key="attribution">
+              <label htmlFor="attribution" className="block text-sm font-medium text-gray-700 mb-1">
+                {stdLabel('std_attribution', 'How did you hear about this opportunity?')} <span className="text-red-400">*</span>
+              </label>
+              {stdDesc('std_attribution') && (
+                <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_attribution')) }} />
+              )}
+              <select id="attribution" value={attribution}
+                onChange={e => { setAttribution(e.target.value); clearFieldError('attribution') }}
+                className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white ${fieldErrors.attribution ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}>
+                <option value="">Select…</option>
+                {ATTRIBUTION_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              {fieldErrors.attribution && <p className="mt-1 text-xs text-red-600">{fieldErrors.attribution}</p>}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button onClick={handleSubmit}
+              disabled={submittingRef.current}
+              className="flex-1 py-3 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed">
+              Save and continue
+            </button>
+            <a href="/my"
+              className="flex-1 py-3 text-center bg-white border border-gray-200 text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors">
+              Check out Student Hub
+            </a>
+          </div>
+        </div>
+      )}
+
+      {step === 'application' && isEligible !== false && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-6">Your application</h2>
 

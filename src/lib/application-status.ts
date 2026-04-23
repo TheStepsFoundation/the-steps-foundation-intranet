@@ -17,6 +17,7 @@ export type ApplicationStatusCode =
   | 'waitlist'
   | 'rejected'
   | 'withdrew'
+  | 'ineligible'
 
 type StatusMeta = {
   /** Canonical DB value. */
@@ -36,6 +37,7 @@ const STATUSES: Record<ApplicationStatusCode, StatusMeta> = {
   waitlist:    { code: 'waitlist',    studentLabel: 'Waitlisted',   adminLabel: 'Waitlist',     badgeClasses: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
   rejected:    { code: 'rejected',    studentLabel: 'Not selected', adminLabel: 'Rejected',     badgeClasses: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
   withdrew:    { code: 'withdrew',    studentLabel: 'Withdrawn',    adminLabel: 'Withdrew',     badgeClasses: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+  ineligible:  { code: 'ineligible',  studentLabel: 'Not eligible', adminLabel: 'Ineligible',   badgeClasses: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
 }
 
 // Historical or alternate spellings. Keep this list conservative — if a new
@@ -63,14 +65,21 @@ export function getStatusMeta(raw: string | null | undefined): StatusMeta {
   return code ? STATUSES[code] : UNKNOWN_META
 }
 
-/** Ordered list for admin dropdowns / bulk actions. */
+/**
+ * Ordered list for admin dropdowns / bulk actions.
+ * `ineligible` is excluded because it's set automatically when a student is
+ * auto-screened out during apply (year-group check). Admins shouldn't be able
+ * to assign it manually.
+ */
 export const ADMIN_STATUS_OPTIONS: Array<Pick<StatusMeta, 'code' | 'adminLabel' | 'badgeClasses'> & { label: string }> =
-  (Object.values(STATUSES) as StatusMeta[]).map(s => ({
-    code: s.code,
-    label: s.adminLabel,
-    adminLabel: s.adminLabel,
-    badgeClasses: s.badgeClasses,
-  }))
+  (Object.values(STATUSES) as StatusMeta[])
+    .filter(s => s.code !== 'ineligible')
+    .map(s => ({
+      code: s.code,
+      label: s.adminLabel,
+      adminLabel: s.adminLabel,
+      badgeClasses: s.badgeClasses,
+    }))
 
 /** Full meta record — for callers that want everything. */
 export const APPLICATION_STATUSES = STATUSES

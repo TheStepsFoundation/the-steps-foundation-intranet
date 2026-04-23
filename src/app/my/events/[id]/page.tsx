@@ -400,8 +400,8 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
             </p>
 
             <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4 mt-5">
-              <Field label="GCSE results">{stringifyAnswer(raw.gcse_results)}</Field>
-              <Field label="Current / predicted qualifications">{renderQualifications(raw.qualifications)}</Field>
+              <Field label="GCSE results">{stringifyAnswer(overview.profile?.gcse_results ?? raw.gcse_results)}</Field>
+              <Field label="Current / predicted qualifications">{renderQualifications(overview.profile?.qualifications ?? raw.qualifications)}</Field>
               <FallbackField
                 label="Household income (under £40k)"
                 appValue={raw.household_income_under_40k}
@@ -416,8 +416,15 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
                 appValue={raw.free_school_meals_raw}
                 profileValue={formatYesNoAnswer(overview.profile?.free_school_meals)}
               />
-              {raw.additional_context ? (
-                <Field label="Anything else" className="sm:col-span-2">{stringifyAnswer(raw.additional_context)}</Field>
+              {overview.profile?.first_generation_uni != null ? (
+                <Field label="Parent went to university">
+                  {overview.profile.first_generation_uni ? 'No' : 'Yes'}
+                </Field>
+              ) : null}
+              {(overview.profile?.additional_context || raw.additional_context) ? (
+                <Field label="Additional contextual information" className="sm:col-span-2">
+                  {stringifyAnswer(overview.profile?.additional_context ?? raw.additional_context)}
+                </Field>
               ) : null}
               {customFields
                 .filter(f => f.type !== 'section_heading' && f.type !== 'media')

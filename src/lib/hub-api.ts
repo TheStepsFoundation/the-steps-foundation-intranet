@@ -217,6 +217,13 @@ export type EventOverview = {
     last_name: string | null
     free_school_meals: boolean | null
     parental_income_band: string | null
+    // Profile fields surfaced on the student-side event detail page so we can
+    // prefer the current profile value over the application snapshot (raw_response).
+    // Added in the two-stage apply refactor (migrations 0024, 0025).
+    gcse_results: string | null
+    qualifications: unknown[] | null
+    additional_context: string | null
+    first_generation_uni: boolean | null
   } | null
 }
 
@@ -236,7 +243,7 @@ export async function fetchEventOverview(eventId: string): Promise<EventOverview
   // Profile
   const { data: profile } = await supabase
     .from('students')
-    .select('id, first_name, last_name, free_school_meals, parental_income_band')
+    .select('id, first_name, last_name, free_school_meals, parental_income_band, gcse_results, qualifications, additional_context, first_generation_uni')
     .eq('personal_email', email)
     .maybeSingle()
 
