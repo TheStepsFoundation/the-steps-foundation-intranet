@@ -315,10 +315,21 @@ export default function StudentsDashboard() {
         const { error: aErr } = await supabase.from('applications').update({ deleted_at: now }).in('student_id', ids)
         if (aErr) throw aErr
       } else {
-        const { error: aErr } = await supabase.from('applications').delete().in('student_id', ids)
-        if (aErr) throw aErr
-        const { error: sErr } = await supabase.from('students').delete().in('id', ids)
-        if (sErr) throw sErr
+        // Hard-delete routes through the admin API so auth.users orphans
+        // get cleaned up alongside public.students. Without this step,
+        // deleting a student leaves a ghost auth row that still owns the
+        // email — blocking re-signup and occasionally 500'ing sign-in due
+        // to the GoTrue NULL-string scan bug on dashboard-added rows.
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token
+        if (!token) throw new Error('Your session has expired — sign in again')
+        const res = await fetch('/api/admin/delete-student', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ student_ids: ids }),
+        })
+        const payload = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(payload?.error ?? `Delete failed (HTTP ${res.status})`)
       }
 
       // Reload from DB so we see the authoritative state, not an optimistic guess.

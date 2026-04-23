@@ -17,6 +17,7 @@ import {
 } from '@/lib/students-api'
 import SchoolPicker from '@/components/SchoolPicker'
 import { useAuth } from '@/lib/auth-provider'
+import { supabase } from '@/lib/supabase'
 import {
   STAGE_CODES,
   A_LEVEL_GRADES,
@@ -93,10 +94,42 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
     if (!student) return
     setSaving(true)
     try {
-      await updateStudent(student.id, draft)
+      const currentEmail = (student.personal_email ?? '').toLowerCase().trim()
+      const desiredEmailRaw = typeof draft.personal_email === 'string' ? draft.personal_email.trim() : ''
+      const desiredEmail = desiredEmailRaw.toLowerCase()
+      const emailChanging = Boolean(desiredEmail) && desiredEmail !== currentEmail
+
+      // When the email changes we MUST also update auth.users, or the student
+      // can't sign in to the hub under the new email (and an orphan ghost
+      // auth row can even take over their sign-in). Route goes through the
+      // service-role admin endpoint; we skip the direct personal_email write
+      // below because the endpoint handles it atomically.
+      if (emailChanging) {
+        const { data: { session } } = await supabase.auth.getSession()
+        const token = session?.access_token
+        if (!token) throw new Error('Your session has expired — sign in again')
+        const res = await fetch('/api/admin/update-student-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ student_id: student.id, new_email: desiredEmailRaw }),
+        })
+        const payload = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(payload?.error ?? `Email sync failed (HTTP ${res.status})`)
+      }
+
+      // Pass every OTHER field (and personal_email too when it didn't
+      // change — updateStudent no-ops that case) to the usual RLS update.
+      const { personal_email: _omit, ...rest } = draft
+      const restHasChanges = Object.keys(rest).length > 0
+      if (emailChanging) {
+        if (restHasChanges) await updateStudent(student.id, rest)
+      } else {
+        await updateStudent(student.id, draft)
+      }
+
       await reload()
       setEditing(false)
-      flash('Saved')
+      flash(emailChanging ? 'Saved (email synced to auth)' : 'Saved')
     } catch (e: any) {
       setError(e?.message ?? 'Failed to save')
     } finally {
