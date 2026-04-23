@@ -238,6 +238,9 @@ export type EventOverview = {
     id: string
     first_name: string | null
     last_name: string | null
+    // year_group is needed by the detail page to decide whether the Apply
+    // button should be enabled (vs replaced with a restricted-to message).
+    year_group: number | null
     free_school_meals: boolean | null
     parental_income_band: string | null
     // Profile fields surfaced on the student-side event detail page so we can
@@ -266,7 +269,7 @@ export async function fetchEventOverview(eventId: string): Promise<EventOverview
   // Profile
   const { data: profile } = await supabase
     .from('students')
-    .select('id, first_name, last_name, free_school_meals, parental_income_band, gcse_results, qualifications, additional_context, first_generation_uni')
+    .select('id, first_name, last_name, year_group, free_school_meals, parental_income_band, gcse_results, qualifications, additional_context, first_generation_uni')
     .eq('personal_email', email)
     .maybeSingle()
 

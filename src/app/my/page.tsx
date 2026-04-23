@@ -14,6 +14,7 @@ import {
 } from '@/lib/hub-api'
 import { getDisplayLocation } from '@/lib/event-display'
 import { formatOpenTo } from '@/lib/events-api'
+import { isEligibleForYearGroup as isEligibleForYG } from '@/lib/eligibility'
 import { hasPasswordSet, upgradeToPassword, type StudentSelf } from '@/lib/apply-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
 import { getStatusMeta } from '@/lib/application-status'
@@ -62,18 +63,7 @@ export default function StudentHub() {
   // eligible_year_groups = NULL → open to all year groups.
   // If student has no year_group set, show everything as eligible (they'll be asked to set it).
   const yg = profile?.year_group ?? null
-  const isEligibleForYearGroup = (event: HubEvent): boolean => {
-    const allowed = event.eligible_year_groups ?? []
-    const openToGap = !!event.open_to_gap_year
-    // No filter at all = open to everyone
-    if (allowed.length === 0 && !openToGap) return true
-    // Student hasn't set a year_group yet; show everything and let them pick
-    if (yg == null) return true
-    // Gap year students (year_group=14) are eligible if the event opts in,
-    // regardless of what's in eligible_year_groups
-    if (yg === 14 && openToGap) return true
-    return allowed.includes(yg)
-  }
+  const isEligibleForYearGroup = (event: HubEvent): boolean => isEligibleForYG(event, yg)
   const eligibleOpenEvents = openEvents.filter(isEligibleForYearGroup)
   const ineligibleOpenEvents = openEvents.filter(e => !isEligibleForYearGroup(e))
 
@@ -521,10 +511,10 @@ export default function StudentHub() {
               // formatOpenTo renders e.g. "Year 13 and gap year students" or "all students".
               const yearLabel = `Open to ${formatOpenTo(event.eligible_year_groups, !!event.open_to_gap_year).toLowerCase()}`
               return (
-                <div
+                <Link
                   key={event.id}
-                  className="relative block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden opacity-60 cursor-not-allowed"
-                  aria-disabled="true"
+                  href={`/my/events/${event.id}`}
+                  className="relative block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden opacity-60 hover:opacity-80 hover:shadow-md transition group"
                   title={yearLabel}
                 >
                   <div className="flex items-stretch min-h-[160px] sm:min-h-[200px]">
@@ -566,7 +556,7 @@ export default function StudentHub() {
                       </div>
                     )}
                   </div>
-                </div>
+                </Link>
               )
             })}
           </div>

@@ -13,6 +13,8 @@ import { clearAllDrafts } from '@/lib/apply-draft'
 import { getStatusMeta } from '@/lib/application-status'
 import { getDisplayLocation, canSeeFullAddress } from '@/lib/event-display'
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
+import { formatOpenTo } from '@/lib/events-api'
+import { isEligibleForYearGroup } from '@/lib/eligibility'
 
 // ---------------------------------------------------------------------------
 // Constants / helpers
@@ -252,7 +254,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     )
   }
 
-  const { event, application } = overview
+  const { event, application, profile } = overview
   const statusMeta = application ? getStatusMeta(application.status) : null
   const isPast = event.event_date && new Date(event.event_date) < new Date()
   const privileged = canSeeFullAddress(application?.status ?? null, false) // team-side has its own routes
@@ -359,13 +361,36 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
           )}
 
           {/* Actions */}
-          {!application && (
-            <div className="mt-6 pt-6 border-t border-gray-100 flex flex-wrap gap-3">
-              <PressableButton href={`/apply/${event.slug}`} variant="primary">
-                Apply for this event
-              </PressableButton>
-            </div>
-          )}
+          {!application && (() => {
+            // Gate the Apply button on year-group eligibility. The student
+            // reached this page either from a regular "Apply now" card
+            // (eligible) or from the greyed "Other upcoming events" section
+            // (ineligible). In the ineligible path, swap the button for a
+            // muted restricted-to chip pulled from the event's open-to config.
+            const eligible = isEligibleForYearGroup(event, profile?.year_group)
+            if (eligible) {
+              return (
+                <div className="mt-6 pt-6 border-t border-gray-100 flex flex-wrap gap-3">
+                  <PressableButton href={`/apply/${event.slug}`} variant="primary">
+                    Apply for this event
+                  </PressableButton>
+                </div>
+              )
+            }
+            const openToLabel = formatOpenTo(event.eligible_year_groups, !!event.open_to_gap_year)
+            return (
+              <div className="mt-6 pt-6 border-t border-gray-100">
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                  <div className="flex-shrink-0 inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-gray-200 text-gray-600 border border-gray-300">
+                    Not available for your year group
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    This event is open to {openToLabel.toLowerCase()}.
+                  </p>
+                </div>
+              </div>
+            )
+          })()}
 
           {application && !isPast && application.status !== 'withdrew' && application.status !== 'rejected' && (
             <div className="mt-6 pt-6 border-t border-gray-100 flex flex-wrap gap-2">
