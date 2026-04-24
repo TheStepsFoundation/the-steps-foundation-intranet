@@ -17,7 +17,7 @@ import { formatOpenTo } from '@/lib/events-api'
 import { isEligibleForYearGroup as isEligibleForYG } from '@/lib/eligibility'
 import { hasPasswordSet, upgradeToPassword, type StudentSelf } from '@/lib/apply-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
-import { getStatusMeta } from '@/lib/application-status'
+import { getJourneyAwareLabel } from '@/lib/application-status'
 import { supabase } from '@/lib/supabase-student'
 import { stripToText } from '@/lib/sanitize-html'
 
@@ -585,7 +585,7 @@ export default function StudentHub() {
         ) : (
           <div className="space-y-3">
             {applications.map(app => {
-              const statusMeta = getStatusMeta(app.status)
+              const journey = getJourneyAwareLabel(app.status, app.status_history, app.event.event_date)
               const isPast = app.event.event_date && new Date(app.event.event_date) < new Date()
               const canSeeFull = app.status === 'accepted'
               const displayLocation = getDisplayLocation(app.event, canSeeFull)
@@ -600,8 +600,14 @@ export default function StudentHub() {
                     <div className="flex-1 min-w-0 p-5 sm:p-6 flex flex-col">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-gray-900 text-lg group-hover:text-steps-blue-700 transition">{app.event.name}</h3>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusMeta.badgeClasses}`}>
-                          {statusMeta.studentLabel}
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${journey.badgeClasses}`}>
+                          {journey.prefix ? (
+                            <>
+                              <span className="opacity-70 mr-1">{journey.prefix}</span>
+                              <span aria-hidden className="opacity-50 mr-1">&middot;</span>
+                            </>
+                          ) : null}
+                          {journey.primary}
                         </span>
                         {isPast && (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400">

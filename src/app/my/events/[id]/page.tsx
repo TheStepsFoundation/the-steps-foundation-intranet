@@ -10,7 +10,7 @@ import {
   type EventOverview,
 } from '@/lib/hub-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
-import { getStatusMeta } from '@/lib/application-status'
+import { getJourneyAwareLabel } from '@/lib/application-status'
 import { getDisplayLocation, canSeeFullAddress } from '@/lib/event-display'
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 import { formatOpenTo } from '@/lib/events-api'
@@ -255,7 +255,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
   }
 
   const { event, application, profile } = overview
-  const statusMeta = application ? getStatusMeta(application.status) : null
+  const journey = application ? getJourneyAwareLabel(application.status, application.status_history, event.event_date) : null
   const isPast = event.event_date && new Date(event.event_date) < new Date()
   const privileged = canSeeFullAddress(application?.status ?? null, false) // team-side has its own routes
   const displayLocation = getDisplayLocation(event, privileged)
@@ -311,10 +311,16 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
                 )}
               </div>
             </div>
-            {statusMeta && (
+            {journey && (
               <div className="flex flex-col items-end gap-1">
-                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${statusMeta.badgeClasses}`}>
-                  {statusMeta.studentLabel}
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${journey.badgeClasses}`}>
+                  {journey.prefix ? (
+                    <>
+                      <span className="opacity-70 mr-1">{journey.prefix}</span>
+                      <span aria-hidden className="opacity-50 mr-1">&middot;</span>
+                    </>
+                  ) : null}
+                  {journey.primary}
                 </span>
                 {isPast && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-400">Past event</span>

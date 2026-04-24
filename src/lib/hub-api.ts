@@ -47,12 +47,20 @@ export type HubEvent = {
   open_to_gap_year: boolean
 }
 
+export type HubApplicationStatusHistoryRow = {
+  status: string | null
+  changed_at: string
+}
+
 export type HubApplication = {
   id: string
   event_id: string
   status: string
   created_at: string
   event: HubEvent
+  /** All prior status transitions. Used to render journey-aware labels like
+   *  "Shortlisted · Unsuccessful" on the hub. Never contains admin-only fields. */
+  status_history: HubApplicationStatusHistoryRow[]
 }
 
 export type ProfileUpdate = {
@@ -160,11 +168,28 @@ export async function fetchMyApplications(): Promise<HubApplication[]> {
 
   const eventMap = new Map((events ?? []).map(e => [e.id, e]))
 
+  // Fetch status history for all of this student's applications in one round trip.
+  // RLS policy `app_status_history_self_select` filters to the student's own rows.
+  const applicationIds = data.map(a => a.id)
+  const { data: history } = await supabase
+    .from('application_status_history')
+    .select('application_id, status, changed_at')
+    .in('application_id', applicationIds)
+    .order('changed_at', { ascending: true })
+
+  const historyByApp = new Map<string, HubApplicationStatusHistoryRow[]>()
+  for (const row of (history ?? []) as Array<{ application_id: string; status: string | null; changed_at: string }>) {
+    const list = historyByApp.get(row.application_id) ?? []
+    list.push({ status: row.status, changed_at: row.changed_at })
+    historyByApp.set(row.application_id, list)
+  }
+
   return data
     .filter(a => eventMap.has(a.event_id))
     .map(a => ({
       ...a,
       event: eventMap.get(a.event_id)! as HubEvent,
+      status_history: historyByApp.get(a.id) ?? [],
     }))
 }
 
@@ -221,6 +246,9 @@ export type HubApplicationDetail = {
   created_at: string
   updated_at: string | null
   raw_response: Record<string, unknown> | null
+  /** Prior transitions for this application — used by /my/events/[id] for
+   *  journey-aware labelling ("Shortlisted · Unsuccessful" etc.). */
+  status_history: HubApplicationStatusHistoryRow[]
 }
 
 export type EventOverview = {
@@ -286,9 +314,22 @@ export async function fetchEventOverview(eventId: string): Promise<EventOverview
     .limit(1)
     .maybeSingle()
 
+  // Status history for this single application (if any).
+  let statusHistory: HubApplicationStatusHistoryRow[] = []
+  if (app) {
+    const { data: history } = await supabase
+      .from('application_status_history')
+      .select('status, changed_at')
+      .eq('application_id', (app as { id: string }).id)
+      .order('changed_at', { ascending: true })
+    statusHistory = ((history ?? []) as HubApplicationStatusHistoryRow[])
+  }
+
   return {
     event: (event as EventOverview['event']) ?? null,
-    application: (app as HubApplicationDetail | null) ?? null,
+    application: app
+      ? ({ ...(app as Omit<HubApplicationDetail, 'status_history'>), status_history: statusHistory } as HubApplicationDetail)
+      : null,
     profile,
   }
 }

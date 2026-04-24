@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EventRow, fetchEvent, updateEvent, formatOpenTo } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
-import { ADMIN_STATUS_OPTIONS } from '@/lib/application-status'
+import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
@@ -51,6 +51,8 @@ type Applicant = {
   school_type: string | null
   year_group: number | null
   status: string
+  /** Admin-only draft decision. Never leaks to students (RLS + explicit column lists). */
+  internal_review_status: InternalReviewStatusCode | null
   submitted_at: string
   attended: boolean
   reviewed_by: string | null
@@ -125,11 +127,13 @@ const STATUSES = ADMIN_STATUS_OPTIONS.map(s => ({ code: s.code, label: s.label, 
 
 const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.code, s]))
 
-// Notify-able statuses for combined actions
+// Notify-able statuses for combined actions.
+// Order mirrors the decision funnel — shortlist is the earliest commitment, then accept/waitlist/reject.
 const NOTIFY_STATUSES = [
-  { code: 'accepted', label: 'Accept & Notify', templateType: 'acceptance', color: 'bg-emerald-600 hover:bg-emerald-700' },
-  { code: 'rejected', label: 'Reject & Notify', templateType: 'rejection', color: 'bg-red-600 hover:bg-red-700' },
-  { code: 'waitlist', label: 'Waitlist & Notify', templateType: 'waitlist', color: 'bg-amber-600 hover:bg-amber-700' },
+  { code: 'shortlisted', label: 'Shortlist & Notify', templateType: 'shortlist', color: 'bg-violet-600 hover:bg-violet-700' },
+  { code: 'accepted',    label: 'Accept & Notify',    templateType: 'acceptance', color: 'bg-emerald-600 hover:bg-emerald-700' },
+  { code: 'waitlist',    label: 'Waitlist & Notify',  templateType: 'waitlist',   color: 'bg-amber-600 hover:bg-amber-700' },
+  { code: 'rejected',    label: 'Reject & Notify',    templateType: 'rejection',  color: 'bg-red-600 hover:bg-red-700' },
 ]
 
 
@@ -157,12 +161,15 @@ type SortDir = 'asc' | 'desc'
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'grades' | 'engagement' | 'past_events' | 'rsvp' | 'attended'
-const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'engagement' | 'past_events' | 'rsvp' | 'attended'
+// `internal_review` sits right after `status` so admins read "where are we
+// actually planning to land" next to "what the student can see".
+const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
 const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   name: 'Name',
   school_type: 'School Type',
   status: 'Status',
+  internal_review: 'Internal mark',
   grades: 'Grades (Score)',
   engagement: 'Engagement',
   past_events: 'Past Events',
@@ -764,7 +771,7 @@ export default function EventDetailPage() {
       const { data: batch, error } = await supabase
         .from('applications')
         .select(`
-          id, student_id, status, submitted_at, attended, reviewed_by, reviewed_at, raw_response,
+          id, student_id, status, internal_review_status, submitted_at, attended, reviewed_by, reviewed_at, raw_response,
           attribution_source, channel,
           students!inner(first_name, last_name, preferred_name, personal_email, year_group, school_id,
             school_type, bursary_90plus, free_school_meals, parental_income_band,
@@ -862,6 +869,7 @@ export default function EventDetailPage() {
         school_type: s.school_type ?? null,
         year_group: s.year_group,
         status: row.status,
+        internal_review_status: (row.internal_review_status ?? null) as InternalReviewStatusCode | null,
         submitted_at: row.submitted_at,
         attended: row.attended ?? false,
         reviewed_by: row.reviewed_by,
@@ -989,6 +997,13 @@ export default function EventDetailPage() {
     const old = applicants.find(a => a.id === appId)
     const now = new Date().toISOString()
 
+    // Auto-clear any internal draft decision that's now subsumed by the committed
+    // status — e.g. internal=shortlist + committed→shortlisted, or internal=reject
+    // + committed→rejected. Keeps the chip honest without extra admin clicks.
+    const shouldClearInternal = old
+      ? internalReviewSubsumedBy(old.internal_review_status, newStatus as any)
+      : false
+
     await supabase
       .from('applications')
       .update({
@@ -997,6 +1012,7 @@ export default function EventDetailPage() {
         reviewed_at: now,
         updated_by: teamMember?.auth_uuid ?? null,
         updated_at: now,
+        ...(shouldClearInternal ? { internal_review_status: null, internal_review_at: null, internal_review_by: null } : {}),
       } as any)
       .eq('id', appId)
 
@@ -1015,12 +1031,59 @@ export default function EventDetailPage() {
       a.id === appId ? {
         ...a,
         status: newStatus,
+        internal_review_status: shouldClearInternal ? null : a.internal_review_status,
         reviewed_by: teamMember?.auth_uuid ?? null,
         reviewer_name: teamMember?.name ?? null,
         reviewed_at: now,
       } : a
     ))
     setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal review (draft decision, never notifies the student)
+  // ---------------------------------------------------------------------------
+
+  const updateInternalReviewStatus = async (appId: string, newInternal: InternalReviewStatusCode | null) => {
+    setSaving(prev => new Set(prev).add(appId))
+    const now = new Date().toISOString()
+
+    await supabase
+      .from('applications')
+      .update({
+        internal_review_status: newInternal,
+        internal_review_at: newInternal ? now : null,
+        internal_review_by: newInternal ? (teamMember?.auth_uuid ?? null) : null,
+        updated_by: teamMember?.auth_uuid ?? null,
+        updated_at: now,
+      } as any)
+      .eq('id', appId)
+
+    setApplicants(prev => prev.map(a =>
+      a.id === appId ? { ...a, internal_review_status: newInternal } : a
+    ))
+    setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
+  }
+
+  const bulkUpdateInternalReviewStatus = async (newInternal: InternalReviewStatusCode | null) => {
+    if (selected.size === 0) return
+    const ids = [...selected]
+    const now = new Date().toISOString()
+
+    await supabase
+      .from('applications')
+      .update({
+        internal_review_status: newInternal,
+        internal_review_at: newInternal ? now : null,
+        internal_review_by: newInternal ? (teamMember?.auth_uuid ?? null) : null,
+        updated_by: teamMember?.auth_uuid ?? null,
+        updated_at: now,
+      } as any)
+      .in('id', ids)
+
+    setApplicants(prev => prev.map(a =>
+      ids.includes(a.id) ? { ...a, internal_review_status: newInternal } : a
+    ))
   }
 
   const toggleAttended = async (appId: string) => {
@@ -2333,6 +2396,27 @@ export default function EventDetailPage() {
 
               <span className="text-gray-300 dark:text-gray-600">|</span>
 
+              {/* Internal marks — admin-only draft decisions. Pale tones match the per-row chip. */}
+              <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Internal</span>
+              {INTERNAL_REVIEW_OPTIONS.map(o => (
+                <button
+                  key={`internal-${o.code}`}
+                  onClick={() => bulkUpdateInternalReviewStatus(o.code)}
+                  title="Internal mark — never shown to students"
+                  className={`px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity ${o.badgeClasses}`}
+                >
+                  {INTERNAL_REVIEW_STATUSES[o.code].adminLabel.replace(' (internal)', '')}
+                </button>
+              ))}
+              <button
+                onClick={() => bulkUpdateInternalReviewStatus(null)}
+                className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400 ring-1 ring-dashed ring-gray-200 dark:ring-gray-700"
+              >
+                Clear internal
+              </button>
+
+              <span className="text-gray-300 dark:text-gray-600">|</span>
+
               <button
                 onClick={() => openCompose()}
                 className="px-2.5 py-1 rounded text-xs font-medium bg-steps-blue-600 text-white hover:bg-steps-blue-700 transition-colors"
@@ -2519,6 +2603,30 @@ export default function EventDetailPage() {
                             </select>
                           </td>
                         )
+                        // Built-in: internal review (draft, admin-only — never shown to students)
+                        if (col.id === 'internal_review') {
+                          const internalMeta = getInternalReviewMeta(app.internal_review_status)
+                          return (
+                            <td key={col.id} className="p-3">
+                              <select
+                                value={app.internal_review_status ?? ''}
+                                onChange={e => updateInternalReviewStatus(app.id, (e.target.value || null) as InternalReviewStatusCode | null)}
+                                disabled={saving.has(app.id)}
+                                title="Internal mark — never shown to students"
+                                className={`text-xs font-medium rounded-full px-2.5 py-0.5 border-0 cursor-pointer ${
+                                  internalMeta
+                                    ? internalMeta.badgeClasses
+                                    : 'bg-gray-50 text-gray-400 ring-1 ring-dashed ring-gray-200 dark:bg-gray-900/30 dark:text-gray-500 dark:ring-gray-700'
+                                } ${saving.has(app.id) ? 'opacity-50' : ''}`}
+                              >
+                                <option value="">—</option>
+                                {INTERNAL_REVIEW_OPTIONS.map(o => (
+                                  <option key={o.code} value={o.code}>{o.label}</option>
+                                ))}
+                              </select>
+                            </td>
+                          )
+                        }
                         // Built-in: grades
                         if (col.id === 'grades') return (
                           <td key={col.id} className="p-3 whitespace-nowrap">
