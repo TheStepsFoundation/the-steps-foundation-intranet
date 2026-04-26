@@ -144,14 +144,7 @@ function EventCard({ event }: { event: EventWithStats }) {
               <span>{formattedDate}</span>
               {timeStr && <span>{timeStr}</span>}
               {event.location && <span className="truncate max-w-[280px]">{event.location}</span>}
-              {event.capacity != null && (
-                <span>
-                  Cap: {event.capacity}
-                  {event.total_applicants > 0 && (
-                    <> · {event.total_applicants}:{event.capacity} apps:places ({(event.total_applicants / event.capacity).toFixed(1)}×)</>
-                  )}
-                </span>
-              )}
+              {event.capacity != null && <span>Cap: {event.capacity}</span>}
             </div>
           </div>
           <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-xs font-medium ${badge.classes}`}>
@@ -169,7 +162,7 @@ function EventCard({ event }: { event: EventWithStats }) {
           <Stat label="Attended" value={event.attended_count} color="text-steps-blue-600 dark:text-steps-blue-400" />
           {event.capacity != null && event.total_applicants > 0 && (
             <div className="ml-auto hidden sm:block">
-              <FillBar attended={event.attended_count} capacity={event.capacity} />
+              <FillBar attended={event.attended_count} applicants={event.total_applicants} capacity={event.capacity} />
             </div>
           )}
         </div>
@@ -189,7 +182,7 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
   )
 }
 
-function FillBar({ attended, capacity }: { attended: number; capacity: number }) {
+function FillBar({ attended, applicants, capacity }: { attended: number; applicants: number; capacity: number }) {
   const pct = Math.min(100, Math.round((attended / capacity) * 100))
   return (
     <div className="flex items-center gap-2">
@@ -201,7 +194,20 @@ function FillBar({ attended, capacity }: { attended: number; capacity: number })
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs text-gray-500 dark:text-gray-400">{pct}% filled</span>
+      <div className="flex flex-col items-end leading-tight">
+        <span
+          className="text-xs text-gray-500 dark:text-gray-400"
+          title="Applicants to places"
+        >
+          {applicants}:{capacity}
+        </span>
+        <span
+          className="text-xs text-gray-500 dark:text-gray-400"
+          title={`${attended} attended / ${capacity} places available`}
+        >
+          {pct}% filled
+        </span>
+      </div>
     </div>
   )
 }
