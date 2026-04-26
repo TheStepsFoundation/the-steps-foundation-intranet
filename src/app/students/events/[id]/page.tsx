@@ -2089,6 +2089,9 @@ export default function EventDetailPage() {
                     <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                       Capacity: {event.capacity}
+                      {applicants.length > 0 && (
+                        <> · {applicants.length}:{event.capacity} ({(applicants.length / event.capacity).toFixed(1)}×)</>
+                      )}
                     </span>
                   )}
                   {/* Dress code */}
@@ -2119,6 +2122,14 @@ export default function EventDetailPage() {
                   <div className="text-2xl font-semibold text-steps-blue-600 dark:text-steps-blue-400">{attendedCount}</div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">Attended</div>
                 </div>
+                {event.capacity != null && event.capacity > 0 && (
+                  <div className="text-center">
+                    <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+                      {Math.min(100, Math.round((attendedCount / event.capacity) * 100))}%
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">Filled</div>
+                  </div>
+                )}
               </div>
             </div>
             {event.description && (
