@@ -553,6 +553,23 @@ export default function EventDetailPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; mode: 'soft' | 'hard' | null }>({ open: false, mode: null })
   const [deleteLoading, setDeleteLoading] = useState(false)
+  // Which bulk-decision dropdown is open (only one at a time)
+  const [bulkMenuOpen, setBulkMenuOpen] = useState<string | null>(null)
+  const bulkMenuRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!bulkMenuOpen) return
+    function onDocClick(e: MouseEvent) {
+      if (!bulkMenuRef.current) return
+      if (!bulkMenuRef.current.contains(e.target as Node)) setBulkMenuOpen(null)
+    }
+    function onEsc(e: KeyboardEvent) { if (e.key === 'Escape') setBulkMenuOpen(null) }
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [bulkMenuOpen])
 
   // Inline editing feedback
   const [saving, setSaving] = useState<Set<string>>(new Set())
@@ -2370,44 +2387,81 @@ export default function EventDetailPage() {
               <span className="text-gray-600 dark:text-gray-400 font-medium">{selected.size} selected</span>
               <span className="text-gray-300 dark:text-gray-600">|</span>
 
-              {/* Combined status + notify actions */}
-              {NOTIFY_STATUSES.map(ns => (
+              {/* Decision dropdowns — each combines notify / internal / silent commit
+                  for one outcome (Accept, Shortlist, Waitlist, Reject) so admins
+                  pick "what" and "how loud" in one gesture instead of hunting
+                  across three separate button strips. */}
+              <div ref={bulkMenuRef} className="flex flex-wrap items-center gap-2">
+                {NOTIFY_STATUSES.map(ns => {
+                  const internalCode = ns.code === 'accepted' ? 'accept'
+                    : ns.code === 'shortlisted' ? 'shortlist'
+                    : ns.code === 'waitlist' ? 'waitlist'
+                    : 'reject'
+                  const verb = ns.code === 'accepted' ? 'Accept'
+                    : ns.code === 'shortlisted' ? 'Shortlist'
+                    : ns.code === 'waitlist' ? 'Waitlist'
+                    : 'Reject'
+                  const isOpen = bulkMenuOpen === ns.code
+                  return (
+                    <div key={ns.code} className="relative">
+                      <button
+                        onClick={() => setBulkMenuOpen(isOpen ? null : ns.code)}
+                        className={`px-2.5 py-1 rounded text-xs font-medium text-white transition-colors inline-flex items-center gap-1 ${ns.color}`}
+                        aria-haspopup="menu"
+                        aria-expanded={isOpen}
+                      >
+                        {verb}
+                        <svg className="w-3 h-3 opacity-80" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                      {isOpen && (
+                        <div
+                          role="menu"
+                          className="absolute z-20 mt-1 left-0 min-w-[210px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs text-gray-700 dark:text-gray-200"
+                        >
+                          <button
+                            role="menuitem"
+                            onClick={() => { setBulkMenuOpen(null); openCompose(ns.code) }}
+                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          >
+                            {verb} &amp; notify
+                          </button>
+                          <button
+                            role="menuitem"
+                            onClick={() => { setBulkMenuOpen(null); bulkUpdateInternalReviewStatus(internalCode as InternalReviewStatusCode) }}
+                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Internal mark — never shown to students"
+                          >
+                            {verb} internally
+                          </button>
+                          <button
+                            role="menuitem"
+                            onClick={() => { setBulkMenuOpen(null); bulkUpdateStatus(ns.code) }}
+                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Commit status without sending an email"
+                          >
+                            Just {verb.toLowerCase()} (no email)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* Withdraw — no internal-mark or notification analog, so it
+                    stays a single-shot button. */}
                 <button
-                  key={ns.code}
-                  onClick={() => openCompose(ns.code)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium text-white transition-colors ${ns.color}`}
+                  onClick={() => bulkUpdateStatus('withdrew')}
+                  className="px-2.5 py-1 rounded text-xs font-medium bg-gray-500 text-white hover:bg-gray-600 transition-colors"
+                  title="Mark selected as withdrew"
                 >
-                  {ns.label}
+                  Withdraw
                 </button>
-              ))}
+              </div>
 
               <span className="text-gray-300 dark:text-gray-600">|</span>
 
-              {/* Status-only changes (no email) */}
-              {STATUSES.filter(s => s.code !== 'withdrew').map(s => (
-                <button
-                  key={s.code}
-                  onClick={() => bulkUpdateStatus(s.code)}
-                  className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                >
-                  → {s.label}
-                </button>
-              ))}
-
-              <span className="text-gray-300 dark:text-gray-600">|</span>
-
-              {/* Internal marks — admin-only draft decisions. Pale tones match the per-row chip. */}
-              <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Internal</span>
-              {INTERNAL_REVIEW_OPTIONS.map(o => (
-                <button
-                  key={`internal-${o.code}`}
-                  onClick={() => bulkUpdateInternalReviewStatus(o.code)}
-                  title="Internal mark — never shown to students"
-                  className={`px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity ${o.badgeClasses}`}
-                >
-                  {INTERNAL_REVIEW_STATUSES[o.code].adminLabel.replace(' (internal)', '')}
-                </button>
-              ))}
               <button
                 onClick={() => bulkUpdateInternalReviewStatus(null)}
                 className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400 ring-1 ring-dashed ring-gray-200 dark:ring-gray-700"
