@@ -2418,7 +2418,7 @@ export default function EventDetailPage() {
                       {isOpen && (
                         <div
                           role="menu"
-                          className="absolute z-20 mt-1 left-0 min-w-[210px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs text-gray-700 dark:text-gray-200"
+                          className="absolute z-40 mt-1 left-0 min-w-[210px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs text-gray-700 dark:text-gray-200"
                         >
                           <button
                             role="menuitem"
