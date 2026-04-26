@@ -257,19 +257,28 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
               <div className="text-xs font-medium text-gray-500 dark:text-gray-400">Subjects and grades</div>
               <div className="text-gray-900 dark:text-gray-100">
                 {Array.isArray(student.qualifications) && student.qualifications.length > 0 ? (
-                  <ul className="mt-1 space-y-0.5">
-                    {student.qualifications.map((q, i) => {
-                      const subj = q.subject === '__other' ? 'Other' : q.subject
-                      const lvl = q.qualType === 'ib' && q.level ? ` (${q.level.split(' ')[0]})` : ''
-                      const type = qualTypeLabel(q.qualType)
-                      return (
-                        <li key={i}>
-                          <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mr-2">{type}</span>
-                          {subj}{lvl} — <span className="font-medium">{q.grade || '—'}</span>
-                        </li>
-                      )
-                    })}
-                  </ul>
+                  <div className="group relative inline-block mt-0.5">
+                    <span className="cursor-default text-base tracking-wide font-medium text-gray-800 dark:text-gray-200">
+                      {student.qualifications.map(q => q.grade || '?').join(' ')}
+                    </span>
+                    <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 min-w-[260px]">
+                      <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase">Qualifications</div>
+                      {student.qualifications.map((q, qi) => {
+                        const subj = q.subject === '__other' ? 'Other' : (q.subject || '—')
+                        const lvl = q.qualType === 'ib' && q.level ? ` (${q.level.split(' ')[0]})` : ''
+                        const type = qualTypeLabel(q.qualType)
+                        return (
+                          <div key={qi} className="flex justify-between gap-4 text-xs py-0.5">
+                            <span className="text-gray-700 dark:text-gray-300">
+                              <span className="text-gray-500 dark:text-gray-400 mr-1.5">{type}</span>
+                              {subj}{lvl}
+                            </span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100">{q.grade || '—'}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
                 ) : (
                   <span className="text-gray-400">—</span>
                 )}
