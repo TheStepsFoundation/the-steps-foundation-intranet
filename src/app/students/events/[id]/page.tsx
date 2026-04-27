@@ -10,7 +10,8 @@ import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
-import type { FormFieldConfig, FormPage, StandardOverrides } from "@/lib/events-api"
+import FeedbackConfigEditor from "@/components/FeedbackConfigEditor"
+import type { FormFieldConfig, FormPage, StandardOverrides, EventFeedbackConfig } from "@/lib/events-api"
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 import { eventFeedbackByEventId } from '@/data/event-feedback'
 import LinkableInput from '@/components/LinkableInput'
@@ -620,6 +621,7 @@ export default function EventDetailPage() {
       hub_focal_y: event.hub_focal_y,
       eligible_year_groups: event.eligible_year_groups ?? null,
       open_to_gap_year: event.open_to_gap_year ?? false,
+      feedback_config: event.feedback_config ?? null,
     })
     setEditing(true)
   }
@@ -673,6 +675,11 @@ export default function EventDetailPage() {
       const currentFormConfig = JSON.stringify(event.form_config ?? { fields: [] })
       const draftFormConfig = JSON.stringify(editDraft.form_config ?? { fields: [] })
       if (draftFormConfig !== currentFormConfig) patch.form_config = editDraft.form_config
+
+      // feedback_config — null means "no live feedback form". Compare as JSON.
+      const currentFeedbackConfig = JSON.stringify(event.feedback_config ?? null)
+      const draftFeedbackConfig = JSON.stringify((editDraft as { feedback_config?: EventFeedbackConfig | null }).feedback_config ?? null)
+      if (draftFeedbackConfig !== currentFeedbackConfig) patch.feedback_config = (editDraft as { feedback_config?: EventFeedbackConfig | null }).feedback_config ?? null
 
       if (Object.keys(patch).length > 0) {
         const updated = await updateEvent(event.id, patch as any)
@@ -2023,6 +2030,13 @@ export default function EventDetailPage() {
                 }))}
               />
             </div>
+            </Section>
+
+            <Section id="feedback" title="Post-event feedback" subtitle="Question schema for the live feedback form / QR">
+              <FeedbackConfigEditor
+                value={(editDraft as { feedback_config?: EventFeedbackConfig | null }).feedback_config ?? null}
+                onChange={fc => setEditDraft(d => ({ ...d, feedback_config: fc }))}
+              />
             </Section>
           </div>
         ) : (
