@@ -133,6 +133,7 @@ export type EventRow = {
   dashboard_columns: DashboardColumnsConfig | null
   eligible_year_groups: number[] | null
   open_to_gap_year: boolean
+  feedback_config: EventFeedbackConfig | null
   created_at: string
 }
 
@@ -163,7 +164,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
@@ -319,4 +320,88 @@ export function formatOpenTo(
   else if (parts.length === 2) joined = `${parts[0]} and ${parts[1]}`
   else joined = `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
   return `${joined} students`
+}
+
+// =============================================================================
+// Event feedback (live submissions from /my/events/[id]/feedback)
+// =============================================================================
+
+export type EventFeedbackRow = {
+  id: string
+  event_id: string
+  student_id: string
+  ratings: Record<string, number>
+  answers: Record<string, string | string[]>
+  postable_quote: string | null
+  consent: 'name' | 'first_name' | 'anon' | 'no'
+  submitted_at: string
+  updated_at: string
+  // Joined student detail for admin views.
+  student?: {
+    id: string
+    first_name: string | null
+    last_name: string | null
+    preferred_name: string | null
+    personal_email: string | null
+    year_group: number | null
+    school_name_raw: string | null
+  } | null
+}
+
+export type EventFeedbackConfig = {
+  intro?: string
+  questions: {
+    id: string
+    type: 'scale' | 'single_choice' | 'long_text' | 'consent'
+    label: string
+    caption?: string
+    required?: boolean
+    placeholder?: string
+    scale?: { min: number; max: number; minLabel?: string; maxLabel?: string }
+    options?: (string | { value: string; label: string })[]
+  }[]
+}
+
+/** Fetch the live feedback config for an event (used by admin QR + admin feedback page). */
+export async function fetchFeedbackConfig(eventId: string): Promise<EventFeedbackConfig | null> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('feedback_config')
+    .eq('id', eventId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (error || !data) return null
+  return ((data as { feedback_config: EventFeedbackConfig | null }).feedback_config) ?? null
+}
+
+/** Fetch all live feedback submissions for an event, joined to student detail. */
+export async function fetchFeedbackSubmissions(eventId: string): Promise<EventFeedbackRow[]> {
+  const { data, error } = await supabase
+    .from('event_feedback')
+    .select('id, event_id, student_id, ratings, answers, postable_quote, consent, submitted_at, updated_at, student:students(id, first_name, last_name, preferred_name, personal_email, year_group, school_name_raw)')
+    .eq('event_id', eventId)
+    .order('submitted_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as unknown as EventFeedbackRow[]
+}
+
+/** Cheap count for the live admin QR display (poll every few seconds). */
+export async function countFeedbackSubmissions(eventId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('event_feedback')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+  if (error) return 0
+  return count ?? 0
+}
+
+/** Fetch live feedback rows for one specific student across all events (joined to event name + date). */
+export async function fetchFeedbackForStudent(studentId: string): Promise<(EventFeedbackRow & { event: { id: string; name: string; slug: string; event_date: string | null; feedback_config: EventFeedbackConfig | null } | null })[]> {
+  const { data, error } = await supabase
+    .from('event_feedback')
+    .select('id, event_id, student_id, ratings, answers, postable_quote, consent, submitted_at, updated_at, event:events(id, name, slug, event_date, feedback_config)')
+    .eq('student_id', studentId)
+    .order('submitted_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as unknown as (EventFeedbackRow & { event: { id: string; name: string; slug: string; event_date: string | null; feedback_config: EventFeedbackConfig | null } | null })[]
 }

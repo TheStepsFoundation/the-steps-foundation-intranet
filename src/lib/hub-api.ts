@@ -349,3 +349,128 @@ export async function signOut(): Promise<void> {
 export async function getAuthEmail(): Promise<string | null> {
   return currentUserEmail()
 }
+
+// ---------------------------------------------------------------------------
+// Event feedback (post-event survey from the student hub)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of one question in events.feedback_config.questions[].
+ *
+ * type controls how the form renders and where the answer is stored:
+ *   - scale          → numeric slider/buttons,         stored in `ratings[id]`
+ *   - single_choice  → radio buttons,                  stored in `answers[id]` (string)
+ *   - long_text      → textarea,                       stored in `answers[id]` (string)
+ *   - consent        → radio with value/label options, stored in `consent` column
+ */
+export type FeedbackQuestion = {
+  id: string
+  type: 'scale' | 'single_choice' | 'long_text' | 'consent'
+  label: string
+  caption?: string
+  required?: boolean
+  placeholder?: string
+  /** For `scale` questions. */
+  scale?: { min: number; max: number; minLabel?: string; maxLabel?: string }
+  /** For `single_choice` and `consent` questions. Strings, or {value,label} objects. */
+  options?: (string | { value: string; label: string })[]
+}
+
+export type FeedbackConfig = {
+  intro?: string
+  questions: FeedbackQuestion[]
+}
+
+export type FeedbackEventInfo = {
+  id: string
+  name: string
+  slug: string
+  event_date: string | null
+  feedback_config: FeedbackConfig | null
+}
+
+export type MyFeedbackSubmission = {
+  id: string
+  event_id: string
+  student_id: string
+  ratings: Record<string, number>
+  answers: Record<string, string | string[]>
+  postable_quote: string | null
+  consent: 'name' | 'first_name' | 'anon' | 'no'
+  submitted_at: string
+  updated_at: string
+}
+
+export async function fetchFeedbackEvent(eventId: string): Promise<FeedbackEventInfo | null> {
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, name, slug, event_date, feedback_config')
+    .eq('id', eventId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (error) return null
+  return (data as FeedbackEventInfo | null)
+}
+
+export async function fetchMyFeedback(eventId: string): Promise<MyFeedbackSubmission | null> {
+  const email = await currentUserEmail()
+  if (!email) return null
+  // Resolve student_id first via RLS-safe self select.
+  const { data: profile } = await supabase
+    .from('students')
+    .select('id')
+    .eq('personal_email', email)
+    .maybeSingle()
+  if (!profile) return null
+  const { data } = await supabase
+    .from('event_feedback')
+    .select('id, event_id, student_id, ratings, answers, postable_quote, consent, submitted_at, updated_at')
+    .eq('event_id', eventId)
+    .eq('student_id', (profile as { id: string }).id)
+    .maybeSingle()
+  return (data as MyFeedbackSubmission | null) ?? null
+}
+
+export type SubmitFeedbackInput = {
+  ratings: Record<string, number>
+  answers: Record<string, string | string[]>
+  postable_quote: string | null
+  consent: 'name' | 'first_name' | 'anon' | 'no'
+}
+
+/**
+ * Upsert feedback for the signed-in student against this event.
+ * Returns { error: string | null }. RLS restricts inserts/updates to the
+ * caller's own student row.
+ */
+export async function submitFeedback(
+  eventId: string,
+  input: SubmitFeedbackInput,
+): Promise<{ error: string | null }> {
+  const email = await currentUserEmail()
+  if (!email) return { error: 'You need to be signed in to submit feedback.' }
+
+  const { data: profile } = await supabase
+    .from('students')
+    .select('id')
+    .eq('personal_email', email)
+    .maybeSingle()
+  if (!profile) return { error: 'We could not find a student profile for your account.' }
+
+  const studentId = (profile as { id: string }).id
+  const payload = {
+    event_id: eventId,
+    student_id: studentId,
+    ratings: input.ratings,
+    answers: input.answers,
+    postable_quote: input.postable_quote,
+    consent: input.consent,
+    submitted_at: new Date().toISOString(),
+  }
+
+  const { error } = await supabase
+    .from('event_feedback')
+    .upsert(payload, { onConflict: 'event_id,student_id' })
+  if (error) return { error: error.message }
+  return { error: null }
+}

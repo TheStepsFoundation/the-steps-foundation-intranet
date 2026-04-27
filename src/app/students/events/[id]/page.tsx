@@ -2058,6 +2058,15 @@ export default function EventDetailPage() {
                       View feedback
                     </a>
                   )}
+                  {event.feedback_config && (
+                    <a href={`/students/events/${event.id}/feedback-qr`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 dark:hover:bg-violet-900/30 transition-colors"
+                      title="Open the fullscreen feedback QR to project on a screen">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm12 4h2m-2-4h4m-2 4v-4m0 4v2" /></svg>
+                      Feedback QR
+                    </a>
+                  )}
                 </div>
                 {/* Event detail tags */}
                 <div className="flex flex-wrap items-center gap-2 mt-1">

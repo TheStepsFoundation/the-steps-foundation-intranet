@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { eventFeedbackByEventId } from '@/data/event-feedback'
+import { fetchFeedbackConfig, fetchFeedbackSubmissions, type EventFeedbackConfig, type EventFeedbackRow } from '@/lib/events-api'
 import type {
   Consent,
   CuratedQuote,
@@ -323,23 +324,8 @@ export default function EventFeedbackPage() {
   }, [dataset])
 
   if (!dataset) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <Link
-          href={`/students/events/${id}`}
-          className="text-sm text-steps-blue-600 dark:text-steps-blue-400 hover:underline"
-        >
-          ← Back to event
-        </Link>
-        <h1 className="mt-4 text-2xl font-semibold text-gray-900 dark:text-gray-100">
-          No feedback data yet
-        </h1>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-          This event doesn&apos;t have a curated feedback dataset wired in. Datasets live in{' '}
-          <code className="font-mono text-xs">src/data/event-feedback/</code> and are keyed by event UUID.
-        </p>
-      </div>
-    )
+    // No curated static dataset — try the live feedback table.
+    return <LiveFeedbackView eventId={id} />
   }
 
   return (
@@ -526,3 +512,161 @@ export default function EventFeedbackPage() {
     </div>
   )
 }
+
+// ---------------------------------------------------------------------------
+// LiveFeedbackView — renders post-event feedback that comes from the live
+// event_feedback table (rather than the static curated TS files). Used when
+// no curated dataset exists for an event but the event has feedback_config.
+// ---------------------------------------------------------------------------
+function LiveFeedbackView({ eventId }: { eventId: string }) {
+  const [config, setConfig] = useState<EventFeedbackConfig | null>(null)
+  const [rows, setRows] = useState<EventFeedbackRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!eventId) return
+    let cancelled = false
+    setLoading(true)
+    Promise.all([fetchFeedbackConfig(eventId), fetchFeedbackSubmissions(eventId)])
+      .then(([c, r]) => { if (!cancelled) { setConfig(c); setRows(r) } })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [eventId])
+
+  if (loading) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12">
+        <p className="text-sm text-gray-500 animate-pulse">Loading feedback…</p>
+      </div>
+    )
+  }
+
+  if (!config) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12">
+        <Link href={`/students/events/${eventId}`} className="text-sm text-steps-blue-600 hover:underline">← Back to event</Link>
+        <h1 className="mt-4 text-2xl font-semibold text-gray-900 dark:text-gray-100">No feedback form for this event</h1>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">This event doesn’t have a feedback form configured. Add one in Supabase by setting <code className="font-mono text-xs">events.feedback_config</code>.</p>
+      </div>
+    )
+  }
+
+  const questions = config.questions ?? []
+  const responseCount = rows.length
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+      <div>
+        <Link href={`/students/events/${eventId}`} className="text-sm text-steps-blue-600 hover:underline">← Back to event</Link>
+        <h1 className="mt-3 text-2xl font-semibold text-gray-900 dark:text-gray-100">Live feedback</h1>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          {responseCount === 0
+            ? 'No submissions yet — once attendees scan the QR and submit, their responses will appear here.'
+            : `${responseCount} response${responseCount === 1 ? '' : 's'} from the student hub.`}
+        </p>
+      </div>
+
+      {responseCount > 0 && (
+        <div className="space-y-6">
+          {questions.map(q => {
+            if (q.type === 'scale' && q.scale) {
+              const vals = rows.map(r => r.ratings?.[q.id]).filter((v): v is number => typeof v === 'number')
+              if (vals.length === 0) return null
+              const mean = vals.reduce((a, b) => a + b, 0) / vals.length
+              const buckets: Record<number, number> = {}
+              for (let i = q.scale.min; i <= q.scale.max; i++) buckets[i] = 0
+              for (const v of vals) if (buckets[v] !== undefined) buckets[v]++
+              const peak = Math.max(1, ...Object.values(buckets))
+              return (
+                <div key={q.id} className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+                  <div className="flex items-baseline justify-between gap-3 mb-3">
+                    <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{q.label}</h3>
+                    <span className="text-sm font-semibold text-steps-blue-600">{mean.toFixed(2)} avg</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {Object.entries(buckets).sort(([a], [b]) => Number(a) - Number(b)).map(([k, count]) => (
+                      <div key={k} className="flex items-center gap-2 text-xs">
+                        <span className="w-6 tabular-nums text-gray-500">{k}</span>
+                        <div className="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                          <div className="h-full bg-steps-blue-500" style={{ width: `${(count / peak) * 100}%` }} />
+                        </div>
+                        <span className="w-8 tabular-nums text-gray-500 text-right">{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            }
+            if (q.type === 'single_choice') {
+              const counts: Record<string, number> = {}
+              for (const r of rows) {
+                const v = r.answers?.[q.id]
+                if (typeof v === 'string') counts[v] = (counts[v] ?? 0) + 1
+              }
+              const total = Object.values(counts).reduce((a, b) => a + b, 0)
+              if (total === 0) return null
+              return (
+                <div key={q.id} className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{q.label}</h3>
+                  <div className="space-y-1.5">
+                    {Object.entries(counts).map(([k, count]) => (
+                      <div key={k} className="flex items-center gap-2 text-xs">
+                        <span className="flex-1 text-gray-700 dark:text-gray-300">{k}</span>
+                        <span className="tabular-nums text-gray-500">{count} ({Math.round((count / total) * 100)}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            }
+            if (q.type === 'long_text') {
+              const responses = rows
+                .map(r => ({ r, v: r.answers?.[q.id] }))
+                .filter((x): x is { r: EventFeedbackRow; v: string } => typeof x.v === 'string' && x.v.trim().length > 0)
+              if (responses.length === 0) return null
+              return (
+                <div key={q.id} className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{q.label} <span className="text-gray-400 font-normal">({responses.length})</span></h3>
+                  <ul className="space-y-2">
+                    {responses.map(({ r, v }) => (
+                      <li key={r.id} className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-line border-l-2 border-gray-200 dark:border-gray-700 pl-3">
+                        “{v}”
+                        <div className="text-[11px] text-gray-400 mt-0.5">{r.student?.first_name} {r.student?.last_name} · {new Date(r.submitted_at).toLocaleDateString('en-GB')}</div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            }
+            return null
+          })}
+
+          {/* Postable quotes */}
+          {(() => {
+            const pq = rows.filter(r => r.postable_quote && r.postable_quote.trim().length > 0)
+            if (pq.length === 0) return null
+            return (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Postable quotes <span className="text-gray-400 font-normal">({pq.length})</span></h3>
+                <ul className="space-y-3">
+                  {pq.map(r => (
+                    <li key={r.id} className="text-sm">
+                      <p className="italic text-gray-800 dark:text-gray-200">“{r.postable_quote}”</p>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        {r.consent === 'name' ? `${r.student?.first_name} ${r.student?.last_name}` :
+                          r.consent === 'first_name' ? r.student?.first_name :
+                          r.consent === 'anon' ? 'Anonymous' : 'Internal only'}
+                        {' · consent: '}{r.consent}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
+        </div>
+      )}
+    </div>
+  )
+}
+

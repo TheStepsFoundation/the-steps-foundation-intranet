@@ -20,6 +20,7 @@ import QualificationsEditor, { defaultQualifications } from '@/components/Qualif
 import type { QualificationEntry } from '@/lib/students-api'
 import { eventFeedbackByEventId } from '@/data/event-feedback'
 import type { FreeTextResponse } from '@/data/event-feedback/types'
+import { fetchFeedbackForStudent, type EventFeedbackRow, type EventFeedbackConfig } from '@/lib/events-api'
 import { useAuth } from '@/lib/auth-provider'
 import { supabase } from '@/lib/supabase'
 import {
@@ -515,6 +516,7 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
       </section>
 
       <EventFeedbackPanel
+        studentId={student.id}
         studentEmail={student.personal_email}
         studentFullName={fullName}
         attendedEventIds={apps.filter(a => a.attended || a.status === 'submitted' || a.status === 'accepted').map(a => a.event_id)}
@@ -638,11 +640,13 @@ function incomeLabel(code: string | null | undefined): string | null {
 // were submitted without an email column).
 
 function EventFeedbackPanel({
+  studentId,
   studentEmail,
   studentFullName,
   attendedEventIds,
   eventNameById,
 }: {
+  studentId: string
   studentEmail: string | null
   studentFullName: string
   attendedEventIds: string[]
@@ -651,7 +655,8 @@ function EventFeedbackPanel({
   const normEmail = (studentEmail ?? '').trim().toLowerCase()
   const normName = studentFullName.trim().toLowerCase()
 
-  const matches = attendedEventIds
+  // ---- Static (curated) dataset matches (for past events with curated TS data) ----
+  const staticMatches = attendedEventIds
     .map(eventId => {
       const dataset = eventFeedbackByEventId[eventId]
       if (!dataset) return null
@@ -666,18 +671,78 @@ function EventFeedbackPanel({
     })
     .filter((x): x is { eventId: string; eventName: string; row: FreeTextResponse } => x !== null)
 
-  if (matches.length === 0) return null
+  // ---- Live submissions from the new event_feedback table ----
+  const [liveRows, setLiveRows] = useState<(EventFeedbackRow & { event: { id: string; name: string; slug: string; event_date: string | null; feedback_config: EventFeedbackConfig | null } | null })[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetchFeedbackForStudent(studentId)
+      .then(rows => { if (!cancelled) setLiveRows(rows) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [studentId])
+
+  const totalCount = staticMatches.length + liveRows.length
+  if (totalCount === 0) return null
 
   return (
     <section className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden mb-6">
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-        <h2 className="font-medium text-gray-900 dark:text-gray-100">Feedback they&rsquo;ve left ({matches.length})</h2>
+        <h2 className="font-medium text-gray-900 dark:text-gray-100">Feedback they’ve left ({totalCount})</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          Free-text responses this student submitted on each event&rsquo;s feedback form.
+          Responses this student submitted on each event’s feedback form.
         </p>
       </div>
       <div className="divide-y divide-gray-100 dark:divide-gray-800">
-        {matches.map(({ eventId, eventName, row }) => (
+        {liveRows.map(r => {
+          const eventName = r.event?.name ?? eventNameById[r.event_id] ?? 'Event'
+          const cfg = r.event?.feedback_config
+          const labelById: Record<string, { label: string; type: string }> = {}
+          if (cfg?.questions) {
+            for (const q of cfg.questions) labelById[q.id] = { label: q.label, type: q.type }
+          }
+          return (
+            <div key={r.id} className="px-4 py-3">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={`/students/events/${r.event_id}/feedback`}
+                    className="text-sm font-medium text-steps-blue-600 dark:text-steps-blue-400 hover:underline"
+                  >
+                    {eventName}
+                  </Link>
+                  <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400">
+                    live
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                    consent: {r.consent}
+                  </span>
+                </div>
+                <span className="text-[11px] tabular-nums text-gray-400">{new Date(r.submitted_at).toLocaleString('en-GB')}</span>
+              </div>
+              <dl className="space-y-1.5">
+                {Object.entries(r.ratings ?? {}).map(([k, v]) => (
+                  <div key={`r-${k}`}>
+                    <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{labelById[k]?.label ?? k}</dt>
+                    <dd className="text-sm text-gray-800 dark:text-gray-200">{String(v)}</dd>
+                  </div>
+                ))}
+                {Object.entries(r.answers ?? {}).map(([k, v]) => (
+                  <div key={`a-${k}`}>
+                    <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{labelById[k]?.label ?? k}</dt>
+                    <dd className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-line">{Array.isArray(v) ? v.join(', ') : v}</dd>
+                  </div>
+                ))}
+                {r.postable_quote && (
+                  <div>
+                    <dt className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Postable quote</dt>
+                    <dd className="text-sm text-gray-800 dark:text-gray-200 italic">“{r.postable_quote}”</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+          )
+        })}
+        {staticMatches.map(({ eventId, eventName, row }) => (
           <div key={eventId} className="px-4 py-3">
             <div className="flex items-center justify-between gap-3 mb-2">
               <div className="flex items-center gap-2">

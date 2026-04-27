@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState, useEffect, useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { sendOtp, verifyOtp, signInWithPassword, getExistingSession } from '@/lib/apply-api'
 import { supabase } from '@/lib/supabase-student'
 import Link from 'next/link'
@@ -20,8 +20,17 @@ const INPUT_CLASSES =
   'w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white ' +
   'placeholder:text-slate-400 focus:ring-2 focus:ring-steps-blue-500 focus:border-steps-blue-500 outline-none transition-shadow'
 
-export default function HubSignInPage() {
+function HubSignInInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Where to send the user once they're signed in. Defaults to the hub home,
+  // but supports deep-link redirects from things like the post-event feedback QR
+  // (e.g. ?next=/my/events/<id>/feedback).
+  const nextPath = useMemo(() => {
+    const raw = searchParams?.get('next') ?? '/my'
+    // Hard guard against off-site redirects — only allow same-origin paths.
+    return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/my'
+  }, [searchParams])
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -37,16 +46,16 @@ export default function HubSignInPage() {
   useEffect(() => {
     let cancelled = false
     getExistingSession().then(s => {
-      if (!cancelled && s?.email) router.replace('/my')
+      if (!cancelled && s?.email) router.replace(nextPath)
     })
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user?.email) {
-        router.replace('/my')
+        router.replace(nextPath)
       }
     })
     return () => { cancelled = true; sub.subscription.unsubscribe() }
-  }, [router])
+  }, [router, nextPath])
 
   // After a successful OTP/password sign-in, navigate with a hard reload so
   // /my always sees the freshly-persisted session from storage. Using
@@ -58,7 +67,7 @@ export default function HubSignInPage() {
     setStep('redirecting')
     // Small delay so the browser has a tick to flush the Supabase auth-token
     // write to localStorage before the navigation fires.
-    setTimeout(() => { window.location.assign('/my') }, 200)
+    setTimeout(() => { window.location.assign(nextPath) }, 200)
   }
 
   const handlePasswordSignIn = async () => {
@@ -279,5 +288,13 @@ export default function HubSignInPage() {
         <em className="not-italic">Virtus non origo</em> &nbsp;&middot;&nbsp; Character, not origin
       </footer>
     </div>
+  )
+}
+
+export default function HubSignInPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-slate-50"><p className="text-slate-500 animate-pulse">Loading…</p></div>}>
+      <HubSignInInner />
+    </Suspense>
   )
 }
