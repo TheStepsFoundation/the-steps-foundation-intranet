@@ -32,11 +32,19 @@ function HubSignInInner() {
     return raw.startsWith('/') && !raw.startsWith('//') ? raw : '/my'
   }, [searchParams])
 
+  // ?method=password — used by the post-event feedback QR flow to default
+  // returning students to the password form (most students have set one;
+  // the OTP detour adds a 60-90s delay during a live event session).
+  const preferPassword = useMemo(
+    () => searchParams?.get('method') === 'password',
+    [searchParams]
+  )
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [otpCode, setOtpCode] = useState('')
   const [step, setStep] = useState<Step>('email')
-  const [useOtp, setUseOtp] = useState(true)
+  const [useOtp, setUseOtp] = useState(!preferPassword)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 

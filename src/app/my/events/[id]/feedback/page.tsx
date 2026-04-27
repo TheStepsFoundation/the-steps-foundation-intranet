@@ -63,8 +63,13 @@ export default function FeedbackFormPage() {
         await new Promise(r => setTimeout(r, 200))
       }
       if (cancelled) return
-      const next = encodeURIComponent(`/my/events/${eventId}/feedback`)
-      router.replace(`/my/sign-in?next=${next}`)
+      // Preserve the same-page URL (incl. ?method=password from the QR)
+      // so /my/sign-in can decide which auth mode to default to.
+      const here = window.location.pathname + window.location.search
+      const next = encodeURIComponent(here)
+      const method = new URLSearchParams(window.location.search).get('method')
+      const methodQs = method ? `&method=${encodeURIComponent(method)}` : ''
+      router.replace(`/my/sign-in?next=${next}${methodQs}`)
     }
     run()
     return () => { cancelled = true }

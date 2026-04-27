@@ -31,7 +31,10 @@ export default function FeedbackQrPage() {
   const targetUrl = useMemo(() => {
     if (!eventId) return ''
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    return `${origin}/my/events/${eventId}/feedback`
+    // method=password defaults the sign-in form to email+password instead of
+    // OTP. Most attendees already have a password; OTP would add a 60-90s
+    // detour during a live event session.
+    return `${origin}/my/events/${eventId}/feedback?method=password`
   }, [eventId])
 
   // Generate the QR SVG.
