@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { eventFeedbackByEventId } from '@/data/event-feedback'
-import { fetchFeedbackConfig, fetchFeedbackSubmissions, type EventFeedbackConfig, type EventFeedbackRow } from '@/lib/events-api'
+import { fetchFeedbackConfig, fetchFeedbackSubmissions, getFeedbackFields, type EventFeedbackConfig, type EventFeedbackRow } from '@/lib/events-api'
 import type {
   Consent,
   CuratedQuote,
@@ -551,7 +551,7 @@ function LiveFeedbackView({ eventId }: { eventId: string }) {
     )
   }
 
-  const questions = config.questions ?? []
+  const fields = getFeedbackFields(config)
   const responseCount = rows.length
 
   return (
@@ -568,13 +568,15 @@ function LiveFeedbackView({ eventId }: { eventId: string }) {
 
       {responseCount > 0 && (
         <div className="space-y-6">
-          {questions.map(q => {
-            if (q.type === 'scale' && q.scale) {
+          {fields.map(q => {
+            if (q.type === 'scale') {
+              const min = q.config?.scaleMin ?? 1
+              const max = q.config?.scaleMax ?? 5
               const vals = rows.map(r => r.ratings?.[q.id]).filter((v): v is number => typeof v === 'number')
               if (vals.length === 0) return null
               const mean = vals.reduce((a, b) => a + b, 0) / vals.length
               const buckets: Record<number, number> = {}
-              for (let i = q.scale.min; i <= q.scale.max; i++) buckets[i] = 0
+              for (let i = min; i <= max; i++) buckets[i] = 0
               for (const v of vals) if (buckets[v] !== undefined) buckets[v]++
               const peak = Math.max(1, ...Object.values(buckets))
               return (
@@ -597,11 +599,15 @@ function LiveFeedbackView({ eventId }: { eventId: string }) {
                 </div>
               )
             }
-            if (q.type === 'single_choice') {
+            // Single-pick choices: radio, dropdown, yes_no
+            if (q.type === 'radio' || q.type === 'dropdown' || q.type === 'yes_no') {
+              const labelByVal = new Map<string, string>()
+              if (q.options) for (const o of q.options) labelByVal.set(o.value, o.label)
+              if (q.type === 'yes_no') { labelByVal.set('yes', 'Yes'); labelByVal.set('no', 'No') }
               const counts: Record<string, number> = {}
               for (const r of rows) {
                 const v = r.answers?.[q.id]
-                if (typeof v === 'string') counts[v] = (counts[v] ?? 0) + 1
+                if (typeof v === 'string' && v.length > 0) counts[v] = (counts[v] ?? 0) + 1
               }
               const total = Object.values(counts).reduce((a, b) => a + b, 0)
               if (total === 0) return null
@@ -609,9 +615,9 @@ function LiveFeedbackView({ eventId }: { eventId: string }) {
                 <div key={q.id} className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
                   <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{q.label}</h3>
                   <div className="space-y-1.5">
-                    {Object.entries(counts).map(([k, count]) => (
+                    {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, count]) => (
                       <div key={k} className="flex items-center gap-2 text-xs">
-                        <span className="flex-1 text-gray-700 dark:text-gray-300">{k}</span>
+                        <span className="flex-1 text-gray-700 dark:text-gray-300">{labelByVal.get(k) ?? k}</span>
                         <span className="tabular-nums text-gray-500">{count} ({Math.round((count / total) * 100)}%)</span>
                       </div>
                     ))}
@@ -619,10 +625,43 @@ function LiveFeedbackView({ eventId }: { eventId: string }) {
                 </div>
               )
             }
-            if (q.type === 'long_text') {
+            // Multi-pick choices: checkbox_list
+            if (q.type === 'checkbox_list') {
+              const labelByVal = new Map<string, string>()
+              if (q.options) for (const o of q.options) labelByVal.set(o.value, o.label)
+              const counts: Record<string, number> = {}
+              let respondents = 0
+              for (const r of rows) {
+                const v = r.answers?.[q.id]
+                if (Array.isArray(v) && v.length > 0) {
+                  respondents++
+                  for (const item of v) {
+                    if (typeof item === 'string') counts[item] = (counts[item] ?? 0) + 1
+                  }
+                }
+              }
+              if (respondents === 0) return null
+              return (
+                <div key={q.id} className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+                  <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">{q.label} <span className="text-gray-400 font-normal">({respondents} respondent{respondents === 1 ? '' : 's'})</span></h3>
+                  <div className="space-y-1.5">
+                    {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, count]) => (
+                      <div key={k} className="flex items-center gap-2 text-xs">
+                        <span className="flex-1 text-gray-700 dark:text-gray-300">{labelByVal.get(k) ?? k}</span>
+                        <span className="tabular-nums text-gray-500">{count} ({Math.round((count / respondents) * 100)}%)</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            }
+            // Free text: text, textarea, email, phone, url, number, date
+            if (q.type === 'text' || q.type === 'textarea' || q.type === 'email' || q.type === 'phone' || q.type === 'url' || q.type === 'number' || q.type === 'date') {
               const responses = rows
                 .map(r => ({ r, v: r.answers?.[q.id] }))
-                .filter((x): x is { r: EventFeedbackRow; v: string } => typeof x.v === 'string' && x.v.trim().length > 0)
+                .filter((x): x is { r: EventFeedbackRow; v: string } =>
+                  typeof x.v === 'string' && x.v.trim().length > 0
+                )
               if (responses.length === 0) return null
               return (
                 <div key={q.id} className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
@@ -638,6 +677,9 @@ function LiveFeedbackView({ eventId }: { eventId: string }) {
                 </div>
               )
             }
+            // Skip non-aggregable types: section_heading, media, matrix, ranked_dropdown,
+            // paired_dropdown, repeatable_group. (Their raw values still surface on the
+            // student profile via the per-submission view.)
             return null
           })}
 

@@ -1,37 +1,137 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { TopNav } from '@/components/TopNav'
 import { PressableButton } from '@/components/PressableButton'
+import DynamicFormField, { type FieldValue } from '@/components/DynamicFormField'
 import {
   fetchFeedbackEvent, fetchMyFeedback, submitFeedback, getAuthEmail,
-  type FeedbackEventInfo, type FeedbackQuestion, type MyFeedbackSubmission,
+  type FeedbackEventInfo, type MyFeedbackSubmission,
 } from '@/lib/hub-api'
+import { getFeedbackFields, type FormFieldConfig } from '@/lib/events-api'
 
 // ---------------------------------------------------------------------------
 // /my/events/[id]/feedback — post-event feedback form, served from the hub.
 // Login-gated. If no session, bumps to /my/sign-in?next=<this-url>.
-// On success, the row is upserted to event_feedback (RLS keeps it scoped).
+// On submit, the row is upserted to event_feedback (RLS keeps it scoped).
 // Re-visiting this page after submission shows their answers + lets them
 // edit (within the natural lifecycle of the event — no hard cutoff yet).
+//
+// The schema reuses FormFieldConfig (same as apply forms). On submit we
+// split values into the dedicated event_feedback columns by reserved
+// id / type:
+//   - field type 'scale'        → ratings jsonb[id]
+//   - field id 'consent'        → consent column
+//   - field id 'postable_quote' → postable_quote column
+//   - everything else           → answers jsonb[id]
 // ---------------------------------------------------------------------------
 
-type AnswerState = {
+const CONSENT_VALUES = new Set(['name', 'first_name', 'anon', 'no'])
+type ConsentValue = 'name' | 'first_name' | 'anon' | 'no'
+
+/**
+ * Translate the existing event_feedback row back into FieldValue keyed by
+ * field.id, so DynamicFormField can render the prefilled state when an
+ * admin edits a previously-submitted form.
+ */
+function hydrateValues(
+  fields: FormFieldConfig[],
+  mine: MyFeedbackSubmission | null,
+): Record<string, FieldValue> {
+  const out: Record<string, FieldValue> = {}
+  if (!mine) return out
+  for (const f of fields) {
+    if (f.type === 'scale') {
+      const v = mine.ratings?.[f.id]
+      if (typeof v === 'number') out[f.id] = String(v)
+      continue
+    }
+    if (f.id === 'consent') {
+      if (mine.consent) out[f.id] = mine.consent
+      continue
+    }
+    if (f.id === 'postable_quote') {
+      if (mine.postable_quote) out[f.id] = mine.postable_quote
+      continue
+    }
+    const a = mine.answers?.[f.id]
+    if (a !== undefined && a !== null) {
+      if (Array.isArray(a)) out[f.id] = a as string[]
+      else if (typeof a === 'string') out[f.id] = a
+      else out[f.id] = JSON.stringify(a)
+    }
+  }
+  return out
+}
+
+/** Required-field validator for our limited subset of FormFieldConfig types. */
+function findValidationError(fields: FormFieldConfig[], values: Record<string, FieldValue>): string | null {
+  for (const f of fields) {
+    if (!f.required) continue
+    if (f.type === 'section_heading' || f.type === 'media') continue
+    const v = values[f.id]
+    if (v === undefined || v === null) return `Please answer: "${f.label}"`
+    if (typeof v === 'string' && !v.trim()) return `Please answer: "${f.label}"`
+    if (Array.isArray(v) && v.length === 0) return `Please answer: "${f.label}"`
+    if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v as Record<string, unknown>).length === 0) {
+      return `Please answer: "${f.label}"`
+    }
+  }
+  return null
+}
+
+/**
+ * Split values into ratings / answers / consent / postable_quote per the
+ * reserved-id / reserved-type rules above.
+ */
+function splitForStorage(fields: FormFieldConfig[], values: Record<string, FieldValue>): {
   ratings: Record<string, number>
-  answers: Record<string, string>
-  postable_quote: string
-  consent: 'name' | 'first_name' | 'anon' | 'no' | ''
-}
+  answers: Record<string, string | string[]>
+  consent: ConsentValue
+  postable_quote: string | null
+} {
+  const ratings: Record<string, number> = {}
+  const answers: Record<string, string | string[]> = {}
+  let consent: ConsentValue = 'no'
+  let postable: string | null = null
 
-function emptyState(): AnswerState {
-  return { ratings: {}, answers: {}, postable_quote: '', consent: '' }
-}
+  for (const f of fields) {
+    if (f.type === 'section_heading' || f.type === 'media') continue
+    const v = values[f.id]
+    if (v === undefined || v === null) continue
 
-function normaliseOptions(q: FeedbackQuestion): { value: string; label: string }[] {
-  if (!q.options) return []
-  return q.options.map(o => typeof o === 'string' ? { value: o, label: o } : o)
+    if (f.type === 'scale') {
+      // Scale stores either a string ("4") or a Record (paired). For our
+      // single-question scale FormBuilder uses a string value.
+      const num = typeof v === 'string' ? Number(v) : NaN
+      if (Number.isFinite(num)) ratings[f.id] = num
+      continue
+    }
+
+    if (f.id === 'consent') {
+      const s = typeof v === 'string' ? v : ''
+      consent = (CONSENT_VALUES.has(s) ? s : 'no') as ConsentValue
+      continue
+    }
+
+    if (f.id === 'postable_quote') {
+      const s = typeof v === 'string' ? v.trim() : ''
+      postable = s.length > 0 ? s : null
+      continue
+    }
+
+    // Everything else → answers jsonb. DynamicFormField yields strings for
+    // most types and string[] for checkbox_list. Other shapes (matrix,
+    // ranked, paired, repeatable) get JSON-stringified so the row still
+    // captures the data even if we don't have a renderer for it on the
+    // admin side yet.
+    if (typeof v === 'string') answers[f.id] = v
+    else if (Array.isArray(v) && v.every(x => typeof x === 'string')) answers[f.id] = v as string[]
+    else answers[f.id] = JSON.stringify(v)
+  }
+  return { ratings, answers, consent, postable_quote: postable }
 }
 
 export default function FeedbackFormPage() {
@@ -42,7 +142,7 @@ export default function FeedbackFormPage() {
   const [authReady, setAuthReady] = useState(false)
   const [event, setEvent] = useState<FeedbackEventInfo | null>(null)
   const [existing, setExisting] = useState<MyFeedbackSubmission | null>(null)
-  const [state, setState] = useState<AnswerState>(emptyState())
+  const [values, setValues] = useState<Record<string, FieldValue>>({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -54,8 +154,6 @@ export default function FeedbackFormPage() {
   useEffect(() => {
     let cancelled = false
     async function run() {
-      // Retry briefly while localStorage hydrates the supabase session
-      // (matches the pattern in /my page.tsx).
       const start = Date.now()
       while (!cancelled && Date.now() - start < 5000) {
         const email = await getAuthEmail()
@@ -63,8 +161,6 @@ export default function FeedbackFormPage() {
         await new Promise(r => setTimeout(r, 200))
       }
       if (cancelled) return
-      // Preserve the same-page URL (incl. ?method=password from the QR)
-      // so /my/sign-in can decide which auth mode to default to.
       const here = window.location.pathname + window.location.search
       const next = encodeURIComponent(here)
       const method = new URLSearchParams(window.location.search).get('method')
@@ -74,6 +170,9 @@ export default function FeedbackFormPage() {
     run()
     return () => { cancelled = true }
   }, [eventId, router])
+
+  const fields = useMemo(() => getFeedbackFields(event?.feedback_config ?? null), [event])
+  const intro = event?.feedback_config?.intro
 
   // Load event + existing submission once authed.
   useEffect(() => {
@@ -86,76 +185,34 @@ export default function FeedbackFormPage() {
         setEvent(ev)
         if (mine) {
           setExisting(mine)
-          setState({
-            ratings: mine.ratings ?? {},
-            answers: Object.fromEntries(
-              Object.entries(mine.answers ?? {}).map(([k, v]) => [k, Array.isArray(v) ? v.join(', ') : (v as string)])
-            ),
-            postable_quote: mine.postable_quote ?? '',
-            consent: mine.consent ?? '',
-          })
+          const fs = getFeedbackFields(ev?.feedback_config ?? null)
+          setValues(hydrateValues(fs, mine))
         }
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [authReady, eventId])
 
-  const questions = event?.feedback_config?.questions ?? []
-  const intro = event?.feedback_config?.intro
-
   const showForm = !submitted && (!existing || editing)
   const showThanks = submitted || (existing && !editing)
 
-  function setRating(id: string, value: number) {
-    setState(s => ({ ...s, ratings: { ...s.ratings, [id]: value } }))
-  }
-  function setAnswer(id: string, value: string) {
-    setState(s => ({ ...s, answers: { ...s.answers, [id]: value } }))
-  }
-  function setConsent(value: AnswerState['consent']) {
-    setState(s => ({ ...s, consent: value }))
-  }
-
-  function validate(): string | null {
-    for (const q of questions) {
-      if (!q.required) continue
-      if (q.type === 'scale') {
-        if (state.ratings[q.id] === undefined) return `Please answer: "${q.label}"`
-      } else if (q.type === 'single_choice') {
-        if (!state.answers[q.id]) return `Please answer: "${q.label}"`
-      } else if (q.type === 'long_text') {
-        if (!state.answers[q.id] || !state.answers[q.id].trim()) return `Please answer: "${q.label}"`
-      } else if (q.type === 'consent') {
-        if (!state.consent) return `Please tell us how we can credit you.`
-      }
-    }
-    return null
+  const setValue = (fieldId: string, value: FieldValue) => {
+    setValues(v => ({ ...v, [fieldId]: value }))
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    const v = validate()
+    const v = findValidationError(fields, values)
     if (v) { setValidationError(v); return }
     setValidationError(null)
     setSubmitting(true)
-    // Pull postable_quote off answers for storage in its own column.
-    const postableId = questions.find(q => q.id === 'postable_quote')?.id
-    const postable = postableId ? (state.answers[postableId] ?? state.postable_quote) : state.postable_quote
-    const answersForStorage: Record<string, string> = { ...state.answers }
-    if (postableId) delete answersForStorage[postableId]
-    const consentValue = (state.consent || 'no') as 'name' | 'first_name' | 'anon' | 'no'
-    const { error: err } = await submitFeedback(eventId, {
-      ratings: state.ratings,
-      answers: answersForStorage,
-      postable_quote: postable?.trim() ? postable.trim() : null,
-      consent: consentValue,
-    })
+    const split = splitForStorage(fields, values)
+    const { error: err } = await submitFeedback(eventId, split)
     setSubmitting(false)
     if (err) { setError(err); return }
     setSubmitted(true)
     setEditing(false)
-    // Refresh the existing snapshot so the thank-you view shows their submission
     const fresh = await fetchMyFeedback(eventId)
     setExisting(fresh)
   }
@@ -226,40 +283,7 @@ export default function FeedbackFormPage() {
                 </p>
               </div>
             </div>
-            <div className="border-t border-slate-100 pt-4 space-y-3 text-sm">
-              {questions.map(q => {
-                if (q.type === 'scale') {
-                  const v = existing.ratings?.[q.id]
-                  if (v === undefined) return null
-                  return (
-                    <div key={q.id}>
-                      <div className="text-slate-500 text-xs">{q.label}</div>
-                      <div className="text-slate-900 font-medium">{v} / {q.scale?.max ?? '?'}</div>
-                    </div>
-                  )
-                }
-                if (q.type === 'consent') {
-                  const v = existing.consent
-                  if (!v) return null
-                  const opts = normaliseOptions(q)
-                  const label = opts.find(o => o.value === v)?.label ?? v
-                  return (
-                    <div key={q.id}>
-                      <div className="text-slate-500 text-xs">{q.label}</div>
-                      <div className="text-slate-900">{label}</div>
-                    </div>
-                  )
-                }
-                const a = q.id === 'postable_quote' ? existing.postable_quote : (existing.answers?.[q.id] as string | undefined)
-                if (!a) return null
-                return (
-                  <div key={q.id}>
-                    <div className="text-slate-500 text-xs">{q.label}</div>
-                    <div className="text-slate-900 whitespace-pre-wrap">{a}</div>
-                  </div>
-                )
-              })}
-            </div>
+            <SubmissionSummary fields={fields} mine={existing} />
             <div className="border-t border-slate-100 pt-4 flex items-center justify-between">
               <button
                 type="button"
@@ -274,17 +298,14 @@ export default function FeedbackFormPage() {
         )}
 
         {showForm && (
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 space-y-7">
-            {questions.map(q => (
-              <QuestionField
-                key={q.id}
-                question={q}
-                ratings={state.ratings}
-                answers={state.answers}
-                consent={state.consent}
-                setRating={setRating}
-                setAnswer={setAnswer}
-                setConsent={setConsent}
+          <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 space-y-6">
+            {fields.map(field => (
+              <DynamicFormField
+                key={field.id}
+                field={field}
+                value={values[field.id]}
+                onChange={setValue}
+                allValues={values}
               />
             ))}
 
@@ -313,141 +334,42 @@ export default function FeedbackFormPage() {
 }
 
 // ---------------------------------------------------------------------------
-// QuestionField — renders one question based on its type.
+// SubmissionSummary — read-only recap shown on the thanks screen.
 // ---------------------------------------------------------------------------
 
-function QuestionField({
-  question, ratings, answers, consent, setRating, setAnswer, setConsent,
-}: {
-  question: FeedbackQuestion
-  ratings: Record<string, number>
-  answers: Record<string, string>
-  consent: 'name' | 'first_name' | 'anon' | 'no' | ''
-  setRating: (id: string, v: number) => void
-  setAnswer: (id: string, v: string) => void
-  setConsent: (v: 'name' | 'first_name' | 'anon' | 'no' | '') => void
-}) {
-  const labelEl = (
-    <label className="block text-sm font-semibold text-steps-dark mb-2">
-      {question.label}
-      {question.required && <span className="text-red-500 ml-1">*</span>}
-    </label>
-  )
+function SubmissionSummary({ fields, mine }: { fields: FormFieldConfig[]; mine: MyFeedbackSubmission }) {
+  return (
+    <div className="border-t border-slate-100 pt-4 space-y-3 text-sm">
+      {fields.map(f => {
+        if (f.type === 'section_heading' || f.type === 'media') return null
+        let display: string | null = null
 
-  if (question.type === 'scale' && question.scale) {
-    const { min, max, minLabel, maxLabel } = question.scale
-    const buttons: number[] = (() => {
-      const out: number[] = []
-      for (let i = min; i <= max; i++) out.push(i)
-      return out
-    })()
-    const selected = ratings[question.id]
-    return (
-      <div>
-        {labelEl}
-        <div className="flex flex-wrap gap-2">
-          {buttons.map(n => {
-            const active = selected === n
-            return (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setRating(question.id, n)}
-                className={`min-w-[40px] h-10 px-2 rounded-lg border text-sm font-medium transition-colors ${
-                  active
-                    ? 'bg-steps-blue-600 text-white border-steps-blue-600'
-                    : 'bg-white text-slate-700 border-slate-300 hover:border-steps-blue-400'
-                }`}
-              >
-                {n}
-              </button>
-            )
-          })}
-        </div>
-        {(minLabel || maxLabel) && (
-          <div className="flex justify-between text-xs text-slate-500 mt-2">
-            <span>{minLabel}</span>
-            <span>{maxLabel}</span>
+        if (f.type === 'scale') {
+          const v = mine.ratings?.[f.id]
+          if (v === undefined) return null
+          const max = f.config?.scaleMax
+          display = max ? `${v} / ${max}` : String(v)
+        } else if (f.id === 'consent') {
+          if (!mine.consent) return null
+          const opt = f.options?.find(o => o.value === mine.consent)
+          display = opt?.label ?? mine.consent
+        } else if (f.id === 'postable_quote') {
+          if (!mine.postable_quote) return null
+          display = mine.postable_quote
+        } else {
+          const a = mine.answers?.[f.id]
+          if (a === undefined || a === null) return null
+          display = Array.isArray(a) ? a.join(', ') : String(a)
+        }
+
+        if (!display) return null
+        return (
+          <div key={f.id}>
+            <div className="text-slate-500 text-xs">{f.label}</div>
+            <div className="text-slate-900 whitespace-pre-wrap">{display}</div>
           </div>
-        )}
-        {question.caption && <p className="text-xs text-slate-400 mt-1">{question.caption}</p>}
-      </div>
-    )
-  }
-
-  if (question.type === 'single_choice') {
-    const opts = normaliseOptions(question)
-    const selected = answers[question.id] ?? ''
-    return (
-      <div>
-        {labelEl}
-        <div className="space-y-2">
-          {opts.map(o => {
-            const active = selected === o.value
-            return (
-              <label key={o.value} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
-                active ? 'border-steps-blue-500 bg-steps-blue-50' : 'border-slate-200 hover:border-slate-300'
-              }`}>
-                <input
-                  type="radio"
-                  name={question.id}
-                  value={o.value}
-                  checked={active}
-                  onChange={() => setAnswer(question.id, o.value)}
-                  className="w-4 h-4 text-steps-blue-600 focus:ring-steps-blue-500"
-                />
-                <span className="text-sm text-slate-800">{o.label}</span>
-              </label>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  if (question.type === 'long_text') {
-    return (
-      <div>
-        {labelEl}
-        <textarea
-          value={answers[question.id] ?? ''}
-          onChange={e => setAnswer(question.id, e.target.value)}
-          rows={3}
-          placeholder={question.placeholder}
-          className="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm bg-white placeholder:text-slate-400 focus:ring-2 focus:ring-steps-blue-500 focus:border-steps-blue-500 outline-none transition-shadow"
-        />
-      </div>
-    )
-  }
-
-  if (question.type === 'consent') {
-    const opts = normaliseOptions(question)
-    return (
-      <div>
-        {labelEl}
-        <div className="space-y-2">
-          {opts.map(o => {
-            const active = consent === o.value
-            return (
-              <label key={o.value} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
-                active ? 'border-steps-blue-500 bg-steps-blue-50' : 'border-slate-200 hover:border-slate-300'
-              }`}>
-                <input
-                  type="radio"
-                  name="consent"
-                  value={o.value}
-                  checked={active}
-                  onChange={() => setConsent(o.value as 'name' | 'first_name' | 'anon' | 'no')}
-                  className="w-4 h-4 text-steps-blue-600 focus:ring-steps-blue-500"
-                />
-                <span className="text-sm text-slate-800">{o.label}</span>
-              </label>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  return null
+        )
+      })}
+    </div>
+  )
 }

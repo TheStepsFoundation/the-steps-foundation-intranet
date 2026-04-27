@@ -348,18 +348,30 @@ export type EventFeedbackRow = {
   } | null
 }
 
+/**
+ * Live feedback form schema, stored on events.feedback_config.
+ *
+ * Reuses FormFieldConfig (the same shape that powers the apply form) for parity:
+ *   - `fields` is an array of FormFieldConfig
+ *   - reserved field IDs map to dedicated event_feedback columns:
+ *       * id 'consent'         → event_feedback.consent (text)
+ *       * id 'postable_quote'  → event_feedback.postable_quote (text)
+ *   - reserved field type 'scale' → event_feedback.ratings (jsonb keyed by field.id)
+ *   - everything else → event_feedback.answers (jsonb keyed by field.id)
+ */
 export type EventFeedbackConfig = {
   intro?: string
-  questions: {
-    id: string
-    type: 'scale' | 'single_choice' | 'long_text' | 'consent'
-    label: string
-    caption?: string
-    required?: boolean
-    placeholder?: string
-    scale?: { min: number; max: number; minLabel?: string; maxLabel?: string }
-    options?: (string | { value: string; label: string })[]
-  }[]
+  /** Canonical flat field list. May be empty if FormBuilder is using pages. */
+  fields: FormFieldConfig[]
+  /** Optional multi-page wrapping (FormBuilder always pages internally). */
+  pages?: FormPage[]
+}
+
+/** Flatten a feedback config to the canonical field list, regardless of pages. */
+export function getFeedbackFields(cfg: EventFeedbackConfig | null | undefined): FormFieldConfig[] {
+  if (!cfg) return []
+  if (cfg.pages && cfg.pages.length > 0) return cfg.pages.flatMap(p => p.fields)
+  return cfg.fields ?? []
 }
 
 /** Fetch the live feedback config for an event (used by admin QR + admin feedback page). */

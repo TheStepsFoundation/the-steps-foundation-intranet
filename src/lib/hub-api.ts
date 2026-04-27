@@ -5,6 +5,7 @@
 
 import { supabase } from './supabase-student'
 import type { StudentSelf, QualificationEntry } from './apply-api'
+import type { EventFeedbackConfig } from './events-api'
 
 // ---------------------------------------------------------------------------
 // Auth helper (same as apply-api)
@@ -355,31 +356,16 @@ export async function getAuthEmail(): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 /**
- * Shape of one question in events.feedback_config.questions[].
+ * Live feedback form schema, stored on events.feedback_config.
+ * Re-exported from events-api so admin + student code share one source of truth.
  *
- * type controls how the form renders and where the answer is stored:
- *   - scale          → numeric slider/buttons,         stored in `ratings[id]`
- *   - single_choice  → radio buttons,                  stored in `answers[id]` (string)
- *   - long_text      → textarea,                       stored in `answers[id]` (string)
- *   - consent        → radio with value/label options, stored in `consent` column
+ * Schema uses FormFieldConfig (same as the apply form). Special semantics:
+ *   - reserved field id 'consent'         → event_feedback.consent column
+ *   - reserved field id 'postable_quote'  → event_feedback.postable_quote column
+ *   - reserved field type 'scale'         → event_feedback.ratings jsonb (keyed by field.id)
+ *   - everything else                      → event_feedback.answers jsonb (keyed by field.id)
  */
-export type FeedbackQuestion = {
-  id: string
-  type: 'scale' | 'single_choice' | 'long_text' | 'consent'
-  label: string
-  caption?: string
-  required?: boolean
-  placeholder?: string
-  /** For `scale` questions. */
-  scale?: { min: number; max: number; minLabel?: string; maxLabel?: string }
-  /** For `single_choice` and `consent` questions. Strings, or {value,label} objects. */
-  options?: (string | { value: string; label: string })[]
-}
-
-export type FeedbackConfig = {
-  intro?: string
-  questions: FeedbackQuestion[]
-}
+export type FeedbackConfig = EventFeedbackConfig
 
 export type FeedbackEventInfo = {
   id: string

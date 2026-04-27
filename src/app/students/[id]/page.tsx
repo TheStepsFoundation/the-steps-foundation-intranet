@@ -20,7 +20,7 @@ import QualificationsEditor, { defaultQualifications } from '@/components/Qualif
 import type { QualificationEntry } from '@/lib/students-api'
 import { eventFeedbackByEventId } from '@/data/event-feedback'
 import type { FreeTextResponse } from '@/data/event-feedback/types'
-import { fetchFeedbackForStudent, type EventFeedbackRow, type EventFeedbackConfig } from '@/lib/events-api'
+import { fetchFeedbackForStudent, getFeedbackFields, type EventFeedbackRow, type EventFeedbackConfig } from '@/lib/events-api'
 import { useAuth } from '@/lib/auth-provider'
 import { supabase } from '@/lib/supabase'
 import {
@@ -697,8 +697,8 @@ function EventFeedbackPanel({
           const eventName = r.event?.name ?? eventNameById[r.event_id] ?? 'Event'
           const cfg = r.event?.feedback_config
           const labelById: Record<string, { label: string; type: string }> = {}
-          if (cfg?.questions) {
-            for (const q of cfg.questions) labelById[q.id] = { label: q.label, type: q.type }
+          for (const f of getFeedbackFields(cfg)) {
+            labelById[f.id] = { label: f.label, type: f.type }
           }
           return (
             <div key={r.id} className="px-4 py-3">
