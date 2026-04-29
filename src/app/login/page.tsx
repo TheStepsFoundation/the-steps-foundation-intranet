@@ -71,7 +71,8 @@ export default function LoginPage() {
   // whether or not the email exists in auth.users, which prevents the
   // "Forgot password" form from being used as an email-existence oracle.
   // Supabase's recovery token is hashed in storage, single-use, and
-  // expires per the project auth config (default 1 hour).
+  // expires per the project auth config (currently 20 minutes —
+  // mailer_otp_exp = 1200s, set via the Supabase Management API).
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email.trim()) return
@@ -219,7 +220,7 @@ export default function LoginPage() {
             </div>
             {resetSent ? (
               <div role="status" aria-live="polite" className="p-4 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-sm">
-                If <strong>{email}</strong> is registered, we&apos;ve sent a password reset link. Check your inbox (and your spam folder) — the link expires in about an hour.
+                If <strong>{email}</strong> is registered, we&apos;ve sent a password reset link. Check your inbox (and your spam folder) — the link expires in 20 minutes.
               </div>
             ) : (
               <button

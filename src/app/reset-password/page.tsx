@@ -10,7 +10,8 @@
 //
 // Token security is delegated to Supabase: the token is hashed in
 // auth.flow_state, single-use, and expires per the project's auth config
-// (default 1 hour). The user-enumeration concern from the video doesn't
+// (currently 20 minutes — mailer_otp_exp = 1200s). The user-enumeration
+// concern from the video doesn't
 // apply here because the request endpoint (/login forgot-password) returns
 // the same response regardless of whether the email exists.
 // ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ export default function ResetPasswordPage() {
         {status === 'invalid' && (
           <div className="space-y-4 text-center">
             <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-4">
-              This reset link is invalid or has expired. Reset links are single-use and expire about an hour after they&apos;re sent.
+              This reset link is invalid or has expired. Reset links are single-use and expire 20 minutes after they&apos;re sent.
             </p>
             <Link href="/login" className="inline-block text-sm font-medium text-steps-blue-600 hover:text-steps-blue-700">
               Request a new link
