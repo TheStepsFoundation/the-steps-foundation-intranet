@@ -191,27 +191,30 @@ export function getJourneyAwareLabel(
   const meta = getStatusMeta(rawStatus)
   const code = normalizeStatus(rawStatus)
 
-  // Case 1: rejected, but they made it further at some point.
+  // Soft, dignified treatment for every "didn't make it" path on the student
+  // hub — slate badge + "Not this time" instead of red + "Unsuccessful". The
+  // underlying status code is unchanged (admin still sees Rejected); this only
+  // affects the journey-aware student-facing label.
+  const SOFT_UNSUCCESSFUL = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+
+  // Case 1: rejected, with prefix telling the story of how far they got.
   if (code === 'rejected') {
     if (historyEverHad(history, 'shortlisted')) {
-      return { primary: 'Unsuccessful', prefix: 'Shortlisted', badgeClasses: meta.badgeClasses }
+      return { primary: 'Not this time', prefix: 'Shortlisted', badgeClasses: SOFT_UNSUCCESSFUL }
     }
     if (historyEverHad(history, 'waitlist')) {
-      return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: meta.badgeClasses }
+      return { primary: 'Not this time', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
     }
+    // Plain rejected — same softer treatment, no prefix.
+    return { primary: 'Not this time', badgeClasses: SOFT_UNSUCCESSFUL }
   }
 
   // Case 2: still on the waitlist but the event is already over — they were
-  // never taken off. Tell the story: "almost made it".
+  // never taken off. Tell the story: "almost made it" without the red sting.
   if (code === 'waitlist' && eventEndDate) {
     const end = eventEndDate instanceof Date ? eventEndDate : new Date(eventEndDate)
     if (!Number.isNaN(end.getTime()) && end.getTime() < Date.now()) {
-      return {
-        primary: 'Unsuccessful',
-        prefix: 'Waitlisted',
-        // Keep red badge tone — the final outcome is unsuccessful, prefix tells the story.
-        badgeClasses: STATUSES.rejected.badgeClasses,
-      }
+      return { primary: 'Not this time', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
     }
   }
 

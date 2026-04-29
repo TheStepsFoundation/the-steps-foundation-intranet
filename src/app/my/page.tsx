@@ -1030,23 +1030,24 @@ function CalendarIcon() {
 import type { ApplicationStatusCode, StatusHistoryRow } from '@/lib/application-status'
 import { normalizeStatus } from '@/lib/application-status'
 
-type Tone = 'accepted' | 'waitlist' | 'unsuccessful' | 'pending' | 'shortlisted' | 'withdrew'
+// Tone palette — colour reflects the *highest* stage the student reached,
+// not the final outcome. So a "shortlisted then rejected" journey reads
+// violet (the stage they earned) with a "Not this time" label, never red.
+type Tone = 'accepted' | 'waitlist' | 'shortlisted' | 'pending' | 'neutral'
 
 const TONE_BAR: Record<Tone, string> = {
-  accepted:     'bg-emerald-500',
-  waitlist:     'bg-steps-sunrise',
-  unsuccessful: 'bg-red-500',
-  pending:      'bg-steps-blue-600',
-  shortlisted:  'bg-violet-500',
-  withdrew:     'bg-slate-400',
+  accepted:    'bg-emerald-500',
+  waitlist:    'bg-steps-sunrise',
+  shortlisted: 'bg-violet-500',
+  pending:     'bg-steps-blue-600',
+  neutral:     'bg-slate-400',
 }
 const TONE_LABEL: Record<Tone, string> = {
-  accepted:     'text-emerald-700',
-  waitlist:     'text-steps-sunrise',
-  unsuccessful: 'text-red-700',
-  pending:      'text-steps-blue-700',
-  shortlisted:  'text-violet-700',
-  withdrew:     'text-slate-600',
+  accepted:    'text-emerald-700',
+  waitlist:    'text-steps-sunrise',
+  shortlisted: 'text-violet-700',
+  pending:     'text-steps-blue-700',
+  neutral:     'text-slate-600',
 }
 
 function JourneyTimeline({ status, history, eventDate }: { status: string; history: StatusHistoryRow[]; eventDate: string | null }) {
@@ -1057,65 +1058,76 @@ function JourneyTimeline({ status, history, eventDate }: { status: string; histo
   const everShortlisted = history?.some(h => normalizeStatus(h.status) === 'shortlisted')
   const everWaitlisted = history?.some(h => normalizeStatus(h.status) === 'waitlist')
 
-  // Build the steps array adaptively — last index = current location.
-  type Step = { key: string; label: string; tone: Tone; done: boolean; active: boolean }
+  // Each step has a fill (0-100) for its bar segment. The decision step uses
+  // partial fills to communicate "how far you got":
+  //   shortlisted = 50 · waitlist = 75 · accepted = 100
+  // Plain rejected gets a small slate fill (30) so the student sees their
+  // application was reviewed without a red flag screaming at them.
+  type Step = { key: string; label: string; tone: Tone; fill: number; active: boolean }
   let steps: Step[] = []
 
   if (code === 'accepted') {
     if (isPast) {
-      // Event has passed — the journey terminates at the decision (we don't
-      // have RSVP/attendance data from the hub API).
       steps = [
-        { key: 'applied',  label: 'Applied',            tone: 'accepted', done: true, active: false },
-        { key: 'decision', label: 'Decision · Accepted', tone: 'accepted', done: true, active: true  },
+        { key: 'applied',  label: 'Applied',             tone: 'accepted', fill: 100, active: false },
+        { key: 'decision', label: 'Decision · Accepted', tone: 'accepted', fill: 100, active: true  },
       ]
     } else {
       steps = [
-        { key: 'applied',  label: 'Applied',             tone: 'accepted', done: true,  active: false },
-        { key: 'decision', label: 'Decision · Accepted', tone: 'accepted', done: true,  active: false },
-        { key: 'rsvp',     label: 'RSVP',                tone: 'accepted', done: false, active: true  },
-        { key: 'attended', label: 'Attended',            tone: 'accepted', done: false, active: false },
+        { key: 'applied',  label: 'Applied',             tone: 'accepted', fill: 100, active: false },
+        { key: 'decision', label: 'Decision · Accepted', tone: 'accepted', fill: 100, active: false },
+        { key: 'rsvp',     label: 'RSVP',                tone: 'accepted', fill: 0,   active: true  },
+        { key: 'attended', label: 'Attended',            tone: 'accepted', fill: 0,   active: false },
       ]
     }
   } else if (code === 'rejected') {
-    const prefix = everShortlisted ? 'Shortlisted, then ' : everWaitlisted ? 'Waitlisted, then ' : ''
-    steps = [
-      { key: 'applied',  label: 'Applied',                                  tone: 'unsuccessful', done: true, active: false },
-      { key: 'decision', label: `Decision · ${prefix}Unsuccessful`,         tone: 'unsuccessful', done: true, active: true  },
-    ]
-  } else if (code === 'waitlist') {
-    if (isPast) {
-      // Never came off the waitlist before the event ran — treat as unsuccessful.
+    if (everShortlisted) {
       steps = [
-        { key: 'applied',  label: 'Applied',                            tone: 'unsuccessful', done: true, active: false },
-        { key: 'decision', label: 'Decision · Waitlisted, unsuccessful', tone: 'unsuccessful', done: true, active: true  },
+        { key: 'applied',  label: 'Applied',                                tone: 'shortlisted', fill: 100, active: false },
+        { key: 'decision', label: 'Decision · Shortlisted, not this time',  tone: 'shortlisted', fill: 50,  active: true  },
+      ]
+    } else if (everWaitlisted) {
+      steps = [
+        { key: 'applied',  label: 'Applied',                              tone: 'waitlist', fill: 100, active: false },
+        { key: 'decision', label: 'Decision · Waitlisted, not this time', tone: 'waitlist', fill: 75,  active: true  },
       ]
     } else {
       steps = [
-        { key: 'applied',  label: 'Applied',                tone: 'waitlist', done: true, active: false },
-        { key: 'decision', label: 'Decision · Waitlisted',  tone: 'waitlist', done: true, active: true  },
+        { key: 'applied',  label: 'Applied',                tone: 'neutral', fill: 100, active: false },
+        { key: 'decision', label: 'Decision · Not this time', tone: 'neutral', fill: 30,  active: true  },
+      ]
+    }
+  } else if (code === 'waitlist') {
+    if (isPast) {
+      steps = [
+        { key: 'applied',  label: 'Applied',                              tone: 'waitlist', fill: 100, active: false },
+        { key: 'decision', label: 'Decision · Waitlisted, not this time', tone: 'waitlist', fill: 75,  active: true  },
+      ]
+    } else {
+      steps = [
+        { key: 'applied',  label: 'Applied',                tone: 'waitlist', fill: 100, active: false },
+        { key: 'decision', label: 'Decision · Waitlisted',  tone: 'waitlist', fill: 75,  active: true  },
       ]
     }
   } else if (code === 'shortlisted') {
     steps = [
-      { key: 'applied',  label: 'Applied',                  tone: 'shortlisted', done: true, active: false },
-      { key: 'decision', label: 'Decision · Shortlisted',   tone: 'shortlisted', done: true, active: true  },
+      { key: 'applied',  label: 'Applied',                  tone: 'shortlisted', fill: 100, active: false },
+      { key: 'decision', label: 'Decision · Shortlisted',   tone: 'shortlisted', fill: 50,  active: true  },
     ]
   } else if (code === 'withdrew') {
     steps = [
-      { key: 'applied',  label: 'Applied',           tone: 'withdrew', done: true, active: false },
-      { key: 'decision', label: 'Decision · Withdrew', tone: 'withdrew', done: true, active: true  },
+      { key: 'applied',  label: 'Applied',           tone: 'neutral', fill: 100, active: false },
+      { key: 'decision', label: 'Decision · Withdrew', tone: 'neutral', fill: 50,  active: true  },
     ]
   } else if (code === 'ineligible') {
     steps = [
-      { key: 'applied',  label: 'Applied',                tone: 'withdrew', done: true, active: false },
-      { key: 'decision', label: 'Decision · Not eligible', tone: 'withdrew', done: true, active: true  },
+      { key: 'applied',  label: 'Applied',                tone: 'neutral', fill: 100, active: false },
+      { key: 'decision', label: 'Decision · Not eligible', tone: 'neutral', fill: 30,  active: true  },
     ]
   } else {
-    // submitted (or anything else that normalises to a known code) — decision pending.
     steps = [
-      { key: 'applied',  label: 'Applied',           tone: 'pending', done: true,  active: false },
-      { key: 'decision', label: 'Decision · Pending', tone: 'pending', done: false, active: true  },
+      { key: 'applied',  label: 'Applied',           tone: 'pending', fill: 100, active: false },
+      { key: 'decision', label: 'Decision · Pending', tone: 'pending', fill: 15,  active: true  },
     ]
   }
 
@@ -1124,13 +1136,18 @@ function JourneyTimeline({ status, history, eventDate }: { status: string; histo
       <div className="flex items-center gap-1" aria-hidden>
         {steps.map((s, i) => (
           <div key={s.key} className="flex-1 flex items-center gap-1">
-            <span className={`block h-1.5 flex-1 rounded-full ${s.done || s.active ? TONE_BAR[s.tone] : 'bg-slate-200'}`} />
+            <span className="block h-1.5 flex-1 rounded-full bg-slate-200 overflow-hidden">
+              <span
+                className={`block h-full rounded-full transition-all ${TONE_BAR[s.tone]}`}
+                style={{ width: `${s.fill}%` }}
+              />
+            </span>
             {i < steps.length - 1 && <span className="block w-1" />}
           </div>
         ))}
       </div>
       <div
-        className={`grid mt-1.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold gap-1`}
+        className="grid mt-1.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold gap-1"
         style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
       >
         {steps.map((s, i) => {
