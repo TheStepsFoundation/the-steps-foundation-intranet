@@ -13,6 +13,12 @@ export default function LoginPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [checkingHash, setCheckingHash] = useState(true)
   const [googleLoading, setGoogleLoading] = useState(false)
+  // Forgot-password mode swaps the form for a single-input reset request.
+  // We use a generic always-the-same response message so an attacker can't
+  // tell whether an entered email is on the team or not.
+  const [forgotMode, setForgotMode] = useState(false)
+  const [resetSending, setResetSending] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
   const router = useRouter()
   const { signIn, signInWithGoogle, user, isTeamMember, loading: authLoading } = useAuth()
 
@@ -60,6 +66,27 @@ export default function LoginPage() {
     setLoading(false)
   }
 
+  // Send a password reset link via Supabase. We deliberately ignore the
+  // resolved error here — the response shown to the user is the same
+  // whether or not the email exists in auth.users, which prevents the
+  // "Forgot password" form from being used as an email-existence oracle.
+  // Supabase's recovery token is hashed in storage, single-use, and
+  // expires per the project auth config (default 1 hour).
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email.trim()) return
+    setResetSending(true)
+    setMessage(null)
+    const redirectTo = typeof window !== 'undefined'
+      ? `${window.location.origin}/reset-password`
+      : undefined
+    await supabase.auth.resetPasswordForEmail(email.toLowerCase().trim(), {
+      redirectTo,
+    })
+    setResetSending(false)
+    setResetSent(true)
+  }
+
   // Show loading while checking hash
   if (checkingHash) {
     return (
@@ -92,6 +119,7 @@ export default function LoginPage() {
         </div>
 
         {/* Login Form */}
+        {!forgotMode && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -153,8 +181,66 @@ export default function LoginPage() {
               'Sign in'
             )}
           </button>
+          <div className="text-center mt-3">
+            <button
+              type="button"
+              onClick={() => { setForgotMode(true); setMessage(null); setResetSent(false) }}
+              className="text-sm text-steps-blue-600 hover:text-steps-blue-700 font-medium"
+            >
+              Forgot password?
+            </button>
+          </div>
         </form>
+        )}
 
+        {forgotMode && (
+          <form onSubmit={handleForgotPassword} className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-steps-dark mb-1">Reset your password</h2>
+              <p className="text-sm text-slate-500">
+                Enter your email and we&apos;ll send you a link to set a new one.
+              </p>
+            </div>
+            <div>
+              <label htmlFor="reset-email" className="block text-sm font-medium text-gray-700 mb-2">Email address</label>
+              <input
+                id="reset-email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                required
+                autoComplete="email"
+                inputMode="email"
+                spellCheck={false}
+                disabled={resetSending || resetSent}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition disabled:bg-gray-50"
+              />
+            </div>
+            {resetSent ? (
+              <div role="status" aria-live="polite" className="p-4 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-sm">
+                If <strong>{email}</strong> is registered, we&apos;ve sent a password reset link. Check your inbox (and your spam folder) — the link expires in about an hour.
+              </div>
+            ) : (
+              <button
+                type="submit"
+                disabled={resetSending || !email.trim()}
+                className="w-full py-3 px-4 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-press-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 flex items-center justify-center gap-2"
+              >
+                {resetSending ? 'Sending…' : 'Send reset link'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { setForgotMode(false); setResetSent(false); setMessage(null) }}
+              className="w-full text-sm text-slate-500 hover:text-slate-700 py-1"
+            >
+              ← Back to sign in
+            </button>
+          </form>
+        )}
+
+        {!forgotMode && (<>
         {/* Divider */}
         <div className="relative my-6">
           <div className="absolute inset-0 flex items-center">
@@ -210,6 +296,7 @@ export default function LoginPage() {
           </Link>
         </div>
 
+        </>)}
         {/* Footer */}
         <p className="text-center text-xs text-gray-400 mt-6">
           Only authorized Steps Foundation team members can access this app.

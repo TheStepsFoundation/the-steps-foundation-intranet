@@ -260,10 +260,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      // Confirmed not a team member with no cache — this is either a freshly-
-      // signed-in non-member (shouldn't happen since signIn pre-checks) or a
-      // stale admin-client session from before the student-client split. Sign
-      // them out of the admin client only (scope: 'local' preserves Google).
+      // Confirmed not a team member with no cache — this is the canonical
+      // path now that the pre-check is gone. Could be a returning student
+      // who landed on /login by mistake, or a stale admin-client session
+      // from before the student-client split. Sign them out of the admin
+      // client only (scope: 'local' preserves Google).
       alog('not a team member — signing out. event=', event)
       setTeamMember(null)
       clearTeamCache()
@@ -371,13 +372,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Check team_members BEFORE attempting sign-in.
-    // Treat 'unknown' (transient failure) as allowed — we'll re-validate after
-    // sign-in succeeds. Better to let the request through than block on a flaky network.
-    const tm = await checkTeamMembership(normalizedEmail)
-    if (tm.status === 'not_member') {
-      return { error: 'This email is not authorised to access the intranet. Contact a team admin if you should have access.' }
-    }
+    // Note: we deliberately don't pre-check team_members here. RLS is on,
+    // so the anon client can no longer read the table — and the original
+    // pre-check error message also leaked which emails were on the team
+    // (an enumeration vector). Sign-in goes straight to Supabase; the
+    // post-sign-in handleAuthChange has the user's JWT and resolves
+    // membership conclusively, signing them out if they aren't authorised.
 
     const { error } = await supabase.auth.signInWithPassword({
       email: normalizedEmail,
@@ -394,13 +394,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string): Promise<{ error: string | null }> => {
     const normalizedEmail = email.toLowerCase().trim()
 
-    // Check team_members BEFORE allowing sign-up.
-    // Treat 'unknown' (transient failure) as allowed — handleAuthChange will
-    // re-validate once the session is established and sign them out if needed.
-    const tm = await checkTeamMembership(normalizedEmail)
-    if (tm.status === 'not_member') {
-      return { error: 'This email is not authorised to access the intranet. Contact a team admin if you should have access.' }
-    }
+    // No pre-check (see signIn comment): we let Supabase handle account
+    // creation, then handleAuthChange runs the membership check with a
+    // real JWT and signs the user out if they aren't on the team. Avoids
+    // the user-enumeration leak from the old pre-check error message.
 
     const { error } = await supabase.auth.signUp({
       email: normalizedEmail,
