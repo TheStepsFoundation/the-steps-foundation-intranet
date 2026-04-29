@@ -389,10 +389,14 @@ export default function StudentsDashboard() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
+      <div className="flex flex-wrap items-end justify-between gap-4 mb-6 animate-tsf-fade-up">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Student Database</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Engagement across every Steps event.</p>
+          <Link href="/hub" className="text-sm text-steps-blue-600 hover:text-steps-blue-700 inline-flex items-center gap-1 mb-2">
+            <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
+            Hub
+          </Link>
+          <h1 className="font-display text-3xl font-black text-steps-dark dark:text-gray-100 tracking-tight">Student database</h1>
+          <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Engagement across every Steps event &mdash; sortable, filterable, exportable.</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
