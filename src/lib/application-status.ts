@@ -192,21 +192,20 @@ export function getJourneyAwareLabel(
   const code = normalizeStatus(rawStatus)
 
   // Soft, dignified treatment for every "didn't make it" path on the student
-  // hub — slate badge + "Not this time" instead of red + "Unsuccessful". The
-  // underlying status code is unchanged (admin still sees Rejected); this only
-  // affects the journey-aware student-facing label.
+  // hub — slate badge instead of red. The wording stays "Unsuccessful" so we
+  // don't over-soften the message; the colour does the de-escalation. The
+  // underlying status code is unchanged (admin still sees red "Rejected").
   const SOFT_UNSUCCESSFUL = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
 
   // Case 1: rejected, with prefix telling the story of how far they got.
   if (code === 'rejected') {
     if (historyEverHad(history, 'shortlisted')) {
-      return { primary: 'Not this time', prefix: 'Shortlisted', badgeClasses: SOFT_UNSUCCESSFUL }
+      return { primary: 'Unsuccessful', prefix: 'Shortlisted', badgeClasses: SOFT_UNSUCCESSFUL }
     }
     if (historyEverHad(history, 'waitlist')) {
-      return { primary: 'Not this time', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
+      return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
     }
-    // Plain rejected — same softer treatment, no prefix.
-    return { primary: 'Not this time', badgeClasses: SOFT_UNSUCCESSFUL }
+    return { primary: 'Unsuccessful', badgeClasses: SOFT_UNSUCCESSFUL }
   }
 
   // Case 2: still on the waitlist but the event is already over — they were
@@ -214,7 +213,7 @@ export function getJourneyAwareLabel(
   if (code === 'waitlist' && eventEndDate) {
     const end = eventEndDate instanceof Date ? eventEndDate : new Date(eventEndDate)
     if (!Number.isNaN(end.getTime()) && end.getTime() < Date.now()) {
-      return { primary: 'Not this time', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
+      return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
     }
   }
 

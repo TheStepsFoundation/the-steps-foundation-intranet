@@ -1058,85 +1058,61 @@ function JourneyTimeline({ status, history, eventDate }: { status: string; histo
   const everShortlisted = history?.some(h => normalizeStatus(h.status) === 'shortlisted')
   const everWaitlisted = history?.some(h => normalizeStatus(h.status) === 'waitlist')
 
-  // Each step has a fill (0-100) for its bar segment. The decision step uses
-  // partial fills to communicate "how far you got":
-  //   shortlisted = 50 · waitlist = 75 · accepted = 100
-  // Plain rejected gets a small slate fill (30) so the student sees their
-  // application was reviewed without a red flag screaming at them.
-  type Step = { key: string; label: string; tone: Tone; fill: number; active: boolean }
+  // Bar fill encodes how far through the funnel the student got. The
+  // outcome itself is conveyed by the pill above the card (and the
+  // "Applied 28 Apr" line below) — so we don't repeat it on the bar
+  // labels. "Applied" is dropped from the bar entirely (it's a given,
+  // and the date is right below). Multi-step accepted-upcoming keeps
+  // forward-looking labels because they tell the student what's next.
+  type Step = { key: string; label: string | null; tone: Tone; fill: number; active: boolean }
   let steps: Step[] = []
 
   if (code === 'accepted') {
     if (isPast) {
+      // Past-event accepted — single segment, no label needed.
       steps = [
-        { key: 'applied',  label: 'Applied',             tone: 'accepted', fill: 100, active: false },
-        { key: 'decision', label: 'Decision · Accepted', tone: 'accepted', fill: 100, active: true  },
+        { key: 'decision', label: null, tone: 'accepted', fill: 100, active: true },
       ]
     } else {
+      // Forward-looking journey: students need to know what's still ahead.
       steps = [
-        { key: 'applied',  label: 'Applied',             tone: 'accepted', fill: 100, active: false },
-        { key: 'decision', label: 'Decision · Accepted', tone: 'accepted', fill: 100, active: false },
-        { key: 'rsvp',     label: 'RSVP',                tone: 'accepted', fill: 0,   active: true  },
-        { key: 'attended', label: 'Attended',            tone: 'accepted', fill: 0,   active: false },
+        { key: 'decision', label: 'Decision', tone: 'accepted', fill: 100, active: false },
+        { key: 'rsvp',     label: 'RSVP',     tone: 'accepted', fill: 0,   active: true  },
+        { key: 'attended', label: 'Attended', tone: 'accepted', fill: 0,   active: false },
       ]
     }
   } else if (code === 'rejected') {
     if (everShortlisted) {
-      steps = [
-        { key: 'applied',  label: 'Applied',                                tone: 'shortlisted', fill: 100, active: false },
-        { key: 'decision', label: 'Decision · Shortlisted, not this time',  tone: 'shortlisted', fill: 50,  active: true  },
-      ]
+      steps = [{ key: 'decision', label: null, tone: 'shortlisted', fill: 50,  active: true }]
     } else if (everWaitlisted) {
-      steps = [
-        { key: 'applied',  label: 'Applied',                              tone: 'waitlist', fill: 100, active: false },
-        { key: 'decision', label: 'Decision · Waitlisted, not this time', tone: 'waitlist', fill: 75,  active: true  },
-      ]
+      steps = [{ key: 'decision', label: null, tone: 'waitlist',    fill: 75,  active: true }]
     } else {
-      steps = [
-        { key: 'applied',  label: 'Applied',                tone: 'neutral', fill: 100, active: false },
-        { key: 'decision', label: 'Decision · Not this time', tone: 'neutral', fill: 30,  active: true  },
-      ]
+      steps = [{ key: 'decision', label: null, tone: 'neutral',     fill: 30,  active: true }]
     }
   } else if (code === 'waitlist') {
-    if (isPast) {
-      steps = [
-        { key: 'applied',  label: 'Applied',                              tone: 'waitlist', fill: 100, active: false },
-        { key: 'decision', label: 'Decision · Waitlisted, not this time', tone: 'waitlist', fill: 75,  active: true  },
-      ]
-    } else {
-      steps = [
-        { key: 'applied',  label: 'Applied',                tone: 'waitlist', fill: 100, active: false },
-        { key: 'decision', label: 'Decision · Waitlisted',  tone: 'waitlist', fill: 75,  active: true  },
-      ]
-    }
+    steps = [{ key: 'decision', label: null, tone: 'waitlist', fill: 75, active: true }]
+    // Past-event waitlist tone is the same — pill above already labels it
+    // "Waitlisted · Unsuccessful", we don't need to repeat the story here.
+    void isPast // keep variable referenced for future use
   } else if (code === 'shortlisted') {
-    steps = [
-      { key: 'applied',  label: 'Applied',                  tone: 'shortlisted', fill: 100, active: false },
-      { key: 'decision', label: 'Decision · Shortlisted',   tone: 'shortlisted', fill: 50,  active: true  },
-    ]
+    steps = [{ key: 'decision', label: null, tone: 'shortlisted', fill: 50, active: true }]
   } else if (code === 'withdrew') {
-    steps = [
-      { key: 'applied',  label: 'Applied',           tone: 'neutral', fill: 100, active: false },
-      { key: 'decision', label: 'Decision · Withdrew', tone: 'neutral', fill: 50,  active: true  },
-    ]
+    steps = [{ key: 'decision', label: null, tone: 'neutral', fill: 50, active: true }]
   } else if (code === 'ineligible') {
-    steps = [
-      { key: 'applied',  label: 'Applied',                tone: 'neutral', fill: 100, active: false },
-      { key: 'decision', label: 'Decision · Not eligible', tone: 'neutral', fill: 30,  active: true  },
-    ]
+    steps = [{ key: 'decision', label: null, tone: 'neutral', fill: 30, active: true }]
   } else {
-    steps = [
-      { key: 'applied',  label: 'Applied',           tone: 'pending', fill: 100, active: false },
-      { key: 'decision', label: 'Decision · Pending', tone: 'pending', fill: 15,  active: true  },
-    ]
+    // submitted (decision pending)
+    steps = [{ key: 'decision', label: null, tone: 'pending', fill: 15, active: true }]
   }
+
+  const hasLabels = steps.some(s => s.label !== null)
 
   return (
     <div className="mt-3">
       <div className="flex items-center gap-1" aria-hidden>
         {steps.map((s, i) => (
           <div key={s.key} className="flex-1 flex items-center gap-1">
-            <span className="block h-1.5 flex-1 rounded-full bg-slate-200 overflow-hidden">
+            <span className="block h-2 flex-1 rounded-full bg-slate-200 overflow-hidden">
               <span
                 className={`block h-full rounded-full transition-all ${TONE_BAR[s.tone]}`}
                 style={{ width: `${s.fill}%` }}
@@ -1146,22 +1122,24 @@ function JourneyTimeline({ status, history, eventDate }: { status: string; histo
           </div>
         ))}
       </div>
-      <div
-        className="grid mt-1.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold gap-1"
-        style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
-      >
-        {steps.map((s, i) => {
-          const align = steps.length === 1 ? 'text-center'
-            : i === 0 ? 'text-left'
-            : i === steps.length - 1 ? 'text-right'
-            : 'text-center'
-          return (
-            <span key={s.key} className={`${align} ${s.active ? TONE_LABEL[s.tone] : ''}`}>
-              {s.label}
-            </span>
-          )
-        })}
-      </div>
+      {hasLabels && (
+        <div
+          className="grid mt-1.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold gap-1"
+          style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}
+        >
+          {steps.map((s, i) => {
+            const align = steps.length === 1 ? 'text-center'
+              : i === 0 ? 'text-left'
+              : i === steps.length - 1 ? 'text-right'
+              : 'text-center'
+            return (
+              <span key={s.key} className={`${align} ${s.active ? TONE_LABEL[s.tone] : ''}`}>
+                {s.label ?? ''}
+              </span>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
