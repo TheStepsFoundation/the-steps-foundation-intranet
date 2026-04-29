@@ -227,7 +227,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         {renderTopNav()}
-        <div role="status" aria-live="polite" aria-label="Loading event details" className="max-w-4xl mx-auto px-4 py-16 flex flex-col items-center gap-3">
+        <div role="status" aria-live="polite" aria-label="Loading event details" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 flex flex-col items-center gap-3">
           <div aria-hidden="true" className="animate-spin w-7 h-7 border-2 border-steps-blue-600 border-t-transparent rounded-full" />
           <p className="text-sm text-slate-500">Loading event details…</p>
         </div>
@@ -239,7 +239,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         {renderTopNav()}
-        <div className="max-w-4xl mx-auto px-4 py-16 text-center animate-tsf-fade-up">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 text-center animate-tsf-fade-up">
           <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mb-4" aria-hidden>
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
@@ -278,20 +278,20 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
       {renderTopNav()}
 
       {/* === Banner band (full-bleed, no overlay) ===
-          Shows the event's hub_banner image at full clarity above the
-          editorial dark strip. Skipped entirely for events with no banner —
-          the dark strip below carries the visual identity on its own. */}
+          Edge-to-edge across the viewport — no inner max-width — so the
+          banner fills wide monitors. Aspect ratio steps down on wider
+          screens so a 1920px-wide banner doesn't become 480px tall.
+          Skipped entirely for events with no banner — the dark strip
+          below carries the visual identity on its own. */}
       {event.banner_image_url && (
         <div className="w-full bg-steps-dark">
-          <div className="max-w-5xl mx-auto">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={event.banner_image_url}
-              alt={event.name}
-              className="w-full aspect-[4/1] object-cover"
-              style={{ objectPosition: `${event.banner_focal_x ?? 50}% ${event.banner_focal_y ?? 50}%` }}
-            />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={event.banner_image_url}
+            alt={event.name}
+            className="w-full aspect-[4/1] sm:aspect-[5/1] lg:aspect-[6/1] xl:aspect-[7/1] object-cover"
+            style={{ objectPosition: `${event.banner_focal_x ?? 50}% ${event.banner_focal_y ?? 50}%` }}
+          />
         </div>
       )}
 
@@ -300,7 +300,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
         <div aria-hidden className="absolute inset-0 bg-tsf-grain pointer-events-none" />
         <div aria-hidden className="absolute -top-32 -right-24 w-96 h-96 rounded-full bg-steps-sunrise/20 blur-3xl pointer-events-none" />
 
-        <div className="relative max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-8 sm:pt-8 sm:pb-12">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8 sm:pt-8 sm:pb-12">
           <Link
             href="/my"
             className="inline-flex items-center gap-1 text-sm text-steps-mist/90 hover:text-white mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-steps-dark rounded"
@@ -350,16 +350,16 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
-        <div className="grid lg:grid-cols-[1fr_18rem] gap-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_22rem] gap-6 lg:gap-8">
           {/* === Main column === */}
           <div className="space-y-6 min-w-0">
             {/* About */}
             {event.description && (
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 animate-tsf-fade-up-2" aria-labelledby="about-heading">
                 <h2 id="about-heading" className="font-display text-lg font-bold text-steps-dark">About this event</h2>
-                <p
-                  className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed rich-html mt-3"
+                <div
+                  className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed rich-html mt-3 max-w-[68ch]"
                   dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(event.description) }}
                 />
 

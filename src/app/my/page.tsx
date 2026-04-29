@@ -368,7 +368,7 @@ export default function StudentHub() {
         </button>
       </TopNav>
 
-      <div className="max-w-3xl mx-auto px-4 py-10 sm:py-14">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
         {/* === Hero === */}
         <header className="mb-8 animate-tsf-fade-up">
           <div className="inline-flex items-center gap-2 bg-steps-blue-100 text-steps-blue-700 text-xs font-semibold tracking-[0.15em] uppercase px-3 py-1 rounded-full mb-3">
