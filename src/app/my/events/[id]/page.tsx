@@ -277,23 +277,30 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24 sm:pb-12">
       {renderTopNav()}
 
-      {/* === Editorial banner hero === */}
+      {/* === Banner band (full-bleed, no overlay) ===
+          Shows the event's hub_banner image at full clarity above the
+          editorial dark strip. Skipped entirely for events with no banner —
+          the dark strip below carries the visual identity on its own. */}
+      {event.banner_image_url && (
+        <div className="w-full bg-steps-dark">
+          <div className="max-w-5xl mx-auto">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={event.banner_image_url}
+              alt={event.name}
+              className="w-full aspect-[4/1] object-cover"
+              style={{ objectPosition: `${event.banner_focal_x ?? 50}% ${event.banner_focal_y ?? 50}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* === Editorial dark strip — title, status, countdown === */}
       <header className="relative bg-steps-dark text-white overflow-hidden">
-        {event.banner_image_url && (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={event.banner_image_url}
-            alt=""
-            aria-hidden
-            className="absolute inset-0 w-full h-full object-cover opacity-40"
-            style={{ objectPosition: `${event.banner_focal_x ?? 50}% ${event.banner_focal_y ?? 50}%` }}
-          />
-        )}
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-steps-dark/80 via-steps-dark/85 to-steps-dark pointer-events-none" />
         <div aria-hidden className="absolute inset-0 bg-tsf-grain pointer-events-none" />
         <div aria-hidden className="absolute -top-32 -right-24 w-96 h-96 rounded-full bg-steps-sunrise/20 blur-3xl pointer-events-none" />
 
-        <div className="relative max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-10 sm:pt-10 sm:pb-14">
+        <div className="relative max-w-4xl mx-auto px-4 sm:px-6 pt-6 pb-8 sm:pt-8 sm:pb-12">
           <Link
             href="/my"
             className="inline-flex items-center gap-1 text-sm text-steps-mist/90 hover:text-white mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-steps-dark rounded"

@@ -334,18 +334,12 @@ export default function StudentHub() {
       }
     }
 
-    const inFlight = applications.find(a => a.status === 'submitted' || a.status === 'reviewing')
-    if (inFlight) {
-      return {
-        kind: 'inflight' as const,
-        href: `/my/events/${inFlight.event.id}`,
-        eventName: inFlight.event.name,
-        eventDate: inFlight.event.event_date,
-        eyebrow: 'Application in review',
-        line: 'We’ll email you as soon as we have a decision.',
-        cta: 'Track status',
-      }
-    }
+    // No in-flight fallback. The "Next up" tile is reserved for *actionable*
+    // states — accepted-with-event-soon (RSVP / show up) or
+    // closing-application (apply now). For passive states like
+    // "application in review" the regular application card below already
+    // shows the right thing; doubling it up created visual noise and a
+    // tile that linked to the same place as the card.
 
     return null
   }, [applications, eligibleOpenEvents])
