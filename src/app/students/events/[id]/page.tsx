@@ -494,6 +494,54 @@ function formatRelativeTime(date: Date): string {
   return `${hours}h ago`
 }
 
+
+// ---------------------------------------------------------------------------
+// KpiTile — Wave 2 bento metric tile for the event header.
+// Same pattern as the /hub redesign tiles: large display number, small label,
+// optional sub-line, optional click-through that filters the applicant table.
+// ---------------------------------------------------------------------------
+type KpiTone = 'slate' | 'emerald' | 'blue' | 'violet' | 'amber' | 'rose'
+const KPI_TONE_RING: Record<KpiTone, string> = {
+  slate:   'hover:border-slate-300',
+  emerald: 'hover:border-emerald-300',
+  blue:    'hover:border-steps-blue-300',
+  violet:  'hover:border-violet-300',
+  amber:   'hover:border-amber-300',
+  rose:    'hover:border-rose-300',
+}
+const KPI_TONE_NUM: Record<KpiTone, string> = {
+  slate:   'text-steps-dark dark:text-gray-100',
+  emerald: 'text-emerald-600 dark:text-emerald-400',
+  blue:    'text-steps-blue-600 dark:text-steps-blue-400',
+  violet:  'text-violet-600 dark:text-violet-400',
+  amber:   'text-amber-600 dark:text-amber-400',
+  rose:    'text-rose-600 dark:text-rose-400',
+}
+function KpiTile({ label, value, sub, tone, onClick }: { label: string; value: number; sub?: string; tone: KpiTone; onClick?: () => void }) {
+  const Inner = (
+    <>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</div>
+      <div className={`text-3xl font-display font-black mt-1 ${KPI_TONE_NUM[tone]}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{sub}</div>}
+    </>
+  )
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className={`group relative text-left rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 transition-colors ${KPI_TONE_RING[tone]} focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2`}
+      >
+        {Inner}
+      </button>
+    )
+  }
+  return (
+    <div className={`relative rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4`}>
+      {Inner}
+    </div>
+  )
+}
+
 export default function EventDetailPage() {
   const params = useParams()
   const eventId = params.id as string
@@ -629,6 +677,10 @@ export default function EventDetailPage() {
   const [deleteLoading, setDeleteLoading] = useState(false)
   // Which bulk-decision dropdown is open (only one at a time)
   const [bulkMenuOpen, setBulkMenuOpen] = useState<string | null>(null)
+  // Wave 2: optional one-liner reason persisted to applications.decision_reason
+  // when committing accept/waitlist/reject. Admin-only, never returned to the
+  // student. Pre-fills with the previous reason (if any) when re-using.
+  const [bulkDecisionReason, setBulkDecisionReason] = useState('')
   const bulkMenuRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (!bulkMenuOpen) return
@@ -1361,7 +1413,7 @@ export default function EventDetailPage() {
     setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
   }
 
-  const bulkUpdateStatus = async (newStatus: string) => {
+  const bulkUpdateStatus = async (newStatus: string, reasonOverride?: string | null) => {
     if (selected.size === 0) return
     const ids = [...selected]
     // Breakdown by current status so the admin sees what's actually changing.
@@ -1397,15 +1449,24 @@ export default function EventDetailPage() {
       })
     }
 
+    // decision_reason — admin-only short note attached to the *current*
+    // committed decision. Only write the column when a reason is provided,
+    // so existing rows aren't unintentionally cleared.
+    const reason = ((reasonOverride !== undefined ? reasonOverride : bulkDecisionReason) ?? '').trim()
+    const updates: Record<string, unknown> = {
+      status: newStatus,
+      reviewed_by: teamMember?.auth_uuid ?? null,
+      reviewed_at: now,
+      updated_by: teamMember?.auth_uuid ?? null,
+      updated_at: now,
+    }
+    if (reason.length > 0) {
+      updates.decision_reason = reason
+    }
+
     await supabase
       .from('applications')
-      .update({
-        status: newStatus,
-        reviewed_by: teamMember?.auth_uuid ?? null,
-        reviewed_at: now,
-        updated_by: teamMember?.auth_uuid ?? null,
-        updated_at: now,
-      } as any)
+      .update(updates as any)
       .in('id', changingIds)
 
     setApplicants(prev => prev.map(a =>
@@ -1418,6 +1479,7 @@ export default function EventDetailPage() {
       } : a
     ))
     setSelected(new Set())
+    setBulkDecisionReason('')
   }
 
   // Delete handlers
@@ -2395,27 +2457,7 @@ export default function EventDetailPage() {
                   )}
                 </div>
               </div>
-              {/* Quick stats */}
-              <div className="hidden sm:flex items-center gap-4 text-sm">
-                <div className="text-center">
-                  <div className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{applicants.length}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Applicants</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">{acceptedCount}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Accepted</div>
-                </div>
-                {rsvpStats.accepted > 0 && (
-                  <div className="text-center">
-                    <div className="text-2xl font-semibold text-steps-blue-600 dark:text-steps-blue-400">{rsvpStats.confirmed}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400">RSVPs</div>
-                  </div>
-                )}
-                <div className="text-center">
-                  <div className="text-2xl font-semibold text-steps-blue-600 dark:text-steps-blue-400">{attendedCount}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Attended</div>
-                </div>
-              </div>
+
             </div>
             {event.description && (
               <p
@@ -2426,6 +2468,40 @@ export default function EventDetailPage() {
           </>
         )}
       </div>
+
+      {/* === Wave 2: bento KPI strip ===
+          At-a-glance funnel: Applicants → Accepted → RSVP'd → Attended.
+          Applicant Manager filter chips remain below for drill-down. */}
+      {!editing && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <KpiTile
+            label="Applicants"
+            value={applicants.length}
+            tone="slate"
+            sub={statusCounts.submitted ? `${statusCounts.submitted} submitted` : undefined}
+            onClick={() => { setStatusFilter('all'); setSelected(new Set()) }}
+          />
+          <KpiTile
+            label="Accepted"
+            value={acceptedCount}
+            tone="emerald"
+            sub={event.capacity != null ? `of ${event.capacity} places` : undefined}
+            onClick={() => { setStatusFilter('accepted'); setSelected(new Set()) }}
+          />
+          <KpiTile
+            label="RSVP'd"
+            value={rsvpStats.confirmed}
+            tone="blue"
+            sub={rsvpStats.accepted > 0 ? `${Math.round(rsvpStats.confirmed / Math.max(1, rsvpStats.accepted) * 100)}% of accepted` : 'awaiting decisions'}
+          />
+          <KpiTile
+            label="Attended"
+            value={attendedCount}
+            tone="violet"
+            sub={attendedCount > 0 && rsvpStats.confirmed > 0 ? `${Math.round(attendedCount / Math.max(1, rsvpStats.confirmed) * 100)}% show-up rate` : (event.event_date && new Date(event.event_date) > new Date() ? 'event upcoming' : undefined)}
+          />
+        </div>
+      )}
 
       {/* Applicant Manager */}
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-visible">
@@ -2669,7 +2745,20 @@ export default function EventDetailPage() {
               {/* Decision dropdowns — each combines notify / internal / silent commit
                   for one outcome (Accept, Shortlist, Waitlist, Reject) so admins
                   pick "what" and "how loud" in one gesture instead of hunting
-                  across three separate button strips. */}
+                  across three separate button strips.
+
+                  Wave 2: optional decision-reason input piped into bulkUpdateStatus
+                  (and via openCompose into the notify path) so admins can record
+                  *why* this decision in one stroke. Persists to applications.decision_reason
+                  (admin-only via RLS). */}
+              <input
+                type="text"
+                value={bulkDecisionReason}
+                onChange={e => setBulkDecisionReason(e.target.value)}
+                placeholder="Optional reason — e.g. low engagement, capacity"
+                className="px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs w-56 placeholder:text-gray-400 focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none"
+                aria-label="Decision reason (optional)"
+              />
               <div ref={bulkMenuRef} className="flex flex-wrap items-center gap-2">
                 {NOTIFY_STATUSES.map(ns => {
                   const internalCode = ns.code === 'accepted' ? 'accept'
