@@ -214,6 +214,7 @@ export async function fetchOpenEvents(): Promise<HubEvent[]> {
     .is('deleted_at', null)
     .is('archived_at', null)
     .neq('status', 'draft')
+    .neq('status', 'cancelled')
     .lte('applications_open_at', now)
     .gte('applications_close_at', now)
     .order('event_date', { ascending: true })

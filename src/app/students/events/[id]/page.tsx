@@ -715,6 +715,21 @@ export default function EventDetailPage() {
   const [eventActionErr, setEventActionErr] = useState<string | null>(null)
   const [publishErrors, setPublishErrors] = useState<PublishValidationError[] | null>(null)
   void publishErrors
+  // Inline preview overlay state. When opened, an iframe loads the apply page
+  // in preview mode. We force a save first so the iframe sees the current
+  // state. Closes on backdrop click or X.
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewKey, setPreviewKey] = useState(0)
+  const openPreview = async () => {
+    // Flush any pending autosave before opening so the iframe loads the
+    // latest state from the DB. Sets a fresh key so the iframe re-mounts
+    // (forcing a refetch even if a previous overlay was open).
+    if (autosaveTimerRef.current) { clearTimeout(autosaveTimerRef.current); autosaveTimerRef.current = null }
+    if (autosaveInflightRef.current) { try { await autosaveInflightRef.current } catch { /* swallow */ } }
+    await runAutosave()
+    setPreviewKey(k => k + 1)
+    setPreviewOpen(true)
+  }
   // Team members for the Lead organiser picker. Fetched once on mount;
   // tiny list, no need to debounce or paginate.
   const [teamMembers, setTeamMembers] = useState<{ auth_uuid: string; name: string }[]>([])
@@ -759,6 +774,30 @@ export default function EventDetailPage() {
     } catch (e: any) {
       setEventActionErr(e?.message ?? 'Delete failed')
       setDeleting(false)
+    }
+  }
+
+  const [cancelling, setCancelling] = useState(false)
+  const handleCancelEvent = async () => {
+    if (!event) return
+    if (event.status === 'cancelled') {
+      // Toggle back to draft if already cancelled (rare but possible)
+      if (!window.confirm(`Restore "${event.name}" from cancelled to draft?`)) return
+    } else {
+      const msg = `Cancel "${event.name}"?\n\n` +
+        `Applicants will be able to see the cancelled status on their hub.\n` +
+        `You should also notify them by email — after confirming, click "Email applicants" to send a cancellation message.`
+      if (!window.confirm(msg)) return
+    }
+    setCancelling(true); setEventActionErr(null)
+    try {
+      const newStatus: EventRow['status'] = event.status === 'cancelled' ? 'draft' : 'cancelled'
+      const updated = await updateEvent(event.id, { status: newStatus })
+      setEvent(updated)
+    } catch (e: any) {
+      setEventActionErr(e?.message ?? 'Cancel failed')
+    } finally {
+      setCancelling(false)
     }
   }
   // Effect below flips editing=true once on mount when ?new=1 is present.
@@ -2216,26 +2255,34 @@ export default function EventDetailPage() {
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                 {signupLinkCopied === (editDraft.slug ?? event.slug) ? 'Copied!' : 'Copy link'}
               </button>
-              <a
-                href={`/apply/${editDraft.slug ?? event.slug}?preview=1`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => { void openPreview() }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
                 title="Preview the form as a new applicant"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                 Preview
-              </a>
+              </button>
               {/* Autosave status pill — shows live progress so the admin can trust their edits are landing without hitting Save. */}
               <AutosaveStatusPill status={autosaveStatus} savedAt={autosaveSavedAt} error={autosaveError} onRetry={() => { void runAutosave() }} />
               <button
                 type="button"
                 onClick={handleArchiveEvent}
-                disabled={archiving || deleting}
+                disabled={archiving || deleting || cancelling}
                 className="px-3 py-1.5 text-sm rounded-md border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-50"
                 title={event.archived_at ? 'Restore this event to the default events list' : 'Hide this event from the default events list'}
               >
                 {archiving ? '…' : event.archived_at ? 'Unarchive' : 'Archive'}
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelEvent}
+                disabled={archiving || deleting || cancelling}
+                className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/40 hover:bg-slate-100 disabled:opacity-50"
+                title={event.status === 'cancelled' ? 'Restore from cancelled back to draft' : 'Mark this event as cancelled — applicants will see cancelled status'}
+              >
+                {cancelling ? '…' : event.status === 'cancelled' ? 'Uncancel' : 'Cancel event'}
               </button>
               <button
                 type="button"
@@ -3765,6 +3812,31 @@ export default function EventDetailPage() {
       )}
 
       {/* Invite Students Modal */}
+      {previewOpen && event && (
+        <div role="dialog" aria-modal="true" aria-label="Form preview" onClick={() => setPreviewOpen(false)} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-tsf-fade-in">
+          <div onClick={e => e.stopPropagation()} className="relative w-full max-w-4xl h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 bg-slate-50">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800">Preview</span>
+                <span className="text-sm text-slate-700 truncate">Form as a new applicant sees it</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a href={`/apply/${editDraft.slug ?? event.slug}?preview=1`} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-600 hover:text-slate-900 underline">Open in new tab</a>
+                <button type="button" onClick={() => setPreviewOpen(false)} aria-label="Close preview" className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+            <iframe
+              key={previewKey}
+              src={`/apply/${editDraft.slug ?? event.slug}?preview=1`}
+              title="Form preview"
+              className="flex-1 w-full bg-white"
+            />
+          </div>
+        </div>
+      )}
+
       {showInvite && event && (
         <InviteStudentsModal
           eventId={eventId}

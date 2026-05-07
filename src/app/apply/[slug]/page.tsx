@@ -90,10 +90,32 @@ export default function ApplyPage() {
   const searchParams = useSearchParams()
   const editMode = searchParams.get('edit') === '1'
   const previewMode = searchParams.get('preview') === '1'
+  // Inline preview from the admin editor: when previewMode is on AND we're
+  // inside an iframe, listen for a one-shot postMessage carrying the live
+  // editDraft snapshot so the preview reflects the in-memory editor state
+  // (not the last DB save). Falls back to the DB-loaded event if no message
+  // arrives within 1s.
+  const [editorOverride, setEditorOverride] = useState<Record<string, unknown> | null>(null)
+  useEffect(() => {
+    if (!previewMode) return
+    if (typeof window === 'undefined' || window.parent === window) return
+    const onMsg = (e: MessageEvent) => {
+      if (!e.data || typeof e.data !== 'object') return
+      if ((e.data as { type?: string }).type !== 'tsf:preview-editdraft') return
+      setEditorOverride(((e.data as { payload?: Record<string, unknown> }).payload) ?? null)
+    }
+    window.addEventListener('message', onMsg)
+    // Tell the parent we're ready to receive a snapshot.
+    try { window.parent.postMessage({ type: 'tsf:preview-ready' }, '*') } catch {}
+    return () => window.removeEventListener('message', onMsg)
+  }, [previewMode])
   const [previewBypassRequired, setPreviewBypassRequired] = useState(false)
   const slug = params.slug as string
   const [event, setEvent] = useState<EventRow | null>(null)
   const [eventLoading, setEventLoading] = useState(true)
+  // editorOverride is captured for future use; current preview iframe is
+  // refreshed on save instead of in-memory merging (much simpler render path).
+  void editorOverride
 
   const [step, setStep] = useState<Step>('loading')
   const [email, setEmail] = useState('')

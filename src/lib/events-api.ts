@@ -119,7 +119,7 @@ export type EventRow = {
   time_start: string | null
   time_end: string | null
   dress_code: string | null
-  status: 'draft' | 'open' | 'closed' | 'completed'
+  status: 'draft' | 'open' | 'closed' | 'completed' | 'cancelled'
   applications_open_at: string | null
   applications_close_at: string | null
   interest_options: { value: string; label: string }[]
@@ -364,9 +364,11 @@ export async function updateEvent(
   // the *projected* row (current values + patch) and refuse if anything's
   // missing. Surfaces structured errors via EventPublishValidationError so the
   // editor can render the checklist of what's still needed.
-  if (patch.status && patch.status !== 'draft') {
+  if (patch.status && patch.status !== 'draft' && patch.status !== 'cancelled') {
     // Fetch the current row so the validator sees the projected state, not
     // just the patch (admin might be only flipping status, not the rest).
+    // 'cancelled' is exempt from the publish gate — cancelling can happen
+    // from any state, including draft.
     const current = await fetchEvent(id)
     const projected: Partial<EventRow> = { ...(current ?? {}), ...patch } as Partial<EventRow>
     const errs = validateForPublish(projected)
@@ -401,6 +403,79 @@ export async function createDraftEvent(): Promise<EventRow> {
       slug: placeholderSlug,
       status: 'draft',
     })
+    .select(EVENT_COLUMNS)
+    .single()
+  if (error) throw error
+  return data as EventRow
+}
+
+/**
+ * Clone a draft event from an existing source event. Copies fields the
+ * admin opted in to (form_config, eligibility, banner, hub image, dashboard
+ * columns, capacity, format, dress code, description, application window
+ * relative offsets, interest options). Always RESETS:
+ *   - id (new uuid)
+ *   - status (draft)
+ *   - slug (placeholder; admin renames during edit)
+ *   - name (prefixed "[Cloned] " unless overridden)
+ *   - event_date / applications_open_at / applications_close_at (NULL — admin must set new)
+ *   - archived_at, deleted_at, created_at (NULL / now)
+ *
+ * Dates are reset rather than offset because cloning typically happens N
+ * months/years after the source event — there's no sensible default offset.
+ */
+export type CloneFieldKey =
+  | 'description' | 'banner' | 'hub_image' | 'capacity' | 'format' | 'location'
+  | 'dress_code' | 'eligibility' | 'form_config' | 'feedback_config'
+  | 'dashboard_columns' | 'interest_options' | 'time_window'
+
+export const CLONE_FIELD_LABELS: Record<CloneFieldKey, { label: string; description: string }> = {
+  description:        { label: 'Description',         description: 'About-this-event blurb.' },
+  banner:             { label: 'Banner image',        description: 'Hero image at the top of the apply page.' },
+  hub_image:          { label: 'Hub card image',      description: 'Side image on /my cards.' },
+  capacity:           { label: 'Capacity',            description: 'Number of places.' },
+  format:             { label: 'Format',              description: 'In person / online / hybrid.' },
+  location:           { label: 'Location',            description: 'Rough + full address (full reset to NULL on a new venue).' },
+  dress_code:         { label: 'Dress code',          description: 'Dress code instructions for accepted students.' },
+  eligibility:        { label: 'Eligibility',         description: 'Year groups + gap-year flag.' },
+  form_config:        { label: 'Application form',    description: 'All custom questions + ordering.' },
+  feedback_config:    { label: 'Feedback form',       description: 'Post-event feedback questions.' },
+  dashboard_columns:  { label: 'Dashboard columns',   description: 'Saved column layout for the applicants table.' },
+  interest_options:   { label: 'Interest options',    description: 'Interest taxonomy (legacy field).' },
+  time_window:        { label: 'Time of day',         description: 'Start/end times (not the date).' },
+}
+
+export async function cloneEventFrom(sourceId: string, fields: CloneFieldKey[]): Promise<EventRow> {
+  const source = await fetchEvent(sourceId)
+  if (!source) throw new Error('Source event not found')
+
+  const placeholderSlug = `untitled-${Date.now().toString(36)}`
+  const insert: Record<string, unknown> = {
+    name: `[Cloned] ${source.name}`,
+    slug: placeholderSlug,
+    status: 'draft',
+    // Always reset dates / open-close window — admin must set new ones.
+    event_date: null,
+    applications_open_at: null,
+    applications_close_at: null,
+  }
+  if (fields.includes('description'))       insert.description = source.description
+  if (fields.includes('banner'))            { insert.banner_image_url = source.banner_image_url; insert.banner_focal_x = source.banner_focal_x; insert.banner_focal_y = source.banner_focal_y }
+  if (fields.includes('hub_image'))         { insert.hub_image_url = source.hub_image_url;       insert.hub_focal_x = source.hub_focal_x;       insert.hub_focal_y = source.hub_focal_y }
+  if (fields.includes('capacity'))          insert.capacity = source.capacity
+  if (fields.includes('format'))            insert.format = source.format
+  if (fields.includes('location'))          { insert.location = source.location; insert.location_full = source.location_full }
+  if (fields.includes('dress_code'))        insert.dress_code = source.dress_code
+  if (fields.includes('eligibility'))       { insert.eligible_year_groups = source.eligible_year_groups; insert.open_to_gap_year = source.open_to_gap_year }
+  if (fields.includes('form_config'))       insert.form_config = source.form_config
+  if (fields.includes('feedback_config'))   insert.feedback_config = source.feedback_config
+  if (fields.includes('dashboard_columns')) insert.dashboard_columns = source.dashboard_columns
+  if (fields.includes('interest_options'))  insert.interest_options = source.interest_options
+  if (fields.includes('time_window'))       { insert.time_start = source.time_start; insert.time_end = source.time_end }
+
+  const { data, error } = await supabase
+    .from('events')
+    .insert(insert)
     .select(EVENT_COLUMNS)
     .single()
   if (error) throw error
@@ -658,10 +733,12 @@ export type EffectiveStatus =
   | 'live'       // Within the application window
   | 'closed'     // Past applications_close_at, but event hasn't run yet
   | 'completed'  // Event date has passed
+  | 'cancelled'  // Admin pulled the plug — event was supposed to run, isn't
 
 export function computeEventEffectiveStatus(e: Pick<EventRow,
   'status' | 'applications_open_at' | 'applications_close_at' | 'event_date'
 >): EffectiveStatus {
+  if (e.status === 'cancelled') return 'cancelled'
   if (e.status === 'draft') return 'draft'
   const now = Date.now()
   const eventTime = e.event_date ? new Date(e.event_date + 'T00:00:00').getTime() : null
@@ -681,4 +758,5 @@ export const EFFECTIVE_STATUS_META: Record<EffectiveStatus, { label: string; cla
   live:      { label: 'Live',      tone: 'emerald', classes: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300' },
   closed:    { label: 'Closed',    tone: 'amber',   classes: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300' },
   completed: { label: 'Completed', tone: 'violet',  classes: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300' },
+  cancelled: { label: 'Cancelled', tone: 'slate',   classes: 'bg-slate-100 text-slate-700 border-slate-200 line-through dark:bg-slate-800 dark:text-slate-300' },
 }

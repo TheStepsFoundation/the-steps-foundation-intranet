@@ -11,6 +11,9 @@ import {
   unarchiveEvent,
   deleteEvent,
   computeEventEffectiveStatus,
+  cloneEventFrom,
+  CLONE_FIELD_LABELS,
+  type CloneFieldKey,
   EFFECTIVE_STATUS_META,
   type EffectiveStatus,
 } from '@/lib/events-api'
@@ -100,17 +103,35 @@ function Inner() {
   const [members, setMembers] = useState<Record<string, string>>({})
   const [creating, setCreating] = useState(false)
   const [createErr, setCreateErr] = useState<string | null>(null)
+  const [showCreateMenu, setShowCreateMenu] = useState(false)
+  const [showCloneModal, setShowCloneModal] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   const handleCreate = async () => {
+    setShowCreateMenu(false)
     setCreating(true); setCreateErr(null)
     try {
       const fresh = await createDraftEvent()
       router.push(`/students/events/${fresh.id}?new=1`)
     } catch (e: any) {
       setCreateErr(e?.message ?? 'Could not create event')
+      setCreating(false)
+    }
+  }
+
+  // Close the New-event split menu on outside click.
+  const createMenuRef = useRef<HTMLDivElement | null>(null)
+  void createMenuRef // (placed near top so we can use it in markup; ref attached below)
+
+  const handleClone = async (sourceId: string, fields: CloneFieldKey[]) => {
+    setShowCloneModal(false); setCreating(true); setCreateErr(null)
+    try {
+      const fresh = await cloneEventFrom(sourceId, fields)
+      router.push(`/students/events/${fresh.id}?new=1&cloned=1`)
+    } catch (e: any) {
+      setCreateErr(e?.message ?? 'Could not clone event')
       setCreating(false)
     }
   }
@@ -308,15 +329,42 @@ function Inner() {
             <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
             Email templates
           </Link>
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={creating}
-            className="px-4 py-2.5 text-sm rounded-xl bg-steps-blue-600 text-white font-semibold border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
-          >
-            <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
-            {creating ? 'Creating…' : 'New event'}
-          </button>
+          <div className="relative">
+            <div className="inline-flex rounded-xl shadow-press-blue overflow-hidden">
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={creating}
+                className="px-4 py-2.5 text-sm bg-steps-blue-600 text-white font-semibold border-t border-white/20 hover:bg-steps-blue-700 active:translate-y-0.5 active:shadow-none transition-all disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
+              >
+                <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+                {creating ? 'Creating…' : 'New event'}
+              </button>
+              <button
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={showCreateMenu}
+                aria-label="More create options"
+                onClick={() => setShowCreateMenu(o => !o)}
+                disabled={creating}
+                className="px-2.5 py-2.5 text-sm bg-steps-blue-700 text-white border-t border-l border-white/20 hover:bg-steps-blue-800 transition disabled:opacity-60"
+              >
+                <svg aria-hidden className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+              </button>
+            </div>
+            {showCreateMenu && (
+              <div role="menu" className="absolute right-0 top-12 z-30 min-w-[260px] rounded-xl border border-slate-200 bg-white shadow-lg py-1 text-sm">
+                <button role="menuitem" onClick={handleCreate} className="block w-full text-left px-3.5 py-2 hover:bg-slate-50">
+                  <span className="font-semibold text-steps-dark">Blank event</span>
+                  <span className="block text-xs text-slate-500">Start from scratch.</span>
+                </button>
+                <button role="menuitem" onClick={() => { setShowCreateMenu(false); setShowCloneModal(true) }} className="block w-full text-left px-3.5 py-2 hover:bg-slate-50 border-t border-slate-100">
+                  <span className="font-semibold text-steps-dark">Clone from previous event…</span>
+                  <span className="block text-xs text-slate-500">Pick fields to copy from a past event.</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -479,6 +527,14 @@ function Inner() {
         <p className="text-xs text-slate-400 mt-6 text-center">
           Archived events are hidden — tick &quot;Show archived&quot; above to include them.
         </p>
+      )}
+
+      {showCloneModal && (
+        <CloneModal
+          events={events}
+          onClose={() => setShowCloneModal(false)}
+          onClone={handleClone}
+        />
       )}
     </main>
   )
@@ -851,6 +907,76 @@ function Kpi({ label, value, accent, good, warn }: { label: string; value: numbe
           : warn ? 'text-amber-600'
           : 'text-steps-dark'
       }`}>{value.toLocaleString()}</div>
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// CloneModal — pick a source event + which fields to clone into a new draft.
+// Date / time-window / status / slug are always reset; everything else is
+// opt-in. Defaults selected: description, banner, hub_image, format,
+// eligibility, form_config, feedback_config, dashboard_columns, interest_options
+// (essentially "everything reusable" — admin can untick what they don't want).
+// ---------------------------------------------------------------------------
+function CloneModal({ events, onClose, onClone }: {
+  events: EventWithStats[]
+  onClose: () => void
+  onClone: (sourceId: string, fields: CloneFieldKey[]) => void
+}) {
+  const [sourceId, setSourceId] = useState<string>(() => events[0]?.id ?? '')
+  // Most-reusable defaults pre-checked. Admin unticks if they don't want them.
+  const [fields, setFields] = useState<Set<CloneFieldKey>>(new Set([
+    'description', 'banner', 'hub_image', 'format', 'eligibility',
+    'form_config', 'feedback_config', 'dashboard_columns', 'interest_options',
+    'capacity', 'time_window', 'dress_code',
+  ]))
+  const FIELDS: CloneFieldKey[] = [
+    'description', 'banner', 'hub_image', 'capacity', 'format', 'location',
+    'time_window', 'dress_code', 'eligibility', 'form_config', 'feedback_config',
+    'dashboard_columns', 'interest_options',
+  ]
+  const toggle = (k: CloneFieldKey) => setFields(prev => {
+    const next = new Set(prev)
+    if (next.has(k)) next.delete(k); else next.add(k)
+    return next
+  })
+  return (
+    <div role="dialog" aria-modal="true" aria-labelledby="clone-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 animate-tsf-fade-in" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 sm:p-7 animate-tsf-fade-up" onClick={e => e.stopPropagation()}>
+        <h2 id="clone-title" className="font-display text-xl font-bold text-steps-dark mb-1">Clone from previous event</h2>
+        <p className="text-sm text-slate-500 mb-4">Pick a source event and which bits to copy. Dates and the URL slug are always reset — you'll set new ones in the editor.</p>
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Source event</label>
+          <select value={sourceId} onChange={e => setSourceId(e.target.value)} className="w-full px-3 py-2 text-sm rounded-xl border border-slate-300 bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none">
+            {events.map(ev => <option key={ev.id} value={ev.id}>{ev.name}{ev.event_date ? ` — ${new Date(ev.event_date).getFullYear()}` : ''}</option>)}
+          </select>
+        </div>
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Fields to copy</label>
+          <div className="grid sm:grid-cols-2 gap-1.5 max-h-[260px] overflow-y-auto pr-1">
+            {FIELDS.map(k => {
+              const meta = CLONE_FIELD_LABELS[k]
+              const checked = fields.has(k)
+              return (
+                <label key={k} className="flex items-start gap-2.5 px-2.5 py-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+                  <input type="checkbox" checked={checked} onChange={() => toggle(k)} className="mt-0.5 w-4 h-4 rounded border-slate-300 text-steps-blue-600 focus:ring-steps-blue-500" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-steps-dark">{meta.label}</span>
+                    <span className="block text-xs text-slate-500">{meta.description}</span>
+                  </span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition">Cancel</button>
+          <button type="button" disabled={!sourceId} onClick={() => onClone(sourceId, [...fields])} className="px-4 py-2 text-sm rounded-xl bg-steps-blue-600 text-white font-semibold hover:bg-steps-blue-700 disabled:opacity-50 transition">
+            Clone &amp; open editor
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
