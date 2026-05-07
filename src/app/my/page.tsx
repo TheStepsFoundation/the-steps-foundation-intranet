@@ -86,10 +86,15 @@ function StudentHubInner() {
   const searchParams = useSearchParams()
   const adminPreviewParam = searchParams?.get('_admin_preview') ?? null
   const adminPreviewPayload = searchParams?.get('_payload') ?? null
+  const adminPreviewKey = searchParams?.get('_key') ?? null
   const adminPreviewMode: 'real' | 'synthetic' | null = adminPreviewParam === 'synthetic' ? 'synthetic' : adminPreviewParam ? 'real' : null
   // Querystring used to preserve admin-preview through nav into /my/events/[id]
-  const previewQuerystring = adminPreviewMode === 'synthetic' && adminPreviewPayload
-    ? `?_admin_preview=synthetic&_payload=${encodeURIComponent(adminPreviewPayload)}`
+  const previewQuerystring = adminPreviewMode === 'synthetic'
+    ? (adminPreviewKey
+        ? `?_admin_preview=synthetic&_key=${encodeURIComponent(adminPreviewKey)}`
+        : adminPreviewPayload
+        ? `?_admin_preview=synthetic&_payload=${encodeURIComponent(adminPreviewPayload)}`
+        : '?_admin_preview=synthetic')
     : adminPreviewMode === 'real' && adminPreviewParam
     ? `?_admin_preview=${adminPreviewParam}`
     : ''
@@ -201,22 +206,35 @@ function StudentHubInner() {
           setAuthEmail('preview@thestepsfoundation.com')
           return
         }
-        if (adminPreviewMode === 'synthetic' && adminPreviewPayload) {
+        if (adminPreviewMode === 'synthetic' && (adminPreviewKey || adminPreviewPayload)) {
           try {
-            const decoded = JSON.parse(atob(adminPreviewPayload))
+            let decoded: { profile?: Record<string, unknown>; applications?: unknown[]; openEvents?: unknown[] } = {}
+            if (adminPreviewKey) {
+              const raw = typeof window !== 'undefined' ? localStorage.getItem(adminPreviewKey) : null
+              if (raw) decoded = JSON.parse(raw)
+            } else if (adminPreviewPayload) {
+              // Legacy fallback — URL-embedded base64 payload.
+              try {
+                decoded = JSON.parse(atob(adminPreviewPayload))
+              } catch {
+                // btoa/atob can't handle Unicode — try the URI-encoded form.
+                try { decoded = JSON.parse(decodeURIComponent(adminPreviewPayload)) } catch {}
+              }
+            }
             if (cancelled) return
+            const p = (decoded.profile ?? {}) as Record<string, unknown>
             const synthProfile: StudentSelf = {
               id: 'synthetic',
-              first_name: decoded.profile?.first_name ?? 'Sample',
-              last_name: decoded.profile?.last_name ?? 'Student',
+              first_name: typeof p.first_name === 'string' ? p.first_name : 'Sample',
+              last_name: typeof p.last_name === 'string' ? p.last_name : 'Student',
               personal_email: 'preview@thestepsfoundation.com',
               school_id: null,
-              school_name_raw: decoded.profile?.school_name_raw ?? null,
-              year_group: decoded.profile?.year_group ?? 12,
-              school_type: decoded.profile?.school_type ?? 'state',
-              free_school_meals: decoded.profile?.free_school_meals ?? true,
-              parental_income_band: decoded.profile?.parental_income_band ?? 'under_40k',
-              first_generation_uni: decoded.profile?.first_generation_uni ?? false,
+              school_name_raw: typeof p.school_name_raw === 'string' ? p.school_name_raw : null,
+              year_group: typeof p.year_group === 'number' ? p.year_group : 12,
+              school_type: typeof p.school_type === 'string' ? p.school_type : 'state',
+              free_school_meals: typeof p.free_school_meals === 'boolean' ? p.free_school_meals : true,
+              parental_income_band: typeof p.parental_income_band === 'string' ? p.parental_income_band : 'under_40k',
+              first_generation_uni: typeof p.first_generation_uni === 'boolean' ? p.first_generation_uni : false,
               gcse_results: null,
               qualifications: null,
               additional_context: null,

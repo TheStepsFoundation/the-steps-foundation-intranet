@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StudentHubPreview, type PreviewProfile } from '@/components/StudentHubPreview'
 import type { HubApplication, HubEvent } from '@/lib/hub-api'
 import { fetchOpenEvents } from '@/lib/hub-api'
+import { fetchAllEvents as fetchAllEventsAdmin } from '@/lib/events-api'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched, useEvents } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
 import SelectAllBanner from '@/components/SelectAllBanner'
@@ -904,13 +905,26 @@ function LegendDot({ className, label }: { className: string; label: string }) {
 // ---------------------------------------------------------------------------
 function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
   const [yearGroup, setYearGroup] = useState<number>(12)
+  // pickerEvents = all visible events the admin can simulate against (past +
+  // present). openEvents = currently-live events used by /my's "Apply now"
+  // section in the preview.
+  const [pickerEvents, setPickerEvents] = useState<HubEvent[]>([])
   const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
   const [pickedEventStatuses, setPickedEventStatuses] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
-    fetchOpenEvents().then(es => { if (active) { setOpenEvents(es); setLoading(false) } })
+    Promise.all([
+      fetchAllEventsAdmin(),
+      fetchOpenEvents(),
+    ]).then(([all, open]) => {
+      if (!active) return
+      const visible = (all as unknown as HubEvent[]).filter(e => e.status !== 'draft' && e.status !== 'cancelled')
+      setPickerEvents(visible)
+      setOpenEvents(open)
+      setLoading(false)
+    }).catch(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
 
@@ -922,7 +936,7 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
     parental_income_band: 'under_40k',
     first_generation_uni: false,
   }
-  const applications: HubApplication[] = openEvents
+  const applications: HubApplication[] = pickerEvents
     .filter(e => pickedEventStatuses[e.id])
     .map(e => ({
       id: `synthetic_${e.id}`,
@@ -932,6 +946,16 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
       event: e,
       status_history: [],
     }))
+
+  // localStorage-keyed payload — avoids URL length + UTF-8 base64 issues.
+  const [previewKey] = useState(() => `tsf_synth_preview_${Math.random().toString(36).slice(2, 10)}`)
+  useEffect(() => {
+    try {
+      localStorage.setItem(previewKey, JSON.stringify({ profile, applications, openEvents }))
+    } catch { /* swallow — preview is best-effort */ }
+    return () => { try { localStorage.removeItem(previewKey) } catch {} }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewKey, yearGroup, JSON.stringify(pickedEventStatuses), pickerEvents.length, openEvents.length])
 
   const STATUS_OPTIONS = ['submitted', 'shortlisted', 'waitlist', 'accepted', 'rejected', 'withdrew']
 
@@ -969,11 +993,11 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
             <p className="text-xs text-slate-500 mb-3">Pick a status per event to simulate having applied with that outcome.</p>
             {loading ? (
               <p className="text-xs text-slate-400">Loading events…</p>
-            ) : openEvents.length === 0 ? (
-              <p className="text-xs text-slate-400">No open events to simulate.</p>
+            ) : pickerEvents.length === 0 ? (
+              <p className="text-xs text-slate-400">No events to simulate.</p>
             ) : (
               <div className="space-y-2">
-                {openEvents.slice(0, 8).map(e => (
+                {pickerEvents.slice(0, 12).map(e => (
                   <div key={e.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
                     <p className="text-xs font-semibold text-steps-dark truncate">{e.name}</p>
                     <select value={pickedEventStatuses[e.id] ?? ''}
@@ -996,7 +1020,7 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
           {/* Preview pane — iframe of /my in admin-preview synthetic mode */}
           <main className="bg-white overflow-hidden">
             <iframe
-              src={`/my?_admin_preview=synthetic&_payload=${encodeURIComponent(btoa(JSON.stringify({ profile, applications, openEvents })))}`}
+              src={`/my?_admin_preview=synthetic&_key=${previewKey}`}
               title="Synthetic Student Hub preview"
               className="w-full h-full bg-white"
             />

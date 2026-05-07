@@ -182,13 +182,18 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
   const searchParams = useSearchParams()
   const adminPreviewParam = searchParams?.get('_admin_preview') ?? null
   const adminPreviewPayload = searchParams?.get('_payload') ?? null
+  const adminPreviewKey = searchParams?.get('_key') ?? null
   const adminPreviewMode: 'real' | 'synthetic' | null =
     adminPreviewParam === 'synthetic' ? 'synthetic' : adminPreviewParam ? 'real' : null
 
   // Carry the admin-preview state through any internal nav so card clicks /
   // back link inside the iframe stay in preview mode.
-  const previewQuerystring = adminPreviewMode === 'synthetic' && adminPreviewPayload
-    ? `?_admin_preview=synthetic&_payload=${encodeURIComponent(adminPreviewPayload)}`
+  const previewQuerystring = adminPreviewMode === 'synthetic'
+    ? (adminPreviewKey
+        ? `?_admin_preview=synthetic&_key=${encodeURIComponent(adminPreviewKey)}`
+        : adminPreviewPayload
+        ? `?_admin_preview=synthetic&_payload=${encodeURIComponent(adminPreviewPayload)}`
+        : '?_admin_preview=synthetic')
     : adminPreviewMode === 'real' && adminPreviewParam
     ? `?_admin_preview=${adminPreviewParam}`
     : ''
@@ -210,12 +215,21 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
         const adminToken = session?.access_token
         if (!adminToken) { setErr('Sign in as a team member to use admin preview.'); return }
 
-        if (adminPreviewMode === 'synthetic' && adminPreviewPayload) {
-          const decoded = JSON.parse(atob(adminPreviewPayload)) as {
-            profile: Record<string, unknown>
-            applications: Array<{ id: string; event_id: string; status: string; created_at: string; event: Record<string, unknown>; status_history: Array<{ status: string; changed_at: string }> }>
-            openEvents: Array<Record<string, unknown>>
+        if (adminPreviewMode === 'synthetic' && (adminPreviewKey || adminPreviewPayload)) {
+          let decoded: {
+            profile?: Record<string, unknown>
+            applications?: Array<{ id: string; event_id: string; status: string; created_at: string; event: Record<string, unknown>; status_history: Array<{ status: string; changed_at: string }> }>
+            openEvents?: Array<Record<string, unknown>>
+          } = {}
+          if (adminPreviewKey) {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem(adminPreviewKey) : null
+            if (raw) decoded = JSON.parse(raw)
+          } else if (adminPreviewPayload) {
+            try { decoded = JSON.parse(atob(adminPreviewPayload)) }
+            catch { try { decoded = JSON.parse(decodeURIComponent(adminPreviewPayload)) } catch {} }
           }
+          decoded.applications = decoded.applications ?? []
+          decoded.openEvents = decoded.openEvents ?? []
           const matchedApp = decoded.applications.find(a => a.event_id === id)
           const matchedEvent = matchedApp?.event ?? decoded.openEvents.find(e => (e as { id?: string }).id === id)
           if (!matchedEvent) { setErr('Event not in synthetic payload'); return }
