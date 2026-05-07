@@ -918,6 +918,8 @@ export default function EventDetailPage() {
   // state. Closes on backdrop click or X.
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewKey, setPreviewKey] = useState(0)
+  const [testModeOpen, setTestModeOpen] = useState(false)
+  const [testModeKey, setTestModeKey] = useState(0)
   // Pre-flight publish state. When admin picks a non-draft status from the
   // status select while the event is currently 'draft', we don't immediately
   // mutate editDraft — we open this modal first so they can review what
@@ -2614,6 +2616,15 @@ export default function EventDetailPage() {
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                 Preview
               </button>
+              <button
+                type="button"
+                onClick={() => { setTestModeOpen(true); setTestModeKey(k => k + 1) }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 dark:hover:bg-amber-900/40 transition-colors"
+                title="Submit a real test application — written as is_test=true, hidden from the default applicants table"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                Test mode
+              </button>
               {/* Autosave status pill — shows live progress so the admin can trust their edits are landing without hitting Save. */}
               <AutosaveStatusPill status={autosaveStatus} savedAt={autosaveSavedAt} error={autosaveError} onRetry={() => { void runAutosave() }} />
               <ActionsMenu
@@ -3471,12 +3482,11 @@ export default function EventDetailPage() {
                     <div key={ns.code} className="relative">
                       <button
                         onClick={() => setBulkMenuOpen(isOpen ? null : ns.code)}
-                        className={`px-2.5 py-1.5 rounded text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5 ${ns.color}`}
+                        className={`px-2.5 py-1 rounded text-xs font-medium text-white transition-colors inline-flex items-center gap-1 ${ns.color}`}
                         aria-haspopup="menu"
                         aria-expanded={isOpen}
-                        title={`${verb} the selected applicants (default: send the ${verb.toLowerCase()} email)`}
                       >
-                        {verb} &amp; notify
+                        {verb}
                         <svg className="w-3 h-3 opacity-80" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                         </svg>
@@ -3489,10 +3499,9 @@ export default function EventDetailPage() {
                           <button
                             role="menuitem"
                             onClick={() => { setBulkMenuOpen(null); openCompose(ns.code) }}
-                            className="block w-full text-left px-3 py-2 font-semibold text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
-                            title="Recommended — sends the matching email template after the status flips"
+                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
                           >
-                            {verb} &amp; notify <span className="block text-[10px] font-normal text-emerald-600/70 mt-0.5">Sends the email · most common path</span>
+                            {verb} &amp; notify
                           </button>
                           <button
                             role="menuitem"
@@ -3534,6 +3543,14 @@ export default function EventDetailPage() {
                 className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400 ring-1 ring-dashed ring-gray-200 dark:ring-gray-700"
               >
                 Clear internal
+              </button>
+
+              <button
+                onClick={() => bulkUpdateStatus('submitted')}
+                className="px-2.5 py-1 rounded text-xs font-medium hover:opacity-80 transition-opacity bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400 ring-1 ring-dashed ring-gray-200 dark:ring-gray-700"
+                title="Revert decisions on selected applicants — flips status back to Submitted"
+              >
+                Clear decisions
               </button>
 
               <span className="text-gray-300 dark:text-gray-600">|</span>
@@ -4379,6 +4396,26 @@ export default function EventDetailPage() {
               <li className="flex justify-between"><span>Show this help</span><kbd className="font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">⌘ /</kbd></li>
             </ul>
             <button type="button" onClick={() => setShowShortcutsHelp(false)} className="mt-4 w-full px-3 py-2 text-sm rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200">Close</button>
+          </div>
+        </div>
+      )}
+
+      {testModeOpen && event && (
+        <div role="dialog" aria-modal="true" aria-label="Test application" onClick={() => setTestModeOpen(false)} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-tsf-fade-in">
+          <div onClick={e => e.stopPropagation()} className="relative w-full max-w-4xl h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 bg-amber-50">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800">Test mode</span>
+                <span className="text-sm text-slate-700 truncate">Submitting writes a real <code className="text-xs">is_test=true</code> row, hidden from the default applicants table.</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a href={`/apply/${editDraft.slug ?? event.slug}?test=1`} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-600 hover:text-slate-900 underline">Open in new tab</a>
+                <button type="button" onClick={() => setTestModeOpen(false)} aria-label="Close test mode" className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+            <iframe key={testModeKey} src={`/apply/${editDraft.slug ?? event.slug}?test=1`} title="Test application" className="flex-1 w-full bg-white" />
           </div>
         </div>
       )}
