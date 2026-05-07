@@ -241,8 +241,105 @@ export async function fetchEventsWithStats(opts: { includeArchived?: boolean } =
 }
 
 /**
+ * Required fields gate for publishing an event (any status other than 'draft').
+ * Pure function — no side effects, used by both the editor UI (live checklist)
+ * and updateEvent (server-side gate when status changes from 'draft' to anything).
+ *
+ * What's required, and why:
+ *   - name, slug          : DB NOT NULL — also surfaced here so the checklist
+ *                           tells the admin even before the row is saved.
+ *   - event_date          : Students need to know when. Without it, the
+ *                           apply form has nothing to anchor expectations.
+ *   - time_start/time_end : Same — students plan their day around these.
+ *   - location            : Rough city/area is required. Full street address
+ *                           is intentionally NOT required (often last-minute)
+ *                           and only revealed to accepted students anyway.
+ *   - format              : In person / online / hybrid — material to whether
+ *                           a student can attend at all.
+ *   - capacity            : Honest expectation-setting on competitiveness.
+ *   - description         : What the event actually is.
+ *   - eligible_year_groups: At least one year group (or open_to_gap_year=true)
+ *                           — students need to know if they can apply.
+ *   - applications_open_at, applications_close_at: Define the publish window.
+ *                           Without close, the event would be open forever.
+ *   - banner_image_url, hub_image_url: Both required — banner anchors the
+ *                           event detail page, hub_image anchors the card on
+ *                           /my. A published event without imagery looks
+ *                           half-built to students.
+ *   - At least one custom field on the application form. The standard fields
+ *     (name/email/school/year/etc.) collect identity but don't tell us why
+ *     this student in particular wants this event. Forces admins to think
+ *     about what they're actually trying to learn from applicants.
+ *
+ * Not required (intentionally):
+ *   - location_full        : Often last-minute; gated to accepted students.
+ *   - dress_code           : Communicated post-acceptance.
+ *   - interest_options     : Optional taxonomy.
+ *   - feedback_config      : Built after the event runs.
+ */
+
+export type PublishValidationError = {
+  field: string
+  /** Short label used in the checklist UI (e.g. 'Event date'). */
+  label: string
+  /** Why it's missing — surfaced as a tooltip / inline hint. */
+  reason: string
+}
+
+const STD_FIELD_IDS = new Set(['std_name', 'std_email', 'std_school', 'std_year_group'])
+
+export function validateForPublish(e: Partial<EventRow>): PublishValidationError[] {
+  const errs: PublishValidationError[] = []
+  const blank = (v: unknown) => v == null || (typeof v === 'string' && v.trim().length === 0)
+
+  if (blank(e.name))                  errs.push({ field: 'name',                  label: 'Event name',          reason: 'Required.' })
+  if (blank(e.slug))                  errs.push({ field: 'slug',                  label: 'URL slug',            reason: 'Required.' })
+  if (blank(e.event_date))            errs.push({ field: 'event_date',            label: 'Event date',          reason: 'Set the date students should plan around.' })
+  if (blank(e.time_start))            errs.push({ field: 'time_start',            label: 'Start time',          reason: 'Required so students know when to show up.' })
+  if (blank(e.time_end))              errs.push({ field: 'time_end',              label: 'End time',            reason: 'Required so students can plan their day.' })
+  if (blank(e.location))              errs.push({ field: 'location',              label: 'Rough location',      reason: 'Like "Central London". Full address can wait.' })
+  if (blank(e.format))                errs.push({ field: 'format',                label: 'Format',              reason: 'In person, online, or hybrid.' })
+  if (e.capacity == null)             errs.push({ field: 'capacity',              label: 'Capacity',            reason: 'Honest expectation-setting on competitiveness.' })
+  if (blank(e.description))           errs.push({ field: 'description',           label: 'Description',         reason: "Tells students what they're applying to." })
+  if (blank(e.applications_open_at))  errs.push({ field: 'applications_open_at',  label: 'Applications open',   reason: 'When the form goes live to students.' })
+  if (blank(e.applications_close_at)) errs.push({ field: 'applications_close_at', label: 'Applications close',  reason: 'Without this, the form would never auto-close.' })
+  if (blank(e.banner_image_url))      errs.push({ field: 'banner_image_url',      label: 'Banner image',        reason: 'Top of the event detail page on the student hub.' })
+  if (blank(e.hub_image_url))         errs.push({ field: 'hub_image_url',         label: 'Hub card image',      reason: 'Side image on each card on /my.' })
+
+  const eligibleYears = Array.isArray(e.eligible_year_groups) ? e.eligible_year_groups : []
+  const eligibleGap = !!e.open_to_gap_year
+  if (eligibleYears.length === 0 && !eligibleGap) {
+    errs.push({ field: 'eligible_year_groups', label: 'Eligible year groups', reason: 'Pick at least one year group (or tick "open to gap year").' })
+  }
+
+  // At least one custom (non-standard) field on the application form.
+  const fc = (e.form_config ?? {}) as { fields?: { id: string }[]; pages?: { fields?: { id: string }[] }[] }
+  const allFields = [
+    ...(Array.isArray(fc.fields) ? fc.fields : []),
+    ...((fc.pages ?? []).flatMap(p => Array.isArray(p?.fields) ? p.fields : [])),
+  ]
+  const customFields = allFields.filter(f => f && typeof f.id === 'string' && !STD_FIELD_IDS.has(f.id))
+  if (customFields.length === 0) {
+    errs.push({ field: 'form_config', label: 'At least one custom question', reason: 'Add one application question beyond the standard identity fields.' })
+  }
+
+  return errs
+}
+
+/**
  * Update an event's editable fields.
  */
+/** Thrown by updateEvent when a publish-status patch fails validation.
+ *  Carries the structured errors so the editor can render a checklist. */
+export class EventPublishValidationError extends Error {
+  errors: PublishValidationError[]
+  constructor(errors: PublishValidationError[]) {
+    super(`Cannot publish: ${errors.map(e => e.label).join(', ')}`)
+    this.name = 'EventPublishValidationError'
+    this.errors = errors
+  }
+}
+
 export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
@@ -250,12 +347,24 @@ export async function updateEvent(
     'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'feedback_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year'
   >>,
 ): Promise<EventRow> {
-  // Guard against malformed form_config landing in the DB — a bad shape would
-  // break the apply page for every student on this event. Throws a descriptive
-  // error the admin UI can surface; leaves non-form patches untouched.
+  // Guard against malformed form_config landing in the DB.
   if (Object.prototype.hasOwnProperty.call(patch, 'form_config')) {
     validateFormConfig(patch.form_config)
   }
+
+  // Publish gate: if the patch tries to move status away from 'draft', validate
+  // the *projected* row (current values + patch) and refuse if anything's
+  // missing. Surfaces structured errors via EventPublishValidationError so the
+  // editor can render the checklist of what's still needed.
+  if (patch.status && patch.status !== 'draft') {
+    // Fetch the current row so the validator sees the projected state, not
+    // just the patch (admin might be only flipping status, not the rest).
+    const current = await fetchEvent(id)
+    const projected: Partial<EventRow> = { ...(current ?? {}), ...patch } as Partial<EventRow>
+    const errs = validateForPublish(projected)
+    if (errs.length > 0) throw new EventPublishValidationError(errs)
+  }
+
   const { data, error } = await supabase
     .from('events')
     .update(patch)

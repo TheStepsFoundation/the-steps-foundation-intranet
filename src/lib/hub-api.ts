@@ -201,11 +201,19 @@ export async function fetchMyApplications(): Promise<HubApplication[]> {
 export async function fetchOpenEvents(): Promise<HubEvent[]> {
   const now = new Date().toISOString()
 
+  // Effective open = published (any status other than 'draft'), not archived,
+  // not soft-deleted, applications_open_at has passed, applications_close_at
+  // is still in the future. The status field captures admin *intent*; the
+  // date window decides whether students can actually apply right now. So an
+  // event flagged status='open' but with close_at in the past is auto-closed
+  // for students; an event status='open' with open_at in the future is
+  // auto-hidden until that time.
   const { data } = await supabase
     .from('events')
     .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year')
     .is('deleted_at', null)
-    .eq('status', 'open')
+    .is('archived_at', null)
+    .neq('status', 'draft')
     .lte('applications_open_at', now)
     .gte('applications_close_at', now)
     .order('event_date', { ascending: true })
@@ -222,6 +230,7 @@ export async function fetchAllEvents(): Promise<HubEvent[]> {
     .from('events')
     .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year')
     .is('deleted_at', null)
+    .is('archived_at', null)
     .order('event_date', { ascending: false })
 
   return (data ?? []) as HubEvent[]

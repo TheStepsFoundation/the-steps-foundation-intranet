@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo } from '@/lib/events-api'
+import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
@@ -713,6 +713,10 @@ export default function EventDetailPage() {
   const [archiving, setArchiving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [eventActionErr, setEventActionErr] = useState<string | null>(null)
+  const [publishErrors, setPublishErrors] = useState<PublishValidationError[] | null>(null)
+  // Read once to suppress 'never read' warnings — the value is mirrored in the
+  // checklist UI, but separately owned here so we can clear it on save.
+  void publishErrors
   const router = useRouter()
 
   const handleArchiveEvent = async () => {
@@ -776,6 +780,32 @@ export default function EventDetailPage() {
   // Shared between manual save, autosave, and the cancel-revert path so all
   // three agree on which fields actually need writing.
   // ---------------------------------------------------------------------------
+  // Live publish-readiness checklist. Computed from current draft merged onto
+  // the saved event, so each tick/cross flips the moment the admin types.
+  const liveChecklist: PublishValidationError[] = (() => {
+    if (!event) return []
+    const projected = { ...event, ...editDraft } as Partial<EventRow>
+    return validateForPublish(projected)
+  })()
+  const liveChecklistFields = new Set(liveChecklist.map(e => e.field))
+  const ALL_PUBLISH_REQUIREMENTS: { field: string; label: string }[] = [
+    { field: 'name', label: 'Event name' },
+    { field: 'slug', label: 'URL slug' },
+    { field: 'event_date', label: 'Event date' },
+    { field: 'time_start', label: 'Start time' },
+    { field: 'time_end', label: 'End time' },
+    { field: 'location', label: 'Rough location' },
+    { field: 'format', label: 'Format' },
+    { field: 'capacity', label: 'Capacity' },
+    { field: 'description', label: 'Description' },
+    { field: 'eligible_year_groups', label: 'Eligible year groups' },
+    { field: 'applications_open_at', label: 'Applications open' },
+    { field: 'applications_close_at', label: 'Applications close' },
+    { field: 'banner_image_url', label: 'Banner image' },
+    { field: 'hub_image_url', label: 'Hub card image' },
+    { field: 'form_config', label: 'At least one custom question' },
+  ]
+
   const buildEventPatch = useCallback((draft: Partial<EventRow>, baseline: EventRow): Record<string, any> => {
     const patch: Record<string, any> = {}
     if (draft.name && draft.name !== baseline.name) patch.name = draft.name
@@ -955,8 +985,21 @@ export default function EventDetailPage() {
           }
           setAutosaveStatus('saved')
           setAutosaveSavedAt(new Date())
+          setPublishErrors(null)
           return 'saved'
         } catch (err) {
+          // Don't retry on validation errors — they won't pass on retry,
+          // and the admin needs to see the checklist immediately.
+          if (err instanceof EventPublishValidationError) {
+            const ev = err as EventPublishValidationError
+            setPublishErrors(ev.errors)
+            // Revert the status field in the draft so it doesn't keep
+            // re-firing the same publish attempt on the next debounce tick.
+            setEditDraft(d => ({ ...d, status: 'draft' as const }))
+            setAutosaveStatus('error')
+            setAutosaveError(`Can't publish — ${ev.errors.length} thing${ev.errors.length === 1 ? '' : 's'} missing. See checklist.`)
+            return 'failed'
+          }
           lastErr = err
           // eslint-disable-next-line no-console
           console.error(`Autosave attempt ${attempt + 1} failed:`, err)
@@ -2192,6 +2235,50 @@ export default function EventDetailPage() {
               <button onClick={() => { void cancelEditing() }} disabled={editSaving} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50" title="Reverts any changes saved during this edit session">Cancel</button>
               <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
             </div>
+
+            {/* === Publish checklist ===
+                Live state of every required field. Ticks flip green as the admin
+                fills things in. */}
+            {(() => {
+              const projectedStatus = (editDraft.status ?? event.status) as EventRow['status']
+              const isPublished = projectedStatus !== 'draft'
+              const ready = liveChecklist.length === 0
+              return (
+                <div className={`mb-4 rounded-lg border ${ready ? 'border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800' : 'border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800'} px-4 py-3`}>
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <div className={`text-sm font-semibold ${ready ? 'text-emerald-800 dark:text-emerald-300' : 'text-amber-900 dark:text-amber-200'}`}>
+                      {ready
+                        ? (isPublished ? 'Published — all requirements met' : 'Ready to publish — set status above to Open')
+                        : `Publish checklist · ${ALL_PUBLISH_REQUIREMENTS.length - liveChecklist.length}/${ALL_PUBLISH_REQUIREMENTS.length} done`}
+                    </div>
+                    {!ready && (
+                      <span className="text-[11px] uppercase tracking-wider text-amber-800 dark:text-amber-300 font-bold">
+                        {liveChecklist.length} missing
+                      </span>
+                    )}
+                  </div>
+                  <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1.5 text-xs">
+                    {ALL_PUBLISH_REQUIREMENTS.map(req => {
+                      const failing = liveChecklistFields.has(req.field)
+                      const reason = liveChecklist.find(e => e.field === req.field)?.reason ?? ''
+                      return (
+                        <li key={req.field} className="flex items-start gap-1.5">
+                          <span className={`mt-0.5 inline-block w-3.5 h-3.5 rounded-full flex-shrink-0 ${failing ? 'bg-rose-400' : 'bg-emerald-500 inline-flex items-center justify-center'}`} aria-hidden>
+                            {!failing && (
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            )}
+                          </span>
+                          <span className={`${failing ? 'text-amber-900 dark:text-amber-200' : 'text-emerald-700 dark:text-emerald-300 line-through opacity-70'}`}>
+                            <span className="font-medium">{req.label}</span>
+                            {failing && reason && <span className="text-amber-700 dark:text-amber-300"> &mdash; {reason}</span>}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )
+            })()}
 
             {/* Section: Basics (Name, slug, status, date, times, location, capacity) */}
             <Section id="basics" title="Basics" subtitle="Name, status, date, times, location, capacity, application window, description" defaultOpen>
