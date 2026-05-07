@@ -17,6 +17,7 @@ import {
   type QualificationEntry,
 } from '@/lib/apply-api'
 import { saveDraft, loadDraft, clearDraft, clearAllDrafts } from '@/lib/apply-draft'
+import { upsertApplyDraft, markApplyDraftComplete } from '@/lib/apply-api'
 import { OtpResendLink } from '@/components/OtpResendLink'
 
 // ---------------------------------------------------------------------------
@@ -459,13 +460,20 @@ export default function ApplyPage() {
     if (step === 'loading' || step === 'email' || step === 'otp' || step === 'success' || step === 'applied' || step === 'submitting') return
 
     const t = setTimeout(() => {
-      saveDraft(event!.id, email, {
+      const payload = {
         step,
         firstName, lastName, school, yearGroup, schoolType,
         freeSchoolMeals, householdIncome, firstGenerationUni, additionalContext, anythingElse,
         gcseResults, qualifications, attribution,
         customFieldValues,
-      })
+      }
+      saveDraft(event!.id, email, payload)
+      // Mirror to server (apply_drafts table) — drives cross-device resume
+      // and the stale-application reminder cron. Skip during preview/test
+      // so admin sessions don't pollute it. Soft-fails on network error.
+      if (!previewMode && !testMode) {
+        void upsertApplyDraft(event!.id, email, payload as Record<string, unknown>)
+      }
     }, 500)
     return () => clearTimeout(t)
   }, [
@@ -883,6 +891,8 @@ export default function ApplyPage() {
       return
     }
     clearDraft(event!.id, email)
+    // Mark server-side draft as complete so the stale-reminder cron skips it.
+    if (!previewMode && !testMode) void markApplyDraftComplete(event!.id, email)
     // Leave submittingRef true through success — the form is done with.
     setStep('success')
   }

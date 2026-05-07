@@ -654,3 +654,61 @@ export async function submitEventApplication(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Server-side application drafts (apply_drafts table)
+//
+// Companion to the localStorage drafts in apply-draft.ts — but persisted
+// server-side so the same email can resume on another device, and so the
+// scheduled stale-reminder cron has something to query against. Writes
+// are debounced from the apply page; reads happen on apply-page mount
+// to merge any newer server state into the local draft.
+// ---------------------------------------------------------------------------
+
+export type ApplyDraftPayload = Record<string, unknown>
+
+export async function upsertApplyDraft(eventId: string, email: string, payload: ApplyDraftPayload): Promise<void> {
+  if (!email) return
+  const normEmail = email.toLowerCase().trim()
+  if (!normEmail) return
+  const { error } = await supabase
+    .from('apply_drafts')
+    .upsert({
+      event_id: eventId,
+      email: normEmail,
+      payload,
+      last_touched_at: new Date().toISOString(),
+      reminded_at: null,
+    }, { onConflict: 'event_id,email' })
+  if (error) {
+    // Soft-fail — drafts are a nicety, not core path
+    // eslint-disable-next-line no-console
+    console.warn('[apply_drafts.upsert]', error.message)
+  }
+}
+
+export async function fetchApplyDraft(eventId: string, email: string): Promise<ApplyDraftPayload | null> {
+  if (!email) return null
+  const normEmail = email.toLowerCase().trim()
+  if (!normEmail) return null
+  const { data, error } = await supabase
+    .from('apply_drafts')
+    .select('payload')
+    .eq('event_id', eventId)
+    .eq('email', normEmail)
+    .is('completed_at', null)
+    .maybeSingle()
+  if (error) return null
+  return ((data as { payload: ApplyDraftPayload } | null)?.payload) ?? null
+}
+
+export async function markApplyDraftComplete(eventId: string, email: string): Promise<void> {
+  if (!email) return
+  const normEmail = email.toLowerCase().trim()
+  if (!normEmail) return
+  await supabase
+    .from('apply_drafts')
+    .update({ completed_at: new Date().toISOString() })
+    .eq('event_id', eventId)
+    .eq('email', normEmail)
+}
