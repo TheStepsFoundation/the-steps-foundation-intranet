@@ -87,6 +87,12 @@ function StudentHubInner() {
   const adminPreviewParam = searchParams?.get('_admin_preview') ?? null
   const adminPreviewPayload = searchParams?.get('_payload') ?? null
   const adminPreviewMode: 'real' | 'synthetic' | null = adminPreviewParam === 'synthetic' ? 'synthetic' : adminPreviewParam ? 'real' : null
+  // Querystring used to preserve admin-preview through nav into /my/events/[id]
+  const previewQuerystring = adminPreviewMode === 'synthetic' && adminPreviewPayload
+    ? `?_admin_preview=synthetic&_payload=${encodeURIComponent(adminPreviewPayload)}`
+    : adminPreviewMode === 'real' && adminPreviewParam
+    ? `?_admin_preview=${adminPreviewParam}`
+    : ''
 
   // Eligibility filtering
   const yg = profile?.year_group ?? null
@@ -448,7 +454,7 @@ function StudentHubInner() {
       </TopNav>
       {adminPreviewMode && (
         <div className="bg-violet-600 text-white text-xs font-semibold px-4 py-1.5 text-center">
-          Admin preview · Read-only · Apply opens test mode
+          Admin preview · Read-only · Apply (inside detail page) opens test mode
         </div>
       )}
 

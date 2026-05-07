@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { TopNav } from '@/components/TopNav'
 import { PressableButton } from '@/components/PressableButton'
@@ -16,6 +16,7 @@ import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 import { formatOpenTo } from '@/lib/events-api'
 import { isEligibleForYearGroup } from '@/lib/eligibility'
 import { supabase } from '@/lib/supabase-student'
+import { supabase as adminSupabase } from '@/lib/supabase'
 import QRCode from 'qrcode'
 
 // ---------------------------------------------------------------------------
@@ -175,9 +176,23 @@ function renderQualifications(val: unknown): React.ReactNode {
 // Page
 // ---------------------------------------------------------------------------
 
-export default function EventOverviewPage({ params }: { params: { id: string } }) {
+function EventOverviewPageInner({ params }: { params: { id: string } }) {
   const { id } = params
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const adminPreviewParam = searchParams?.get('_admin_preview') ?? null
+  const adminPreviewPayload = searchParams?.get('_payload') ?? null
+  const adminPreviewMode: 'real' | 'synthetic' | null =
+    adminPreviewParam === 'synthetic' ? 'synthetic' : adminPreviewParam ? 'real' : null
+
+  // Carry the admin-preview state through any internal nav so card clicks /
+  // back link inside the iframe stay in preview mode.
+  const previewQuerystring = adminPreviewMode === 'synthetic' && adminPreviewPayload
+    ? `?_admin_preview=synthetic&_payload=${encodeURIComponent(adminPreviewPayload)}`
+    : adminPreviewMode === 'real' && adminPreviewParam
+    ? `?_admin_preview=${adminPreviewParam}`
+    : ''
+
   const [overview, setOverview] = useState<EventOverview | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -188,6 +203,64 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      // Admin-preview short-circuit: bypass student auth, build the
+      // EventOverview shape from the admin API or the synthetic payload.
+      if (adminPreviewMode) {
+        const { data: { session } } = await adminSupabase.auth.getSession()
+        const adminToken = session?.access_token
+        if (!adminToken) { setErr('Sign in as a team member to use admin preview.'); return }
+
+        if (adminPreviewMode === 'synthetic' && adminPreviewPayload) {
+          const decoded = JSON.parse(atob(adminPreviewPayload)) as {
+            profile: Record<string, unknown>
+            applications: Array<{ id: string; event_id: string; status: string; created_at: string; event: Record<string, unknown>; status_history: Array<{ status: string; changed_at: string }> }>
+            openEvents: Array<Record<string, unknown>>
+          }
+          const matchedApp = decoded.applications.find(a => a.event_id === id)
+          const matchedEvent = matchedApp?.event ?? decoded.openEvents.find(e => (e as { id?: string }).id === id)
+          if (!matchedEvent) { setErr('Event not in synthetic payload'); return }
+          setOverview({
+            event: matchedEvent as EventOverview['event'],
+            application: matchedApp ? ({
+              id: matchedApp.id,
+              event_id: matchedApp.event_id,
+              status: matchedApp.status,
+              created_at: matchedApp.created_at,
+              updated_at: null,
+              raw_response: null,
+              status_history: matchedApp.status_history,
+            } as unknown as EventOverview['application']) : null,
+            profile: decoded.profile as unknown as EventOverview['profile'],
+          })
+          return
+        }
+
+        // Real-student preview — reuse the same /api/admin/preview-student-data
+        // endpoint and find the matching event/application in its response.
+        const r = await fetch(`/api/admin/preview-student-data?student_id=${encodeURIComponent(adminPreviewParam!)}`, {
+          headers: { Authorization: `Bearer ${adminToken}` },
+        })
+        const d = await r.json()
+        if (!r.ok) { setErr(d?.error ?? 'Failed to load preview'); return }
+        const matchedApp = (d.applications as Array<{ id: string; event_id: string; status: string; created_at: string; event: Record<string, unknown>; status_history: Array<{ status: string; changed_at: string }> }>).find(a => a.event_id === id)
+        const matchedEvent = matchedApp?.event ?? (d.openEvents as Array<Record<string, unknown>>).find((e) => e.id === id)
+        if (!matchedEvent) { setErr('Event not visible to this student'); return }
+        setOverview({
+          event: matchedEvent as EventOverview['event'],
+          application: matchedApp ? ({
+            id: matchedApp.id,
+            event_id: matchedApp.event_id,
+            status: matchedApp.status,
+            created_at: matchedApp.created_at,
+            updated_at: null,
+            raw_response: null,
+            status_history: matchedApp.status_history,
+          } as unknown as EventOverview['application']) : null,
+          profile: d.profile as unknown as EventOverview['profile'],
+        })
+        return
+      }
+
       const data = await fetchEventOverview(id)
       setOverview(data)
     } catch (e) {
@@ -195,7 +268,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [id, adminPreviewMode, adminPreviewParam, adminPreviewPayload])
 
   useEffect(() => { load() }, [load])
 
@@ -227,6 +300,11 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         {renderTopNav()}
+      {adminPreviewMode && (
+        <div className="bg-violet-600 text-white text-xs font-semibold px-4 py-1.5 text-center">
+          Admin preview · Read-only · Apply opens test mode
+        </div>
+      )}
         <div role="status" aria-live="polite" aria-label="Loading event details" className="max-w-4xl mx-auto px-4 sm:px-6 py-16 flex flex-col items-center gap-3">
           <div aria-hidden="true" className="animate-spin w-7 h-7 border-2 border-steps-blue-600 border-t-transparent rounded-full" />
           <p className="text-sm text-slate-500">Loading event details…</p>
@@ -239,13 +317,18 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         {renderTopNav()}
+      {adminPreviewMode && (
+        <div className="bg-violet-600 text-white text-xs font-semibold px-4 py-1.5 text-center">
+          Admin preview · Read-only · Apply opens test mode
+        </div>
+      )}
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-16 text-center animate-tsf-fade-up">
           <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mb-4" aria-hidden>
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
           <p className="font-display text-xl font-bold text-steps-dark">We couldn’t find that event</p>
           <p className="text-slate-500 text-sm mt-1">{err ?? 'It may have been removed or is no longer visible.'}</p>
-          <Link href="/my" className="inline-flex items-center gap-1 mt-6 text-steps-blue-600 hover:text-steps-blue-800 font-medium">← Back to Student Hub</Link>
+          <Link href={`/my${previewQuerystring}`} className="inline-flex items-center gap-1 mt-6 text-steps-blue-600 hover:text-steps-blue-800 font-medium">← Back to Student Hub</Link>
         </div>
       </div>
     )
@@ -276,6 +359,11 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24 sm:pb-12">
       {renderTopNav()}
+      {adminPreviewMode && (
+        <div className="bg-violet-600 text-white text-xs font-semibold px-4 py-1.5 text-center">
+          Admin preview · Read-only · Apply opens test mode
+        </div>
+      )}
 
       {/* === Page wrapper — single max-width for banner + content so they
           line up. Padding stays generous so the page fills the screen
@@ -369,13 +457,14 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
                     )}
                     {showActionsEdit && (
                       <Link
-                        href={`/apply/${event.slug}?edit=1`}
+                        href={adminPreviewMode ? `/apply/${event.slug}?test=1` : `/apply/${event.slug}?edit=1`}
+                        target={adminPreviewMode ? '_blank' : undefined}
                         className="px-4 py-2 text-sm text-steps-blue-700 hover:text-steps-blue-900 font-semibold border border-steps-blue-200 rounded-xl hover:bg-steps-blue-50 transition"
                       >
-                        Edit application
+                        {adminPreviewMode ? 'Apply (test mode)' : 'Edit application'}
                       </Link>
                     )}
-                    {showActionsWithdraw && (
+                    {showActionsWithdraw && !adminPreviewMode && (
                       <button
                         type="button"
                         onClick={() => { setShowWithdrawModal(true); setWithdrawErr(null) }}
@@ -498,19 +587,20 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
       {hasActions && (
         <div className="fixed bottom-0 inset-x-0 z-40 sm:hidden bg-white/95 backdrop-blur border-t border-slate-200 px-4 py-3 flex gap-2 animate-tsf-fade-up">
           {showActionsApply && (
-            <PressableButton href={`/apply/${event.slug}`} variant="primary" fullWidth size="sm">
-              Apply
+            <PressableButton href={adminPreviewMode ? `/apply/${event.slug}?test=1` : `/apply/${event.slug}`} variant="primary" fullWidth size="sm" target={adminPreviewMode ? '_blank' : undefined}>
+              {adminPreviewMode ? 'Apply (test)' : 'Apply'}
             </PressableButton>
           )}
           {showActionsEdit && (
             <Link
-              href={`/apply/${event.slug}?edit=1`}
+              href={adminPreviewMode ? `/apply/${event.slug}?test=1` : `/apply/${event.slug}?edit=1`}
+              target={adminPreviewMode ? '_blank' : undefined}
               className="flex-1 px-3 py-2 text-sm text-center text-steps-blue-700 font-semibold border border-steps-blue-300 rounded-xl bg-white"
             >
-              Edit
+              {adminPreviewMode ? 'Apply (test)' : 'Edit'}
             </Link>
           )}
-          {showActionsWithdraw && (
+          {showActionsWithdraw && !adminPreviewMode && (
             <button
               type="button"
               onClick={() => { setShowWithdrawModal(true); setWithdrawErr(null) }}
@@ -660,5 +750,17 @@ function CheckinQrCard({ eventId, eventDate }: { eventId: string; eventDate: str
         </div>
       </div>
     </div>
+  )
+}
+
+export default function EventOverviewPage({ params }: { params: { id: string } }) {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-slate-50 to-white">
+        <div aria-hidden className="animate-spin w-8 h-8 border-2 border-steps-blue-600 border-t-transparent rounded-full" />
+      </div>
+    }>
+      <EventOverviewPageInner params={params} />
+    </Suspense>
   )
 }
