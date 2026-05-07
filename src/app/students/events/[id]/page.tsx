@@ -1679,6 +1679,28 @@ export default function EventDetailPage() {
     if (!window.confirm(summary + '\n\nProceed?')) return
     if (changing.length === 0) return
 
+    // Capacity-aware nudge: when bulk-accepting and the result would put us
+    // above the event capacity, warn the admin. They can either back off
+    // (swap to waitlist), accept anyway (over capacity), or shrink the
+    // selection elsewhere. We only warn — don't block — because over-capacity
+    // is sometimes intentional (e.g. expecting some no-shows).
+    if (newStatus === 'accepted' && event?.capacity != null) {
+      const currentlyAccepted = applicants.filter(a => a.status === 'accepted').length
+      const becomingAccepted = changing.filter(a => a.status !== 'accepted').length
+      const projected = currentlyAccepted + becomingAccepted
+      if (projected > event.capacity) {
+        const overBy = projected - event.capacity
+        const cap = event.capacity
+        const ok = window.confirm(
+          `Heads up — accepting these will put the event ${overBy} over capacity (${projected} accepted vs ${cap} places).\n\n` +
+          `Options:\n` +
+          `  • Click OK to accept anyway (intentional over-capacity)\n` +
+          `  • Click Cancel to back out — you can use Waitlist instead`
+        )
+        if (!ok) return
+      }
+    }
+
     const changingIds = changing.map(a => a.id)
     const now = new Date().toISOString()
 
@@ -1721,6 +1743,25 @@ export default function EventDetailPage() {
         reviewed_at: now,
       } : a
     ))
+    // Auto-promote from waitlist when accepted seats are vacated.
+    // Count how many newly-withdrew rows came from the 'accepted' bucket —
+    // that's how many seats freed up. Call promote_from_waitlist that many
+    // times (each call promotes one applicant). The RPC is no-op if the
+    // waitlist is empty or capacity is already exceeded.
+    if (newStatus === 'withdrew' && event?.id) {
+      const seatsFreed = changing.filter(a => a.status === 'accepted').length
+      let promoted = 0
+      for (let i = 0; i < seatsFreed; i++) {
+        const { data, error } = await supabase.rpc('promote_from_waitlist', { p_event_id: event.id })
+        if (error || data == null) break
+        promoted++
+      }
+      if (promoted > 0) {
+        // Refresh local applicants so the promoted row(s) flip to accepted in the UI.
+        try { await loadApplicants() } catch {}
+      }
+    }
+
     setSelected(new Set())
     setBulkDecisionReason('')
   }
