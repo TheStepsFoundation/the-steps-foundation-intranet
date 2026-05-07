@@ -555,7 +555,7 @@ export async function submitEventApplication(
   eventId: string,
   studentId: string,
   stage2: Stage2Submission,
-  options: { eligible: boolean },
+  options: { eligible: boolean; isTest?: boolean },
 ): Promise<{ error: string | null; applicationId?: string }> {
   const attributionMap: Record<string, string> = {
     'email_invite': 'email',
@@ -632,6 +632,7 @@ export async function submitEventApplication(
           raw_response: rawResponse,
           channel: stage2.attributionSource,
           attribution_source: attributionMap[stage2.attributionSource] || 'other',
+          is_test: options.isTest ? true : false,
         })
         .select('id')
         .single(),

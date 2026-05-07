@@ -90,6 +90,9 @@ export default function ApplyPage() {
   const searchParams = useSearchParams()
   const editMode = searchParams.get('edit') === '1'
   const previewMode = searchParams.get('preview') === '1'
+  // Admin test mode — submit goes through normally but the row is flagged
+  // is_test=true so it doesn't pollute real applicant lists / counts.
+  const testMode = searchParams.get('test') === '1'
   // Inline preview from the admin editor: when previewMode is on AND we're
   // inside an iframe, listen for a one-shot postMessage carrying the live
   // editDraft snapshot so the preview reflects the in-memory editor state
@@ -871,6 +874,7 @@ export default function ApplyPage() {
 
     const result = await submitEventApplication(event!.id, studentId, stage2, {
       eligible: isEligible !== false,
+      isTest: testMode,
     })
     if (result.error) {
       submittingRef.current = false // release so the student can retry after reading the error

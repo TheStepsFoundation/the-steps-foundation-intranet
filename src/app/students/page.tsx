@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched, useEvents } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
 import SelectAllBanner from '@/components/SelectAllBanner'
-import AddTestStudentModal from '@/components/AddTestStudentModal'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -86,12 +85,10 @@ export default function StudentsDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [students, setStudents] = useState<EnrichedStudent[]>([])
-  const [showAddStudent, setShowAddStudent] = useState(false)
-  // After a test student is created, we surface a magic-link sign-in URL (if
+    // After a test student is created, we surface a magic-link sign-in URL (if
   // the API produced one) so admins can sign in as the dummy without having
   // to actually receive the OTP email at the test address.
-  const [lastTestStudentMagicLink, setLastTestStudentMagicLink] = useState<string | null>(null)
-  const [sortBy, setSortBy] = useState<SortKey>('engagement')
+    const [sortBy, setSortBy] = useState<SortKey>('engagement')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filters, setFilters] = useState<Filters>(defaultFilters())
   const [panelOpen, setPanelOpen] = useState(false)
@@ -364,31 +361,6 @@ export default function StudentsDashboard() {
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {lastTestStudentMagicLink && (
-        <div className="mb-4 rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-100 px-4 py-3 text-sm flex items-center justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="font-medium">Test student created — sign in as them to see the first-sign-in experience.</div>
-            <div className="text-xs mt-0.5 text-emerald-800 dark:text-emerald-200 break-all">Open this magic link (expires shortly): <a href={lastTestStudentMagicLink} target="_blank" rel="noopener noreferrer" className="underline">{lastTestStudentMagicLink}</a></div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => { if (lastTestStudentMagicLink) navigator.clipboard.writeText(lastTestStudentMagicLink) }}
-              className="px-2 py-1 text-xs rounded-md border border-emerald-400 dark:border-emerald-600 bg-white dark:bg-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/60"
-            >
-              Copy
-            </button>
-            <button
-              type="button"
-              onClick={() => setLastTestStudentMagicLink(null)}
-              className="px-2 py-1 text-xs rounded-md border border-emerald-400 dark:border-emerald-600 bg-white dark:bg-emerald-900/40 hover:bg-emerald-50 dark:hover:bg-emerald-900/60"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6 animate-tsf-fade-up">
         <div>
           <Link href="/hub" className="text-sm text-steps-blue-600 hover:text-steps-blue-700 inline-flex items-center gap-1 mb-2">
@@ -399,20 +371,6 @@ export default function StudentsDashboard() {
           <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Engagement across every Steps event &mdash; sortable, filterable, exportable.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link
-            href="/students/review-schools"
-            className="px-3 py-2 text-sm rounded-md border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40"
-            title="Review students whose school name didn't auto-link to GIAS."
-          >
-            Review schools
-          </Link>
-          <button
-            onClick={() => setShowAddStudent(true)}
-            className="px-3 py-2 text-sm rounded-md border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
-            title="Create a dummy student (auth account + students row) for testing."
-          >
-            + Add student
-          </button>
           <input
             value={filters.search}
             onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
@@ -777,19 +735,6 @@ export default function StudentsDashboard() {
             </button>
           </div>
         </div>
-      )}
-
-      {showAddStudent && (
-        <AddTestStudentModal
-          onClose={() => setShowAddStudent(false)}
-          onCreated={async (_id, extras) => {
-            setShowAddStudent(false)
-            if (extras?.magicLink) setLastTestStudentMagicLink(extras.magicLink)
-            // Refresh the list so the new test student appears immediately.
-            const fresh = await fetchAllStudentsEnriched({ forceRefresh: true })
-            setStudents(fresh)
-          }}
-        />
       )}
     </main>
   )

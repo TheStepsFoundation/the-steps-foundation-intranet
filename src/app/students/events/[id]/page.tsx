@@ -1311,6 +1311,10 @@ export default function EventDetailPage() {
     return () => { active = false }
   }, [eventId])
 
+  // Test-applications visibility toggle (default off; admin opts in to see
+  // is_test=true rows in the applicants table).
+  const [showTestApplicants, setShowTestApplicants] = useState(false)
+
   // Fetch applicants (batched to avoid Supabase's 1000-row default limit)
   const loadApplicants = useCallback(async () => {
     setAppLoading(true)
@@ -3008,6 +3012,17 @@ export default function EventDetailPage() {
                 <span className="w-1.5 h-1.5 rounded-full bg-steps-blue-500" />
               )}
             </button>
+
+            {/* Show test applications toggle */}
+            <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10 cursor-pointer select-none" title="Test applications submitted via the Test mode link are hidden by default">
+              <input
+                type="checkbox"
+                checked={showTestApplicants}
+                onChange={e => setShowTestApplicants(e.target.checked)}
+                className="w-3.5 h-3.5 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+              />
+              Show test
+            </label>
 
             {/* Email queue status — shown when there's activity on this event, until admin dismisses */}
             {!queueDismissed && (queueStats.queued > 0 || queueStats.sending > 0 || queueStats.failed > 0) && (
