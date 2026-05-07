@@ -289,7 +289,7 @@ function Inner() {
 
   // Render
   return (
-    <main className="max-w-7xl 2xl:max-w-[110rem] mx-auto px-4 sm:px-8 lg:px-10 py-8">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* === Header === */}
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6 animate-tsf-fade-up">
         <div>
@@ -297,8 +297,8 @@ function Inner() {
             <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
             Hub
           </Link>
-          <h1 className="font-display text-3xl sm:text-4xl font-black text-steps-dark dark:text-gray-100 tracking-tight">Events</h1>
-          <p className="text-sm sm:text-base text-slate-500 dark:text-gray-400 mt-1">Manage applications and communications for every Steps event.</p>
+          <h1 className="font-display text-3xl font-black text-steps-dark dark:text-gray-100 tracking-tight">Events</h1>
+          <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Manage applications and communications for every Steps event.</p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -858,7 +858,7 @@ function Kpi({ label, value, accent, good, warn }: { label: string; value: numbe
 export default function EventsOverviewPage() {
   return (
     <Suspense fallback={
-      <main className="max-w-7xl 2xl:max-w-[110rem] mx-auto px-4 sm:px-8 lg:px-10 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
           <div aria-hidden className="animate-spin w-7 h-7 border-2 border-steps-blue-600 border-t-transparent rounded-full mx-auto mb-3" />
           <p className="text-sm text-slate-500">Loading events…</p>
