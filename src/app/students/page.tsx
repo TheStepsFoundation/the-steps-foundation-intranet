@@ -1,7 +1,10 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { StudentHubPreview, type PreviewProfile } from '@/components/StudentHubPreview'
+import type { HubApplication, HubEvent } from '@/lib/hub-api'
+import { fetchOpenEvents } from '@/lib/hub-api'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched, useEvents } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
 import SelectAllBanner from '@/components/SelectAllBanner'
@@ -359,17 +362,8 @@ export default function StudentsDashboard() {
     }
   }
 
-  // Preview Student Hub modal state
+  // Preview Student Hub (synthetic profile mode) modal state
   const [showPreviewHub, setShowPreviewHub] = useState(false)
-  const [previewSearch, setPreviewSearch] = useState('')
-  const previewMatches = useMemo(() => {
-    const q = previewSearch.trim().toLowerCase()
-    if (!q) return [] as typeof students
-    return students.filter(s =>
-      (s.first_name + ' ' + s.last_name).toLowerCase().includes(q) ||
-      (s.personal_email ?? '').toLowerCase().includes(q)
-    ).slice(0, 8)
-  }, [students, previewSearch])
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -748,54 +742,8 @@ export default function StudentsDashboard() {
           </div>
         </div>
       )}
-    {showPreviewHub && (
-        <div role="dialog" aria-modal="true" aria-label="Preview Student Hub" onClick={() => setShowPreviewHub(false)} className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-tsf-fade-in">
-          <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 sm:p-7 animate-tsf-fade-up">
-            <h2 className="font-display text-xl font-bold text-steps-dark mb-1">Preview Student Hub</h2>
-            <p className="text-sm text-slate-500 mb-4">
-              Open the hub from a specific student's perspective — useful for debugging visibility, eligibility, or status display.
-            </p>
-            <div className="mb-4">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Find a student</label>
-              <input
-                type="search"
-                value={previewSearch}
-                onChange={e => setPreviewSearch(e.target.value)}
-                placeholder="Type a name or email…"
-                autoFocus
-                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none"
-              />
-            </div>
-            <div className="space-y-1 max-h-[280px] overflow-y-auto">
-              {previewSearch.trim() === '' ? (
-                <p className="text-xs text-slate-400 italic px-1 py-2">Start typing to find a student…</p>
-              ) : previewMatches.length === 0 ? (
-                <p className="text-xs text-slate-400 italic px-1 py-2">No matches.</p>
-              ) : (
-                previewMatches.map(s => (
-                  <Link
-                    key={s.id}
-                    href={`/students/${s.id}`}
-                    onClick={() => setShowPreviewHub(false)}
-                    className="block px-3 py-2 rounded-lg hover:bg-violet-50 transition"
-                  >
-                    <span className="text-sm font-semibold text-steps-dark">{s.first_name} {s.last_name}</span>
-                    <span className="block text-xs text-slate-500">{s.personal_email}{s.year_group ? ` · Year ${s.year_group}` : ''}{s.school_name_raw ? ` · ${s.school_name_raw}` : ''}</span>
-                  </Link>
-                ))
-              )}
-            </div>
-            <div className="mt-5 pt-4 border-t border-slate-200 text-xs text-slate-500">
-              <p className="font-semibold text-slate-700 mb-1">Coming soon: synthetic profile preview</p>
-              <p>Build a hypothetical student (year group, school type, eligibility, simulated event statuses) and view the hub as if they were signed in. This release covers the real-student path — pick a student above to open their student-side detail page.</p>
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button type="button" onClick={() => setShowPreviewHub(false)} className="px-4 py-2 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition">
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
+{showPreviewHub && (
+        <SyntheticHubPreviewOverlay onClose={() => setShowPreviewHub(false)} />
       )}
     </main>
   )
@@ -932,5 +880,116 @@ function LegendDot({ className, label }: { className: string; label: string }) {
       <span className={`inline-block w-2 h-2 rounded-full ${className}`} />
       {label}
     </span>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// SyntheticHubPreviewOverlay
+//
+// Modal for the admin to compose a hypothetical student profile and see the
+// /my hub layout from that student's perspective. Year group is required
+// (it's the only field that meaningfully changes hub visibility); the four
+// 'shape of who Steps targets' fields default-locked to the canonical
+// case (state school / first-gen yes / FSM yes / under-£40k income).
+// ---------------------------------------------------------------------------
+function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
+  const [yearGroup, setYearGroup] = useState<number>(12)
+  const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
+  const [pickedEventStatuses, setPickedEventStatuses] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    fetchOpenEvents().then(es => { if (active) { setOpenEvents(es); setLoading(false) } })
+    return () => { active = false }
+  }, [])
+
+  const profile: PreviewProfile = {
+    first_name: 'Sample',
+    year_group: yearGroup,
+    school_type: 'state',
+    free_school_meals: true,
+    parental_income_band: 'under_40k',
+    first_generation_uni: false,
+  }
+  const applications: HubApplication[] = openEvents
+    .filter(e => pickedEventStatuses[e.id])
+    .map(e => ({
+      id: `synthetic_${e.id}`,
+      event_id: e.id,
+      status: pickedEventStatuses[e.id],
+      created_at: new Date().toISOString(),
+      event: e,
+      status_history: [],
+    }))
+
+  const STATUS_OPTIONS = ['submitted', 'shortlisted', 'waitlist', 'accepted', 'rejected', 'withdrew']
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Preview Student Hub" onClick={onClose}
+      className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-stretch justify-center p-4 sm:p-6 animate-tsf-fade-in">
+      <div onClick={e => e.stopPropagation()} className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col animate-tsf-fade-up">
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 bg-violet-50">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] font-bold text-violet-700">Synthetic preview</p>
+            <p className="text-sm font-semibold text-steps-dark mt-0.5">Configure a hypothetical student → see /my as them</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-0 overflow-hidden">
+          {/* Profile picker */}
+          <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 p-4 overflow-y-auto bg-slate-50/50">
+            <h3 className="font-display text-sm font-bold text-steps-dark uppercase tracking-wider mb-3">Profile</h3>
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Year group</label>
+              <select value={yearGroup} onChange={e => setYearGroup(Number(e.target.value))}
+                className="w-full px-3 py-1.5 text-sm rounded-md border border-slate-300 bg-white">
+                <option value={12}>Year 12</option>
+                <option value={13}>Year 13</option>
+                <option value={14}>Gap year</option>
+              </select>
+            </div>
+            <div className="text-xs text-slate-500 space-y-1 mb-4 px-1">
+              <p>Defaults locked: state school · first-gen yes · FSM yes · under £40k</p>
+            </div>
+
+            <h3 className="font-display text-sm font-bold text-steps-dark uppercase tracking-wider mb-2 mt-5">Simulated applications</h3>
+            <p className="text-xs text-slate-500 mb-3">Pick a status per event to simulate having applied with that outcome.</p>
+            {loading ? (
+              <p className="text-xs text-slate-400">Loading events…</p>
+            ) : openEvents.length === 0 ? (
+              <p className="text-xs text-slate-400">No open events to simulate.</p>
+            ) : (
+              <div className="space-y-2">
+                {openEvents.slice(0, 8).map(e => (
+                  <div key={e.id} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                    <p className="text-xs font-semibold text-steps-dark truncate">{e.name}</p>
+                    <select value={pickedEventStatuses[e.id] ?? ''}
+                      onChange={ev => setPickedEventStatuses(prev => {
+                        const next = { ...prev }
+                        if (ev.target.value) next[e.id] = ev.target.value
+                        else delete next[e.id]
+                        return next
+                      })}
+                      className="mt-1 w-full px-2 py-1 text-xs rounded border border-slate-300 bg-white">
+                      <option value="">— Not applied —</option>
+                      {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+          </aside>
+
+          {/* Preview pane */}
+          <main className="overflow-y-auto bg-white">
+            <StudentHubPreview profile={profile} applications={applications} openEvents={openEvents} />
+          </main>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { StudentHubPreview, type PreviewProfile } from '@/components/StudentHubPreview'
+import { fetchOpenEvents, type HubApplication, type HubEvent } from '@/lib/hub-api'
 import {
   ATTRIBUTION_SOURCES,
   StudentRow,
@@ -41,6 +43,10 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [enriched, setEnriched] = useState<EnrichedStudent | null>(null)
+  const [showHubPreview, setShowHubPreview] = useState(false)
+  const [hubPreviewApps, setHubPreviewApps] = useState<HubApplication[]>([])
+  const [hubPreviewOpenEvents, setHubPreviewOpenEvents] = useState<HubEvent[]>([])
+  const [hubPreviewLoading, setHubPreviewLoading] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<StudentUpdate>({})
   const [saving, setSaving] = useState(false)
@@ -49,6 +55,57 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
 
   const student: StudentRow | null = enriched
   const apps: ApplicationRow[] = enriched?.applications ?? []
+
+  // Fetch the HubEvent rows + open-events list when the Preview Student Hub
+  // overlay is opened. Uses admin Supabase client (RLS allows team members to
+  // read events). Constructs synthetic HubApplication[] objects by joining
+  // each ApplicationRow with its corresponding event row.
+  useEffect(() => {
+    if (!showHubPreview || !student) return
+    let active = true
+    setHubPreviewLoading(true)
+    const eventIds = Array.from(new Set(apps.map(a => a.event_id)))
+    Promise.all([
+      eventIds.length > 0
+        ? supabase.from('events').select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year').in('id', eventIds).is('deleted_at', null).then(r => r.data ?? [])
+        : Promise.resolve([] as any[]),
+      fetchOpenEvents(),
+    ]).then(([eventRows, openEvents]) => {
+      if (!active) return
+      const eventById = new Map<string, HubEvent>()
+      for (const e of eventRows as HubEvent[]) eventById.set(e.id, e)
+      const hubApps: HubApplication[] = apps
+        .filter(a => eventById.has(a.event_id))
+        .map(a => ({
+          id: a.id,
+          event_id: a.event_id,
+          status: a.status,
+          created_at: a.submitted_at ?? new Date().toISOString(),
+          event: eventById.get(a.event_id)!,
+          status_history: [],
+        }))
+      setHubPreviewApps(hubApps)
+      setHubPreviewOpenEvents(openEvents.filter(oe => !eventIds.includes(oe.id)))
+      setHubPreviewLoading(false)
+    }).catch(() => { if (active) setHubPreviewLoading(false) })
+    return () => { active = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHubPreview, student?.id])
+
+  const previewProfile: PreviewProfile | null = student ? {
+    first_name: student.first_name ?? null,
+    year_group: (() => {
+      const yg = student.year_group
+      if (yg == null) return null
+      // Admin-side year_group is text — extract digits.
+      const n = parseInt(String(yg).match(/\d+/)?.[0] ?? '', 10)
+      return Number.isFinite(n) ? n : null
+    })(),
+    school_type: student.school_type ?? null,
+    free_school_meals: student.free_school_meals ?? null,
+    parental_income_band: student.parental_income_band ?? null,
+    first_generation_uni: student.first_generation_uni ?? null,
+  } : null
 
   async function reload() {
     const row = await fetchEnrichedStudent(id)
@@ -207,6 +264,15 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
             />
           )}
           <Badge label={`Score ${enriched.engagement_score}`} tone="indigo" />
+          <button
+            type="button"
+            onClick={() => setShowHubPreview(true)}
+            className="ml-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-violet-300 dark:border-violet-700 text-violet-800 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40 inline-flex items-center gap-1.5"
+            title="See /my from this student's perspective"
+          >
+            <svg aria-hidden className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+            Preview Student Hub
+          </button>
           {!editing ? (
             <button onClick={startEdit} className="ml-2 px-3 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700">Edit</button>
           ) : (
@@ -528,6 +594,29 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
         {student.parental_income_band && <Flag>Income: {incomeLabel(student.parental_income_band)}</Flag>}
         {student.subscribed_to_mailing ? <Flag tone="green">On mailing list</Flag> : <Flag tone="gray">Not subscribed</Flag>}
       </div>
+    {showHubPreview && previewProfile && (
+        <div role="dialog" aria-modal="true" aria-label="Preview Student Hub" onClick={() => setShowHubPreview(false)}
+          className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-stretch justify-center p-4 sm:p-6 animate-tsf-fade-in">
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col animate-tsf-fade-up">
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 bg-violet-50">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] font-bold text-violet-700">Hub preview</p>
+                <p className="text-sm font-semibold text-steps-dark mt-0.5">As seen by {previewProfile.first_name ?? 'this student'}</p>
+              </div>
+              <button type="button" onClick={() => setShowHubPreview(false)} aria-label="Close" className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto bg-white">
+              {hubPreviewLoading ? (
+                <div className="text-sm text-slate-500 text-center py-12">Loading hub data…</div>
+              ) : (
+                <StudentHubPreview profile={previewProfile} applications={hubPreviewApps} openEvents={hubPreviewOpenEvents} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
