@@ -1019,17 +1019,18 @@ export default function EventDetailPage() {
     try { return await promise } finally { autosaveInflightRef.current = null }
   }, [event, editDraft, buildEventPatch])
 
-  // Debounce: 1.5s after the last editDraft mutation, fire an autosave.
+  // Debounce: 3s after the last editDraft mutation, fire an autosave.
   // Re-running the effect on every editDraft change cancels the previous
-  // timer, so rapid typing only ever triggers one save 1.5s after the user
-  // stops.
+  // timer, so rapid typing only ever triggers one save 3s after the user
+  // stops typing — keeps the DB chatter low without losing too much
+  // work if the tab crashes.
   useEffect(() => {
     if (!editing) return
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current)
     autosaveTimerRef.current = setTimeout(() => {
       autosaveTimerRef.current = null
       void runAutosave()
-    }, 1500)
+    }, 3000)
     return () => {
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current)
