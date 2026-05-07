@@ -720,6 +720,15 @@ export default function EventDetailPage() {
   // state. Closes on backdrop click or X.
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewKey, setPreviewKey] = useState(0)
+  // Pre-flight publish state. When admin picks a non-draft status from the
+  // status select while the event is currently 'draft', we don't immediately
+  // mutate editDraft — we open this modal first so they can review what
+  // students will see, validate the publish gate, then confirm. Cancel keeps
+  // the event as draft.
+  const [pendingPublishStatus, setPendingPublishStatus] = useState<EventRow['status'] | null>(null)
+  // Post-publish handoff banner. Shows a 'Send invitations now' link to open
+  // InviteStudentsModal once the status has actually flipped to non-draft.
+  const [justPublished, setJustPublished] = useState(false)
   const openPreview = async () => {
     // Flush any pending autosave before opening so the iframe loads the
     // latest state from the DB. Sets a fresh key so the iframe re-mounts
@@ -2342,6 +2351,28 @@ export default function EventDetailPage() {
               )
             })()}
 
+            {/* Post-publish handoff banner — appears once status has flipped
+                to a non-draft value, until admin clicks 'Send invitations'
+                or dismisses. */}
+            {justPublished && event.status !== 'draft' && (
+              <div role="status" aria-live="polite" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-800 px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-sm">
+                  <span className="font-semibold text-emerald-800 dark:text-emerald-300">Published!</span>
+                  <span className="text-emerald-700 dark:text-emerald-300 ml-1">Want to invite students now?</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => { setJustPublished(false); setShowInvite(true) }}
+                    className="px-3 py-1.5 text-xs rounded-md bg-emerald-600 text-white font-semibold hover:bg-emerald-700">
+                    Send invitations →
+                  </button>
+                  <button type="button" onClick={() => setJustPublished(false)}
+                    className="px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300 hover:underline">
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Section: Basics (Name, slug, status, date, times, location, capacity) */}
             <Section id="basics" title="Basics" subtitle="Name, status, date, times, location, capacity, application window, description" defaultOpen>
             {/* Row 1: Name + Slug + Status + Lead organiser */}
@@ -2356,7 +2387,23 @@ export default function EventDetailPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Status</label>
-                <select value={editDraft.status ?? 'draft'} onChange={e => setEditDraft(d => ({ ...d, status: e.target.value as EventRow['status'] }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                <select value={editDraft.status ?? event.status} onChange={e => {
+                  const next = e.target.value as EventRow['status']
+                  const current = editDraft.status ?? event.status
+                  // Only trigger pre-flight when actually transitioning out of draft.
+                  // Going draft -> draft, or non-draft -> anything (already published),
+                  // or anything -> cancelled, all skip the preflight modal.
+                  if (current === 'draft' && next !== 'draft' && next !== 'cancelled') {
+                    // Cheap client-side gate first — if validation fails, just
+                    // surface the existing checklist and don't open the modal.
+                    const projected = { ...event, ...editDraft, status: next } as Partial<EventRow>
+                    const errs = validateForPublish(projected)
+                    if (errs.length > 0) { setPublishErrors(errs); return }
+                    setPendingPublishStatus(next)
+                    return
+                  }
+                  setEditDraft(d => ({ ...d, status: next }))
+                }} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
                   <option value="draft">Draft</option>
                   <option value="open">Open</option>
                   <option value="closed">Closed</option>
@@ -3812,6 +3859,57 @@ export default function EventDetailPage() {
       )}
 
       {/* Invite Students Modal */}
+      {/* === Pre-flight publish dialog ===
+          Side-by-side previews of the event detail page and the apply form,
+          rendered as students will see them. Confirm flips status, triggers
+          a save, and shows the publish-success banner with the 'Send
+          invitations' handoff. Cancel keeps the event as draft. */}
+      {pendingPublishStatus && event && (
+        <div role="dialog" aria-modal="true" aria-label="Publish event preview" onClick={() => setPendingPublishStatus(null)} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-tsf-fade-in">
+          <div onClick={e => e.stopPropagation()} className="relative w-full max-w-6xl h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-200 bg-slate-50">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.2em] font-bold text-steps-blue-700">Pre-flight check</p>
+                <p className="text-sm font-semibold text-steps-dark mt-0.5">Publishing &quot;{editDraft.name ?? event.name}&quot;</p>
+              </div>
+              <button type="button" onClick={() => setPendingPublishStatus(null)} aria-label="Close" className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-200">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 p-3 overflow-hidden">
+              <div className="flex flex-col rounded-xl border border-slate-200 overflow-hidden">
+                <p className="px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-50 border-b border-slate-200">Event detail page (student hub)</p>
+                <iframe src={`/my/events/${event.id}?_admin_preflight=1`} title="Event detail preview" className="flex-1 w-full bg-white" />
+              </div>
+              <div className="flex flex-col rounded-xl border border-slate-200 overflow-hidden">
+                <p className="px-3 py-2 text-xs font-semibold text-slate-600 bg-slate-50 border-b border-slate-200">Application form</p>
+                <iframe src={`/apply/${editDraft.slug ?? event.slug}?preview=1`} title="Apply form preview" className="flex-1 w-full bg-white" />
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2">
+              <p className="text-xs text-slate-500">After publishing, you&apos;ll be able to send invitations from the toast banner that appears in the editor.</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setPendingPublishStatus(null)} className="px-4 py-2 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition">Cancel</button>
+                <button type="button" onClick={async () => {
+                  // Apply the status change to editDraft — autosave debounce will
+                  // pick it up, but we also explicitly flush via saveEditing so
+                  // the publish lands immediately (no 3s lag while admin sits
+                  // looking at the screen).
+                  setEditDraft(d => ({ ...d, status: pendingPublishStatus }))
+                  setPendingPublishStatus(null)
+                  // Schedule the success banner once the save lands. We poll
+                  // the autosave status via setTimeout — if it succeeds, flip
+                  // the banner; if it fails the publishErrors flow handles it.
+                  setTimeout(() => setJustPublished(true), 100)
+                }} className="px-4 py-2 text-sm rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 transition">
+                  Publish &amp; flip status to {pendingPublishStatus}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {previewOpen && event && (
         <div role="dialog" aria-modal="true" aria-label="Form preview" onClick={() => setPreviewOpen(false)} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-tsf-fade-in">
           <div onClick={e => e.stopPropagation()} className="relative w-full max-w-4xl h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import type { FormFieldConfig, FormFieldType, FormPage, ConditionalRule, StandardOverrides, StandardOverride } from "@/lib/events-api"
+import { QUESTION_LIBRARY, LIBRARY_CATEGORY_LABELS, type LibraryEntry } from "@/lib/question-library"
 import LinkableInput from "./LinkableInput"
 import MediaUploader from "./MediaUploader"
 import { stripToText } from "@/lib/sanitize-html"
@@ -397,6 +398,29 @@ type Props = {
 
 export default function FormBuilder({ fields, pages, standardOverrides, onChange, showStandardQuestions = true, headerTitle = 'Application Form Builder', perPageHint }: Props) {
   const [showTypePicker, setShowTypePicker] = useState(false)
+  // Picker mode toggle: 'types' (the existing 16 field-types grid) or
+  // 'library' (canonical Steps questions, fully pre-typed).
+  const [pickerMode, setPickerMode] = useState<'types' | 'library'>('types')
+  const [librarySearch, setLibrarySearch] = useState('')
+  const addFromLibrary = (entry: LibraryEntry) => {
+    const id = `field_${Date.now()}`
+    const f = entry.field
+    const newField: FormFieldConfig = {
+      id,
+      type: f.type,
+      label: f.label,
+      required: f.required ?? false,
+      ...(f.description ? { description: f.description } : {}),
+      ...(f.placeholder ? { placeholder: f.placeholder } : {}),
+      ...(f.options && (NEEDS_OPTIONS.includes(f.type) || f.type === 'ranked_dropdown')
+        ? { options: f.options.map(opt => ({ value: opt, label: opt })) }
+        : {}),
+      ...(f.type === "ranked_dropdown" ? { config: { ranks: Math.min(3, (f.options ?? []).length || 3) } } : {}),
+    } as FormFieldConfig
+    setActiveFields([...activeFields, newField])
+    setShowTypePicker(false)
+    setPickerMode('types')
+  }
   const [activePage, setActivePage] = useState(0)
   const [openStandardGroups, setOpenStandardGroups] = useState<Record<'about' | 'context' | 'finishing', boolean>>({
     about: true, context: true, finishing: true,
@@ -1211,29 +1235,93 @@ export default function FormBuilder({ fields, pages, standardOverrides, onChange
         </button>
       ) : (
         <div className="p-3 border border-steps-blue-200 dark:border-steps-blue-800 rounded-lg bg-steps-blue-50 dark:bg-steps-blue-900/20">
-          {(["basic", "choice", "advanced", "layout"] as const).map(cat => {
-            const types = FIELD_TYPES.filter(ft => ft.category === cat)
-            return (
-              <div key={cat} className="mb-3 last:mb-0">
-                <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">{CATEGORY_LABELS[cat]}</p>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {types.map(ft => (
-                    <button key={ft.value} onClick={() => addField(ft.value)}
-                      className="text-left p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-steps-blue-400 dark:hover:border-steps-blue-500 transition flex items-start gap-2">
-                      <span className="w-9 h-9 shrink-0 flex items-center justify-center text-sm font-bold text-steps-blue-600 dark:text-steps-blue-400 bg-steps-blue-50 dark:bg-steps-blue-900/30 rounded">
-                        {ft.icon}
-                      </span>
-                      <div className="min-w-0">
-                        <span className="block text-xs font-medium text-gray-800 dark:text-gray-200 leading-tight">{ft.label}</span>
-                        <span className="block text-[10px] text-gray-500 dark:text-gray-400 leading-tight">{ft.desc}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-          <button onClick={() => setShowTypePicker(false)}
+          {/* Mode toggle: blank field-types vs canonical question library */}
+          <div role="tablist" aria-label="Add field source" className="grid grid-cols-2 gap-1 p-1 bg-white dark:bg-gray-800 rounded-md mb-3">
+            <button role="tab" aria-selected={pickerMode === 'types'} onClick={() => setPickerMode('types')}
+              className={`text-xs font-semibold py-1.5 rounded ${pickerMode === 'types' ? 'bg-steps-blue-600 text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+              Blank field
+            </button>
+            <button role="tab" aria-selected={pickerMode === 'library'} onClick={() => setPickerMode('library')}
+              className={`text-xs font-semibold py-1.5 rounded ${pickerMode === 'library' ? 'bg-steps-blue-600 text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>
+              From question library
+            </button>
+          </div>
+
+          {pickerMode === 'types' && (
+            <>
+              {(["basic", "choice", "advanced", "layout"] as const).map(cat => {
+                const types = FIELD_TYPES.filter(ft => ft.category === cat)
+                return (
+                  <div key={cat} className="mb-3 last:mb-0">
+                    <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">{CATEGORY_LABELS[cat]}</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {types.map(ft => (
+                        <button key={ft.value} onClick={() => addField(ft.value)}
+                          className="text-left p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-steps-blue-400 dark:hover:border-steps-blue-500 transition flex items-start gap-2">
+                          <span className="w-9 h-9 shrink-0 flex items-center justify-center text-sm font-bold text-steps-blue-600 dark:text-steps-blue-400 bg-steps-blue-50 dark:bg-steps-blue-900/30 rounded">
+                            {ft.icon}
+                          </span>
+                          <div className="min-w-0">
+                            <span className="block text-xs font-medium text-gray-800 dark:text-gray-200 leading-tight">{ft.label}</span>
+                            <span className="block text-[10px] text-gray-500 dark:text-gray-400 leading-tight">{ft.desc}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </>
+          )}
+
+          {pickerMode === 'library' && (
+            <div>
+              <input
+                type="search"
+                value={librarySearch}
+                onChange={e => setLibrarySearch(e.target.value)}
+                placeholder="Search the library…"
+                className="w-full mb-3 px-3 py-1.5 text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 placeholder:text-gray-400 focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none"
+              />
+              {(Object.keys(LIBRARY_CATEGORY_LABELS) as Array<keyof typeof LIBRARY_CATEGORY_LABELS>).map(cat => {
+                const q = librarySearch.trim().toLowerCase()
+                const entries = QUESTION_LIBRARY.filter(e => e.category === cat).filter(e => {
+                  if (!q) return true
+                  return e.name.toLowerCase().includes(q)
+                    || e.field.label.toLowerCase().includes(q)
+                    || (e.field.description ?? '').toLowerCase().includes(q)
+                })
+                if (entries.length === 0) return null
+                return (
+                  <div key={cat} className="mb-3 last:mb-0">
+                    <p className="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">{LIBRARY_CATEGORY_LABELS[cat]}</p>
+                    <div className="space-y-1.5">
+                      {entries.map(entry => {
+                        const ftMeta = FIELD_TYPES.find(t => t.value === entry.field.type)
+                        return (
+                          <button
+                            key={entry.id}
+                            onClick={() => addFromLibrary(entry)}
+                            className="w-full text-left p-2.5 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-steps-blue-400 dark:hover:border-steps-blue-500 transition"
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-0.5">
+                              <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">{entry.name}</span>
+                              <span className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-gray-700 text-slate-600 dark:text-gray-400 rounded">
+                                {ftMeta?.label ?? entry.field.type}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">{entry.field.label}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          <button onClick={() => { setShowTypePicker(false); setPickerMode('types'); setLibrarySearch('') }}
             className="mt-2 text-xs text-gray-500 hover:text-gray-700 font-medium">Cancel</button>
         </div>
       )}
