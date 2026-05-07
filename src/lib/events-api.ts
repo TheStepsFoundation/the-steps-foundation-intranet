@@ -135,6 +135,7 @@ export type EventRow = {
   open_to_gap_year: boolean
   feedback_config: EventFeedbackConfig | null
   archived_at: string | null
+  lead_team_member_id: string | null
   created_at: string
 }
 
@@ -165,7 +166,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,archived_at,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,archived_at,lead_team_member_id,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
@@ -636,4 +637,48 @@ export async function updateFeedback(id: string, patch: FeedbackPatch): Promise<
 export async function deleteFeedback(id: string): Promise<void> {
   const { error } = await supabase.from('event_feedback').delete().eq('id', id)
   if (error) throw error
+}
+
+// ---------------------------------------------------------------------------
+// Effective status
+//
+// The DB stores admin *intent* in the `status` column (draft / open / closed /
+// completed). The effective state for any given moment also depends on the
+// applications_open_at / applications_close_at / event_date timestamps. So an
+// admin-set 'open' event with apps_close_at in the past is *effectively*
+// closed; an 'open' event with open_at in the future is *effectively*
+// scheduled. The student hub already filters by date window — this helper
+// exposes the same logic to the admin UI so badges and counts agree with
+// what students actually see.
+// ---------------------------------------------------------------------------
+
+export type EffectiveStatus =
+  | 'draft'      // Admin hasn't published yet — never visible to students
+  | 'scheduled'  // Published but applications_open_at is still in the future
+  | 'live'       // Within the application window
+  | 'closed'     // Past applications_close_at, but event hasn't run yet
+  | 'completed'  // Event date has passed
+
+export function computeEventEffectiveStatus(e: Pick<EventRow,
+  'status' | 'applications_open_at' | 'applications_close_at' | 'event_date'
+>): EffectiveStatus {
+  if (e.status === 'draft') return 'draft'
+  const now = Date.now()
+  const eventTime = e.event_date ? new Date(e.event_date + 'T00:00:00').getTime() : null
+  // Past the event date itself → completed regardless of apps window.
+  if (eventTime != null && eventTime < now) return 'completed'
+  const closeTime = e.applications_close_at ? new Date(e.applications_close_at).getTime() : null
+  const openTime = e.applications_open_at ? new Date(e.applications_open_at).getTime() : null
+  if (closeTime != null && closeTime <= now) return 'closed'
+  if (openTime != null && openTime > now) return 'scheduled'
+  // Default within window (or with NULL timestamps, which are non-published-grade configs)
+  return 'live'
+}
+
+export const EFFECTIVE_STATUS_META: Record<EffectiveStatus, { label: string; classes: string; tone: 'slate' | 'blue' | 'emerald' | 'amber' | 'violet' }> = {
+  draft:     { label: 'Draft',     tone: 'slate',   classes: 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300' },
+  scheduled: { label: 'Scheduled', tone: 'blue',    classes: 'bg-steps-blue-50 text-steps-blue-700 border-steps-blue-200 dark:bg-steps-blue-900/30 dark:text-steps-blue-300' },
+  live:      { label: 'Live',      tone: 'emerald', classes: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300' },
+  closed:    { label: 'Closed',    tone: 'amber',   classes: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300' },
+  completed: { label: 'Completed', tone: 'violet',  classes: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300' },
 }
