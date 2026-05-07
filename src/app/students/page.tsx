@@ -993,9 +993,13 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
             )}
           </aside>
 
-          {/* Preview pane */}
-          <main className="overflow-y-auto bg-white">
-            <StudentHubPreview profile={profile} applications={applications} openEvents={openEvents} />
+          {/* Preview pane — iframe of /my in admin-preview synthetic mode */}
+          <main className="bg-white overflow-hidden">
+            <iframe
+              src={`/my?_admin_preview=synthetic&_payload=${encodeURIComponent(btoa(JSON.stringify({ profile, applications, openEvents })))}`}
+              title="Synthetic Student Hub preview"
+              className="w-full h-full bg-white"
+            />
           </main>
         </div>
       </div>

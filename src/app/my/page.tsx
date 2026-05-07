@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useEffect, useState, useCallback, useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import SchoolPicker, { SchoolPickerValue } from '@/components/SchoolPicker'
 import QualificationsEditor, { defaultQualifications } from '@/components/QualificationsEditor'
 import { TopNav } from '@/components/TopNav'
@@ -19,6 +19,7 @@ import { hasPasswordSet, upgradeToPassword, type StudentSelf } from '@/lib/apply
 import { clearAllDrafts } from '@/lib/apply-draft'
 import { getJourneyAwareLabel } from '@/lib/application-status'
 import { supabase } from '@/lib/supabase-student'
+import { supabase as adminSupabase } from '@/lib/supabase'
 import { stripToText } from '@/lib/sanitize-html'
 
 // ---------------------------------------------------------------------------
@@ -70,13 +71,22 @@ function daysUntil(dateStr: string | null): number | null {
 // Page
 // ---------------------------------------------------------------------------
 
-export default function StudentHub() {
+function StudentHubInner() {
   const router = useRouter()
   const [authEmail, setAuthEmail] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<StudentSelf | null>(null)
   const [applications, setApplications] = useState<HubApplication[]>([])
   const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
+  // Admin-preview mode — set when admin opens /my from the Hub Preview overlay.
+  // Two flavours: a real student (?_admin_preview=<student_uuid>) or a
+  // synthetic profile (?_admin_preview=synthetic&_payload=<base64>).
+  // In either case, real student auth is bypassed; the page reads from the
+  // admin API or from the URL payload, and Apply buttons route to test mode.
+  const searchParams = useSearchParams()
+  const adminPreviewParam = searchParams?.get('_admin_preview') ?? null
+  const adminPreviewPayload = searchParams?.get('_payload') ?? null
+  const adminPreviewMode: 'real' | 'synthetic' | null = adminPreviewParam === 'synthetic' ? 'synthetic' : adminPreviewParam ? 'real' : null
 
   // Eligibility filtering
   const yg = profile?.year_group ?? null
@@ -168,6 +178,73 @@ export default function StudentHub() {
 
   useEffect(() => {
     let cancelled = false
+
+    // Admin-preview short-circuit: skip student auth entirely. Verify admin
+    // auth via the admin Supabase client (separate session), then load data
+    // from the API route (real-student) or decode it from URL (synthetic).
+    if (adminPreviewMode) {
+      ;(async () => {
+        const { data: { session } } = await adminSupabase.auth.getSession()
+        const adminToken = session?.access_token
+        if (!adminToken) {
+          // Not signed in as admin — surface a friendly placeholder.
+          setLoading(false)
+          setApplications([])
+          setOpenEvents([])
+          setProfile(null)
+          setAuthEmail('preview@thestepsfoundation.com')
+          return
+        }
+        if (adminPreviewMode === 'synthetic' && adminPreviewPayload) {
+          try {
+            const decoded = JSON.parse(atob(adminPreviewPayload))
+            if (cancelled) return
+            const synthProfile: StudentSelf = {
+              id: 'synthetic',
+              first_name: decoded.profile?.first_name ?? 'Sample',
+              last_name: decoded.profile?.last_name ?? 'Student',
+              personal_email: 'preview@thestepsfoundation.com',
+              school_id: null,
+              school_name_raw: decoded.profile?.school_name_raw ?? null,
+              year_group: decoded.profile?.year_group ?? 12,
+              school_type: decoded.profile?.school_type ?? 'state',
+              free_school_meals: decoded.profile?.free_school_meals ?? true,
+              parental_income_band: decoded.profile?.parental_income_band ?? 'under_40k',
+              first_generation_uni: decoded.profile?.first_generation_uni ?? false,
+              gcse_results: null,
+              qualifications: null,
+              additional_context: null,
+            }
+            setProfile(synthProfile)
+            populateForm(synthProfile)
+            setApplications((decoded.applications ?? []) as HubApplication[])
+            setOpenEvents((decoded.openEvents ?? []) as HubEvent[])
+            setAuthEmail('preview@thestepsfoundation.com')
+            setLoading(false)
+          } catch {
+            setLoading(false)
+          }
+          return
+        }
+        // Real-student preview: hit the admin API
+        try {
+          const r = await fetch(`/api/admin/preview-student-data?student_id=${encodeURIComponent(adminPreviewParam!)}`, {
+            headers: { Authorization: `Bearer ${adminToken}` },
+          })
+          const data = await r.json()
+          if (cancelled || !r.ok) { setLoading(false); return }
+          setProfile(data.profile as StudentSelf)
+          populateForm(data.profile as StudentSelf)
+          setApplications((data.applications ?? []) as HubApplication[])
+          setOpenEvents((data.openEvents ?? []) as HubEvent[])
+          setAuthEmail(data.profile?.personal_email ?? 'preview@thestepsfoundation.com')
+          setLoading(false)
+        } catch {
+          setLoading(false)
+        }
+      })()
+      return () => { cancelled = true }
+    }
 
     const waitForSession = async (): Promise<string | null> => {
       for (let i = 0; i < 25 && !cancelled; i++) {
@@ -360,13 +437,20 @@ export default function StudentHub() {
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <TopNav>
         <span className="hidden sm:block text-sm text-slate-600 truncate max-w-[14rem]">{authEmail}</span>
-        <button
-          onClick={handleSignOut}
-          className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
-        >
-          Sign out
-        </button>
+        {!adminPreviewMode && (
+          <button
+            onClick={handleSignOut}
+            className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
+          >
+            Sign out
+          </button>
+        )}
       </TopNav>
+      {adminPreviewMode && (
+        <div className="bg-violet-600 text-white text-xs font-semibold px-4 py-1.5 text-center">
+          Admin preview · Read-only · Apply opens test mode
+        </div>
+      )}
 
       <div className="max-w-3xl mx-auto px-4 py-10 sm:py-14">
         {/* === Hero === */}
@@ -1135,5 +1219,17 @@ function JourneyTimeline({ status, history, eventDate }: { status: string; histo
         </div>
       )}
     </div>
+  )
+}
+
+export default function StudentHub() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-slate-50 to-white">
+        <div aria-hidden className="animate-spin w-8 h-8 border-2 border-steps-blue-600 border-t-transparent rounded-full" />
+      </div>
+    }>
+      <StudentHubInner />
+    </Suspense>
   )
 }

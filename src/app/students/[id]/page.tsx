@@ -2,8 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { StudentHubPreview, type PreviewProfile } from '@/components/StudentHubPreview'
-import { fetchOpenEvents, type HubApplication, type HubEvent } from '@/lib/hub-api'
+import { type PreviewProfile } from '@/components/StudentHubPreview'
 import {
   ATTRIBUTION_SOURCES,
   StudentRow,
@@ -44,9 +43,6 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
   const [error, setError] = useState<string | null>(null)
   const [enriched, setEnriched] = useState<EnrichedStudent | null>(null)
   const [showHubPreview, setShowHubPreview] = useState(false)
-  const [hubPreviewApps, setHubPreviewApps] = useState<HubApplication[]>([])
-  const [hubPreviewOpenEvents, setHubPreviewOpenEvents] = useState<HubEvent[]>([])
-  const [hubPreviewLoading, setHubPreviewLoading] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<StudentUpdate>({})
   const [saving, setSaving] = useState(false)
@@ -55,42 +51,6 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
 
   const student: StudentRow | null = enriched
   const apps: ApplicationRow[] = enriched?.applications ?? []
-
-  // Fetch the HubEvent rows + open-events list when the Preview Student Hub
-  // overlay is opened. Uses admin Supabase client (RLS allows team members to
-  // read events). Constructs synthetic HubApplication[] objects by joining
-  // each ApplicationRow with its corresponding event row.
-  useEffect(() => {
-    if (!showHubPreview || !student) return
-    let active = true
-    setHubPreviewLoading(true)
-    const eventIds = Array.from(new Set(apps.map(a => a.event_id)))
-    Promise.all([
-      eventIds.length > 0
-        ? supabase.from('events').select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year').in('id', eventIds).is('deleted_at', null).then(r => r.data ?? [])
-        : Promise.resolve([] as any[]),
-      fetchOpenEvents(),
-    ]).then(([eventRows, openEvents]) => {
-      if (!active) return
-      const eventById = new Map<string, HubEvent>()
-      for (const e of eventRows as HubEvent[]) eventById.set(e.id, e)
-      const hubApps: HubApplication[] = apps
-        .filter(a => eventById.has(a.event_id))
-        .map(a => ({
-          id: a.id,
-          event_id: a.event_id,
-          status: a.status,
-          created_at: a.submitted_at ?? new Date().toISOString(),
-          event: eventById.get(a.event_id)!,
-          status_history: [],
-        }))
-      setHubPreviewApps(hubApps)
-      setHubPreviewOpenEvents(openEvents.filter(oe => !eventIds.includes(oe.id)))
-      setHubPreviewLoading(false)
-    }).catch(() => { if (active) setHubPreviewLoading(false) })
-    return () => { active = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHubPreview, student?.id])
 
   const previewProfile: PreviewProfile | null = student ? {
     first_name: student.first_name ?? null,
@@ -611,13 +571,11 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto bg-white">
-              {hubPreviewLoading ? (
-                <div className="text-sm text-slate-500 text-center py-12">Loading hub data…</div>
-              ) : (
-                <StudentHubPreview profile={previewProfile} applications={hubPreviewApps} openEvents={hubPreviewOpenEvents} />
-              )}
-            </div>
+            <iframe
+              src={`/my?_admin_preview=${student.id}`}
+              title={`Hub preview — ${previewProfile.first_name ?? 'student'}`}
+              className="flex-1 w-full bg-white"
+            />
           </div>
         </div>
       )}
