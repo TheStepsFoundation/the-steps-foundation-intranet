@@ -261,6 +261,30 @@ export async function updateEvent(
 }
 
 /**
+ * Create a draft event with sensible defaults. Returns the new event row.
+ * Slug is a placeholder timestamp (untitled-<ms>) so the row satisfies the
+ * NOT NULL constraint; the admin renames it in the editor before going live.
+ *
+ * RLS: insert is gated to admins (matches the existing events policy set).
+ * Surfaces the Supabase error verbatim so the caller can show it inline.
+ */
+export async function createDraftEvent(): Promise<EventRow> {
+  const placeholderName = 'Untitled event'
+  const placeholderSlug = `untitled-${Date.now().toString(36)}`
+  const { data, error } = await supabase
+    .from('events')
+    .insert({
+      name: placeholderName,
+      slug: placeholderSlug,
+      status: 'draft',
+    })
+    .select(EVENT_COLUMNS)
+    .single()
+  if (error) throw error
+  return data as EventRow
+}
+
+/**
  * Fetch a single event by slug (public / anon-friendly).
  * Returns only the columns needed for the student-facing apply page.
  */

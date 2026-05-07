@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useSearchParams } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EventRow, fetchEvent, updateEvent, formatOpenTo } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
@@ -544,8 +544,12 @@ function KpiTile({ label, value, sub, tone, onClick }: { label: string; value: n
 
 export default function EventDetailPage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const eventId = params.id as string
   const { teamMember } = useAuth()
+  // ?new=1 — set when the admin just created a draft event from /students/events.
+  // Auto-enter edit mode so they can rename + fill in details immediately.
+  const isNewDraft = searchParams?.get('new') === '1' 
 
   const [event, setEvent] = useState<EventRow | null>(null)
   const [applicants, setApplicants] = useState<Applicant[]>([])
@@ -706,6 +710,9 @@ export default function EventDetailPage() {
 
   // Inline event editing
   const [editing, setEditing] = useState(false)
+  // Effect below flips editing=true once on mount when ?new=1 is present.
+  // We don't initialise the state to isNewDraft directly because Suspense
+  // hydration can fire searchParams late on first render.
   const [editDraft, setEditDraft] = useState<Partial<EventRow>>({})
   const [editSaving, setEditSaving] = useState(false)
   // Autosave: snapshot of the event row taken at startEditing, used by

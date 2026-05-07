@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
-import { EventWithStats, fetchEventsWithStats } from '@/lib/events-api'
+import { EventWithStats, fetchEventsWithStats, createDraftEvent } from '@/lib/events-api'
 
 // ---------------------------------------------------------------------------
 // /students/events — events overview / management entry point.
@@ -29,10 +30,26 @@ const STATUS_BADGE: Record<string, { label: string; classes: string }> = {
 }
 
 export default function EventsOverview() {
+  const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [events, setEvents] = useState<EventWithStats[]>([])
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [creating, setCreating] = useState(false)
+  const [createErr, setCreateErr] = useState<string | null>(null)
+
+  const handleCreate = async () => {
+    setCreating(true); setCreateErr(null)
+    try {
+      const fresh = await createDraftEvent()
+      // Land in the editor in edit mode so the admin can immediately
+      // rename + fill in the rest. ?new=1 triggers editing-on-mount.
+      router.push(`/students/events/${fresh.id}?new=1`)
+    } catch (e: any) {
+      setCreateErr(e?.message ?? 'Could not create event')
+      setCreating(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -84,14 +101,31 @@ export default function EventsOverview() {
           <h1 className="font-display text-3xl font-black text-steps-dark dark:text-gray-100 tracking-tight">Events</h1>
           <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Manage applications and communications for every Steps event.</p>
         </div>
-        <Link
-          href="/students/emails/templates"
-          className="px-4 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-gray-700 text-slate-700 dark:text-gray-200 font-semibold hover:bg-slate-50 dark:hover:bg-gray-800 transition inline-flex items-center gap-2"
-        >
-          <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-          Email templates
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/students/emails/templates"
+            className="px-4 py-2.5 text-sm rounded-xl border border-slate-300 dark:border-gray-700 text-slate-700 dark:text-gray-200 font-semibold hover:bg-slate-50 dark:hover:bg-gray-800 transition inline-flex items-center gap-2"
+          >
+            <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            Email templates
+          </Link>
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={creating}
+            className="px-4 py-2.5 text-sm rounded-xl bg-steps-blue-600 text-white font-semibold border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
+          >
+            <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+            {creating ? 'Creating…' : 'New event'}
+          </button>
+        </div>
       </div>
+
+      {createErr && (
+        <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Couldn&apos;t create event: {createErr}
+        </div>
+      )}
 
       {/* === KPI tiles === */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6 animate-tsf-fade-up-1">
