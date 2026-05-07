@@ -798,7 +798,6 @@ export default function EventDetailPage() {
     { field: 'format', label: 'Format' },
     { field: 'capacity', label: 'Capacity' },
     { field: 'description', label: 'Description' },
-    { field: 'eligible_year_groups', label: 'Eligible year groups' },
     { field: 'applications_open_at', label: 'Applications open' },
     { field: 'applications_close_at', label: 'Applications close' },
     { field: 'banner_image_url', label: 'Banner image' },

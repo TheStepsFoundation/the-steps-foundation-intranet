@@ -306,11 +306,10 @@ export function validateForPublish(e: Partial<EventRow>): PublishValidationError
   if (blank(e.banner_image_url))      errs.push({ field: 'banner_image_url',      label: 'Banner image',        reason: 'Top of the event detail page on the student hub.' })
   if (blank(e.hub_image_url))         errs.push({ field: 'hub_image_url',         label: 'Hub card image',      reason: 'Side image on each card on /my.' })
 
-  const eligibleYears = Array.isArray(e.eligible_year_groups) ? e.eligible_year_groups : []
-  const eligibleGap = !!e.open_to_gap_year
-  if (eligibleYears.length === 0 && !eligibleGap) {
-    errs.push({ field: 'eligible_year_groups', label: 'Eligible year groups', reason: 'Pick at least one year group (or tick "open to gap year").' })
-  }
+  // Eligible year groups: NOT required. The form-builder convention is
+  // "leave all unchecked = open to any student" (and formatOpenTo / the
+  // eligibility check both honour that). So an event with no boxes ticked
+  // is a valid "open to all" configuration and should publish cleanly.
 
   // At least one custom (non-standard) field on the application form.
   const fc = (e.form_config ?? {}) as { fields?: { id: string }[]; pages?: { fields?: { id: string }[] }[] }
