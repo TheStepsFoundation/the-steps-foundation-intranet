@@ -94,17 +94,21 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
 
   const previewProfile: PreviewProfile | null = student ? {
     first_name: student.first_name ?? null,
+    last_name: student.last_name ?? null,
+    personal_email: student.personal_email ?? null,
     year_group: (() => {
       const yg = student.year_group
       if (yg == null) return null
-      // Admin-side year_group is text — extract digits.
       const n = parseInt(String(yg).match(/\d+/)?.[0] ?? '', 10)
       return Number.isFinite(n) ? n : null
     })(),
+    school_name_raw: student.school_name_raw ?? null,
     school_type: student.school_type ?? null,
     free_school_meals: student.free_school_meals ?? null,
     parental_income_band: student.parental_income_band ?? null,
     first_generation_uni: student.first_generation_uni ?? null,
+    gcse_results: student.gcse_results ?? null,
+    additional_context: student.additional_context ?? null,
   } : null
 
   async function reload() {

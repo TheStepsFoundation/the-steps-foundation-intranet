@@ -33,11 +33,16 @@ import { stripToText } from '@/lib/sanitize-html'
 
 export type PreviewProfile = {
   first_name: string | null
+  last_name?: string | null
+  personal_email?: string | null
   year_group: number | null
+  school_name_raw?: string | null
   school_type: string | null
   free_school_meals: boolean | null
   parental_income_band: string | null
   first_generation_uni: boolean | null
+  gcse_results?: string | null
+  additional_context?: string | null
 }
 
 function formatDate(d: string | null): string {
@@ -87,6 +92,47 @@ export function StudentHubPreview({ profile, applications, openEvents }: {
             {profile.first_name ? `Hey, ${profile.first_name}.` : 'Welcome back.'}
           </h1>
         </header>
+
+        {/* Next-up hero — most actionable item for this student. Same priority
+            order as /my: accepted in next 14 days > closing-soon eligible
+            event > nothing. */}
+        {(() => {
+          const upcomingAccepted = applications
+            .filter(a => a.status === 'accepted' && a.event.event_date)
+            .map(a => ({ a, days: daysUntil(a.event.event_date) }))
+            .filter(x => x.days != null && x.days >= 0 && x.days <= 14)
+            .sort((p, q) => (p.days ?? 0) - (q.days ?? 0))[0]
+
+          const closingSoon = !upcomingAccepted ? eligibleOpen
+            .filter(e => e.applications_close_at)
+            .map(e => ({ e, days: daysUntil(e.applications_close_at) }))
+            .filter(x => x.days != null && x.days >= 0 && x.days <= 14)
+            .sort((p, q) => (p.days ?? 0) - (q.days ?? 0))[0] : null
+
+          if (!upcomingAccepted && !closingSoon) return null
+          const event = upcomingAccepted ? upcomingAccepted.a.event : closingSoon!.e
+          const days = upcomingAccepted ? upcomingAccepted.days! : closingSoon!.days!
+          const eyebrow = upcomingAccepted
+            ? (days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `In ${days} days`)
+            : (days === 0 ? 'Closes today' : days === 1 ? 'Closes tomorrow' : `Closes in ${days} days`)
+          const line = upcomingAccepted ? 'You\'re in. Tap to see joining details.' : 'Don\'t miss it — applications are open now.'
+          return (
+            <div className="mb-6 rounded-3xl bg-gradient-to-br from-steps-dark via-steps-blue-800 to-steps-blue-700 text-white p-5 sm:p-6 relative overflow-hidden">
+              <div aria-hidden className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-steps-sunrise/30 blur-3xl pointer-events-none" />
+              <div className="relative flex items-start gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-steps-mist font-semibold">Next up · {eyebrow}</p>
+                  <h2 className="font-display-tight text-xl sm:text-2xl font-black mt-1.5">{event.name}</h2>
+                  <p className="text-xs text-white/80 mt-2">{line}</p>
+                </div>
+                <div className="hidden sm:flex flex-col items-center justify-center bg-white/10 backdrop-blur-sm border border-white/15 rounded-2xl px-3 py-2 text-center min-w-[68px]">
+                  <span className="text-[10px] uppercase tracking-wider text-steps-mist font-semibold">{event.event_date ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-GB', { month: 'short' }) : '—'}</span>
+                  <span className="text-2xl font-display font-black text-white leading-none mt-0.5">{event.event_date ? new Date(event.event_date + 'T00:00:00').getDate() : '—'}</span>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Apply now */}
         {eligibleOpen.length > 0 && (
@@ -141,9 +187,61 @@ export function StudentHubPreview({ profile, applications, openEvents }: {
             </div>
           )}
         </section>
+
+        {/* My details — mock of the read-only mode of /my My details card */}
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-display text-lg font-bold text-steps-dark">My details</h2>
+            <span className="text-xs text-slate-400">read-only preview</span>
+          </div>
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+            <dl className="grid grid-cols-2 gap-y-3 gap-x-6 text-sm">
+              <DetailRow label="Name" value={[profile.first_name, profile.last_name].filter(Boolean).join(' ') || '—'} />
+              <DetailRow label="Email" value={profile.personal_email ?? '—'} />
+              <DetailRow label="Year group" value={profile.year_group ? (profile.year_group === 14 ? 'Gap year' : `Year ${profile.year_group}`) : '—'} />
+              <DetailRow label="School" value={profile.school_name_raw ?? '—'} className="col-span-1" />
+              <DetailRow label="School type" value={schoolTypeLabel(profile.school_type)} />
+              <DetailRow label="Free school meals" value={profile.free_school_meals === true ? 'Yes' : profile.free_school_meals === false ? 'No' : '—'} />
+              <DetailRow label="Household income" value={incomeBandLabel(profile.parental_income_band)} />
+              <DetailRow label="First-gen university" value={profile.first_generation_uni === true ? 'No' : profile.first_generation_uni === false ? 'Yes' : '—'} />
+              {profile.gcse_results && <DetailRow label="GCSE results" value={profile.gcse_results} className="col-span-2" />}
+              {profile.additional_context && <DetailRow label="Additional context" value={profile.additional_context} className="col-span-2" />}
+            </dl>
+          </div>
+        </section>
       </div>
     </div>
   )
+}
+
+function DetailRow({ label, value, className }: { label: string; value: string; className?: string }) {
+  return (
+    <div className={className}>
+      <dt className="text-[11px] uppercase tracking-wider font-semibold text-slate-500">{label}</dt>
+      <dd className="text-sm text-slate-900 mt-0.5 truncate">{value}</dd>
+    </div>
+  )
+}
+
+function schoolTypeLabel(t: string | null): string {
+  if (!t) return '—'
+  const map: Record<string, string> = {
+    state: 'State non-selective',
+    grammar: 'State selective / grammar',
+    independent: 'Independent (fee-paying)',
+    independent_bursary: 'Independent with 90%+ bursary',
+  }
+  return map[t] ?? t
+}
+
+function incomeBandLabel(b: string | null | undefined): string {
+  if (!b) return '—'
+  const map: Record<string, string> = {
+    under_40k: 'Yes — under £40k',
+    over_40k: 'No — £40k or more',
+    prefer_na: 'Prefer not to say',
+  }
+  return map[b] ?? b
 }
 
 // ---------------------------------------------------------------------------
@@ -231,19 +329,31 @@ function PreviewAppCard({ app }: { app: HubApplication }) {
   const isPast = app.event.event_date && new Date(app.event.event_date) < new Date()
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="p-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="font-display text-base font-bold text-steps-dark">{app.event.name}</h3>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${journey.badgeClasses}`}>
-            {journey.prefix && <span className="opacity-70 mr-1">{journey.prefix} ·</span>}
-            {journey.primary}
-          </span>
-          {isPast && <span className="text-[10px] font-medium text-slate-500">Past event</span>}
+      <div className="flex items-stretch min-h-[140px]">
+        <div className="flex-1 min-w-0 p-4 flex flex-col">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-display text-base font-bold text-steps-dark">{app.event.name}</h3>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${journey.badgeClasses}`}>
+              {journey.prefix && <span className="opacity-70 mr-1">{journey.prefix} ·</span>}
+              {journey.primary}
+            </span>
+            {isPast && <span className="text-[10px] font-medium text-slate-500">Past event</span>}
+          </div>
+          <div className="text-xs text-slate-500 mt-1">
+            {app.event.event_date && formatDate(app.event.event_date)}
+          </div>
+          <PreviewJourneyTimeline status={app.status} history={app.status_history} eventDate={app.event.event_date} />
+          <p className="text-[10px] text-slate-400 mt-auto pt-2">
+            Applied {new Date(app.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </p>
         </div>
-        <div className="text-xs text-slate-500 mt-1">
-          {app.event.event_date && formatDate(app.event.event_date)}
-        </div>
-        <PreviewJourneyTimeline status={app.status} history={app.status_history} eventDate={app.event.event_date} />
+        {app.event.hub_image_url && (
+          <div className="flex-shrink-0 w-24 sm:w-44 self-stretch bg-slate-100 relative border-l border-slate-100">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={app.event.hub_image_url} alt="" className={`absolute inset-0 w-full h-full object-cover ${isPast ? 'grayscale' : ''}`}
+              style={{ objectPosition: `${app.event.hub_focal_x ?? 50}% ${app.event.hub_focal_y ?? 50}%` }} />
+          </div>
+        )}
       </div>
     </div>
   )

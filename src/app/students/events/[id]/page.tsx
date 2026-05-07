@@ -2676,6 +2676,26 @@ export default function EventDetailPage() {
               )
             })()}
 
+            {/* Auto-demoted banner — surfaces when updateEvent has flipped a
+                previously-open event back to draft because validation broke. */}
+            {event.auto_demoted_at && (event.status === 'draft') && (
+              <div role="alert" className="mb-4 rounded-lg border-2 border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <svg aria-hidden className="w-5 h-5 text-amber-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" /></svg>
+                  <div className="text-sm">
+                    <p className="font-semibold text-amber-900 dark:text-amber-200">Auto-demoted to draft</p>
+                    <p className="text-amber-800 dark:text-amber-300 mt-0.5">
+                      This event was published, but a required field is now missing — students can&apos;t see it on their hub right now.
+                      Fill in everything in the checklist below and the next save will auto-restore it to <strong>Open</strong> without re-running the pre-flight.
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                      Demoted on {new Date(event.auto_demoted_at).toLocaleString('en-GB')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Post-publish handoff banner — appears once status has flipped
                 to a non-draft value, until admin clicks 'Send invitations'
                 or dismisses. */}
@@ -2715,16 +2735,18 @@ export default function EventDetailPage() {
                 <select value={editDraft.status ?? event.status} onChange={e => {
                   const next = e.target.value as EventRow['status']
                   const current = editDraft.status ?? event.status
-                  // Only trigger pre-flight when actually transitioning out of draft.
-                  // Going draft -> draft, or non-draft -> anything (already published),
-                  // or anything -> cancelled, all skip the preflight modal.
+                  // Pre-flight modal fires only on the FIRST draft -> open transition
+                  // (event.first_published_at IS NULL). Subsequent publishes
+                  // (manual unpublish, auto-demote and back, etc.) skip the modal.
                   if (current === 'draft' && next !== 'draft' && next !== 'cancelled') {
-                    // Cheap client-side gate first — if validation fails, just
-                    // surface the existing checklist and don't open the modal.
                     const projected = { ...event, ...editDraft, status: next } as Partial<EventRow>
                     const errs = validateForPublish(projected)
                     if (errs.length > 0) { setPublishErrors(errs); return }
-                    setPendingPublishStatus(next)
+                    if (!event.first_published_at) {
+                      setPendingPublishStatus(next)
+                      return
+                    }
+                    setEditDraft(d => ({ ...d, status: next }))
                     return
                   }
                   setEditDraft(d => ({ ...d, status: next }))
@@ -3449,11 +3471,12 @@ export default function EventDetailPage() {
                     <div key={ns.code} className="relative">
                       <button
                         onClick={() => setBulkMenuOpen(isOpen ? null : ns.code)}
-                        className={`px-2.5 py-1 rounded text-xs font-medium text-white transition-colors inline-flex items-center gap-1 ${ns.color}`}
+                        className={`px-2.5 py-1.5 rounded text-xs font-semibold text-white transition-colors inline-flex items-center gap-1.5 ${ns.color}`}
                         aria-haspopup="menu"
                         aria-expanded={isOpen}
+                        title={`${verb} the selected applicants (default: send the ${verb.toLowerCase()} email)`}
                       >
-                        {verb}
+                        {verb} &amp; notify
                         <svg className="w-3 h-3 opacity-80" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                         </svg>
@@ -3466,9 +3489,10 @@ export default function EventDetailPage() {
                           <button
                             role="menuitem"
                             onClick={() => { setBulkMenuOpen(null); openCompose(ns.code) }}
-                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            className="block w-full text-left px-3 py-2 font-semibold text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
+                            title="Recommended — sends the matching email template after the status flips"
                           >
-                            {verb} &amp; notify
+                            {verb} &amp; notify <span className="block text-[10px] font-normal text-emerald-600/70 mt-0.5">Sends the email · most common path</span>
                           </button>
                           <button
                             role="menuitem"

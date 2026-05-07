@@ -181,6 +181,8 @@ export type EventRow = {
   lead_team_member_id: string | null
   collaborator_ids: string[]
   email_automations: EmailAutomationRow[]
+  first_published_at: string | null
+  auto_demoted_at: string | null
   created_at: string
 }
 
@@ -405,19 +407,45 @@ export async function updateEvent(
     validateFormConfig(patch.form_config)
   }
 
-  // Publish gate: if the patch tries to move status away from 'draft', validate
-  // the *projected* row (current values + patch) and refuse if anything's
-  // missing. Surfaces structured errors via EventPublishValidationError so the
-  // editor can render the checklist of what's still needed.
+  // Publish gate / auto-demote / auto-restore. Three behaviours fold together:
+  //   1. Manual publish (status -> 'open' or other non-draft, non-cancelled):
+  //      Validate. Fail -> throw. Pass -> set first_published_at = now() on
+  //      the first publish so subsequent flips skip pre-flight.
+  //   2. Auto-demote: editing fields on an already-open event and validation
+  //      now fails. Force the patch's status to 'draft' + record
+  //      auto_demoted_at. No throw — admin's edits land but the event drops
+  //      out of the public listings.
+  //   3. Auto-restore: editing fields on a draft row that was previously
+  //      auto-demoted, and validation now passes. Force status -> 'open'
+  //      + clear auto_demoted_at. No pre-flight — first_published_at is
+  //      already set.
+  const current = await fetchEvent(id)
+  const projected: Partial<EventRow> = { ...(current ?? {}), ...patch } as Partial<EventRow>
   if (patch.status && patch.status !== 'draft' && patch.status !== 'cancelled') {
-    // Fetch the current row so the validator sees the projected state, not
-    // just the patch (admin might be only flipping status, not the rest).
-    // 'cancelled' is exempt from the publish gate — cancelling can happen
-    // from any state, including draft.
-    const current = await fetchEvent(id)
-    const projected: Partial<EventRow> = { ...(current ?? {}), ...patch } as Partial<EventRow>
     const errs = validateForPublish(projected)
     if (errs.length > 0) throw new EventPublishValidationError(errs)
+    // First publish ever — set first_published_at if not already.
+    if (current && !current.first_published_at) {
+      (patch as Record<string, unknown>).first_published_at = new Date().toISOString()
+    }
+    // Re-publishing after auto-demote — clear the demote marker.
+    if (current?.auto_demoted_at) {
+      (patch as Record<string, unknown>).auto_demoted_at = null
+    }
+  } else if (current && current.status === 'open' && !patch.status) {
+    // Auto-demote: published event, editing fields, validation now broken.
+    const errs = validateForPublish(projected)
+    if (errs.length > 0) {
+      (patch as Record<string, unknown>).status = 'draft'
+      ;(patch as Record<string, unknown>).auto_demoted_at = new Date().toISOString()
+    }
+  } else if (current && current.status === 'draft' && current.auto_demoted_at && !patch.status) {
+    // Auto-restore: auto-demoted draft, edit fixes the missing field, validation passes.
+    const errs = validateForPublish(projected)
+    if (errs.length === 0) {
+      (patch as Record<string, unknown>).status = 'open'
+      ;(patch as Record<string, unknown>).auto_demoted_at = null
+    }
   }
 
   const { data, error } = await supabase
