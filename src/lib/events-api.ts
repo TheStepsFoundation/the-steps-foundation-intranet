@@ -106,6 +106,49 @@ export type FormFieldConfig = {
   }
 }
 
+export type EmailAutomationType =
+  | 'rsvp_reminder'           // Accepted students who haven't RSVP'd
+  | 'event_day_rsvped'        // Accepted + RSVP'd, day before event
+  | 'event_day_no_rsvp'       // Accepted, not RSVP'd, day before event (auto-paired with rsvped)
+  | 'post_event_feedback'     // Attended students who haven't filed feedback
+  | 'applications_closing'    // Active drafts as deadline nears
+  | 'application_draft_stale' // Stale drafts (1h after last_touched_at)
+
+export type EmailAutomationAnchor =
+  | 'event_date'              // The event itself
+  | 'applications_close_at'   // Application window close
+  | 'event_end'               // event_date + time_end (post-event timing)
+  | 'last_touched_at'         // For draft-anchored automations
+
+export type EmailAutomationRow = {
+  id: string                  // Stable id for delete/reorder
+  type: EmailAutomationType
+  template_id: string | null  // email_templates.id; null = unconfigured
+  trigger_offset: number      // Magnitude of the offset
+  trigger_unit: 'minutes' | 'hours' | 'days'
+  trigger_anchor: EmailAutomationAnchor
+  anchor_direction: 'before' | 'after'
+  enabled: boolean
+}
+
+export const EMAIL_AUTOMATION_TYPE_META: Record<EmailAutomationType, {
+  label: string
+  description: string
+  defaultAnchor: EmailAutomationAnchor
+  defaultDirection: 'before' | 'after'
+  defaultOffset: number
+  defaultUnit: 'minutes' | 'hours' | 'days'
+  /** When admin adds this type, also auto-create this paired type (e.g. event_day_rsvped pairs with event_day_no_rsvp). */
+  pairWith?: EmailAutomationType
+}> = {
+  rsvp_reminder:           { label: 'RSVP reminder',              description: 'To accepted students who haven\'t RSVP\'d',         defaultAnchor: 'event_date',            defaultDirection: 'before', defaultOffset: 7,  defaultUnit: 'days' },
+  event_day_rsvped:        { label: 'Event day — RSVP\'d',         description: 'To accepted + RSVP\'d students',                    defaultAnchor: 'event_date',            defaultDirection: 'before', defaultOffset: 1,  defaultUnit: 'days', pairWith: 'event_day_no_rsvp' },
+  event_day_no_rsvp:       { label: 'Event day — no RSVP yet',     description: 'To accepted students still not RSVP\'d',            defaultAnchor: 'event_date',            defaultDirection: 'before', defaultOffset: 1,  defaultUnit: 'days' },
+  post_event_feedback:     { label: 'Post-event feedback request', description: 'To attended students who haven\'t filed feedback',  defaultAnchor: 'event_end',             defaultDirection: 'after',  defaultOffset: 17, defaultUnit: 'hours' },
+  applications_closing:    { label: 'Applications closing soon',   description: 'To active drafts as deadline nears',                defaultAnchor: 'applications_close_at', defaultDirection: 'before', defaultOffset: 2,  defaultUnit: 'days' },
+  application_draft_stale: { label: 'Stale draft reminder',        description: 'Draft idle for an hour, before deadline',           defaultAnchor: 'last_touched_at',       defaultDirection: 'after',  defaultOffset: 1,  defaultUnit: 'hours' },
+}
+
 export type EventRow = {
   id: string
   name: string
@@ -137,6 +180,7 @@ export type EventRow = {
   archived_at: string | null
   lead_team_member_id: string | null
   collaborator_ids: string[]
+  email_automations: EmailAutomationRow[]
   created_at: string
 }
 
@@ -353,7 +397,7 @@ export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
     'name' | 'slug' | 'location' | 'location_full' | 'format' | 'time_start' | 'time_end' | 'dress_code' |
-    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'feedback_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year' | 'lead_team_member_id' | 'collaborator_ids'
+    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'feedback_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year' | 'lead_team_member_id' | 'collaborator_ids' | 'email_automations'
   >>,
 ): Promise<EventRow> {
   // Guard against malformed form_config landing in the DB.

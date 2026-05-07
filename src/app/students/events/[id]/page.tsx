@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion } from '@/lib/events-api'
+import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion, type EmailAutomationRow, type EmailAutomationType, EMAIL_AUTOMATION_TYPE_META } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
@@ -538,6 +538,144 @@ function KpiTile({ label, value, sub, tone, onClick }: { label: string; value: n
   return (
     <div className={`relative rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4`}>
       {Inner}
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// AutomationsEditor — manages the events.email_automations JSONB array.
+// Admin can add new automation rows (auto-paired for event_day_rsvped),
+// pick template, configure trigger offset/unit/anchor/direction, toggle
+// enabled, and delete rows. Order is preserved as-stored in the array.
+// ---------------------------------------------------------------------------
+function AutomationsEditor({ automations, templates, onChange }: {
+  automations: EmailAutomationRow[]
+  templates: { id: string; name: string; type: string }[]
+  onChange: (rows: EmailAutomationRow[]) => void
+}) {
+  const TYPES: EmailAutomationType[] = [
+    'rsvp_reminder', 'event_day_rsvped', 'event_day_no_rsvp',
+    'post_event_feedback', 'applications_closing', 'application_draft_stale',
+  ]
+  const newRowOfType = (t: EmailAutomationType): EmailAutomationRow => {
+    const meta = EMAIL_AUTOMATION_TYPE_META[t]
+    return {
+      id: `auto_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: t,
+      template_id: null,
+      trigger_offset: meta.defaultOffset,
+      trigger_unit: meta.defaultUnit,
+      trigger_anchor: meta.defaultAnchor,
+      anchor_direction: meta.defaultDirection,
+      enabled: true,
+    }
+  }
+  const addAutomation = (t: EmailAutomationType) => {
+    const next: EmailAutomationRow[] = [...automations, newRowOfType(t)]
+    // Auto-pair: when adding event_day_rsvped, also drop in event_day_no_rsvp
+    // unless one already exists. This honours the rule that every event will
+    // have accepted-but-not-RSVP'd students who deserve a different message.
+    const meta = EMAIL_AUTOMATION_TYPE_META[t]
+    if (meta.pairWith) {
+      const alreadyExists = next.some(r => r.type === meta.pairWith)
+      if (!alreadyExists) next.push(newRowOfType(meta.pairWith))
+    }
+    onChange(next)
+  }
+  const updateRow = (id: string, patch: Partial<EmailAutomationRow>) => {
+    onChange(automations.map(r => r.id === id ? { ...r, ...patch } : r))
+  }
+  const removeRow = (id: string) => onChange(automations.filter(r => r.id !== id))
+
+  return (
+    <div className="space-y-3">
+      {automations.length === 0 && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+          No automations configured. Add reminders below — they'll fire automatically once the cron worker is wired (see ops setup notes).
+        </p>
+      )}
+      {automations.map(row => {
+        const meta = EMAIL_AUTOMATION_TYPE_META[row.type]
+        const eligibleTemplates = templates // could filter by type later
+        return (
+          <div key={row.id} className={`rounded-lg border p-3 ${row.enabled ? 'border-steps-blue-200 bg-steps-blue-50/40' : 'border-gray-200 bg-gray-50 opacity-70'} dark:border-gray-700 dark:bg-gray-900/30`}>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{meta.label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{meta.description}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                  <input type="checkbox" checked={row.enabled} onChange={e => updateRow(row.id, { enabled: e.target.checked })}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-steps-blue-600 focus:ring-steps-blue-500" />
+                  Enabled
+                </label>
+                <button type="button" onClick={() => removeRow(row.id)} className="text-xs text-rose-600 hover:underline">Delete</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Template</label>
+                <select value={row.template_id ?? ''} onChange={e => updateRow(row.id, { template_id: e.target.value || null })}
+                  className="w-full px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800">
+                  <option value="">— Pick template —</option>
+                  {eligibleTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Offset</label>
+                <input type="number" value={row.trigger_offset} onChange={e => updateRow(row.id, { trigger_offset: Number(e.target.value) || 0 })}
+                  className="w-full px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">Unit</label>
+                <select value={row.trigger_unit} onChange={e => updateRow(row.id, { trigger_unit: e.target.value as EmailAutomationRow['trigger_unit'] })}
+                  className="w-full px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800">
+                  <option value="minutes">Minutes</option>
+                  <option value="hours">Hours</option>
+                  <option value="days">Days</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">When</label>
+                <div className="flex gap-1">
+                  <select value={row.anchor_direction} onChange={e => updateRow(row.id, { anchor_direction: e.target.value as 'before' | 'after' })}
+                    className="px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800">
+                    <option value="before">before</option>
+                    <option value="after">after</option>
+                  </select>
+                  <select value={row.trigger_anchor} onChange={e => updateRow(row.id, { trigger_anchor: e.target.value as EmailAutomationRow['trigger_anchor'] })}
+                    className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800">
+                    <option value="event_date">event date</option>
+                    <option value="applications_close_at">applications close</option>
+                    <option value="event_end">event end</option>
+                    <option value="last_touched_at">last touched</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+
+      {/* Add automation menu */}
+      <details className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-3">
+        <summary className="text-sm text-steps-blue-600 dark:text-steps-blue-400 font-medium cursor-pointer">+ Add automation</summary>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-3">
+          {TYPES.map(t => {
+            const meta = EMAIL_AUTOMATION_TYPE_META[t]
+            const exists = automations.some(r => r.type === t)
+            return (
+              <button key={t} type="button" disabled={exists} onClick={() => addAutomation(t)}
+                className="text-left p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-steps-blue-400 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                <span className="block text-xs font-semibold text-gray-800 dark:text-gray-200">{meta.label}{exists ? ' (already added)' : ''}</span>
+                <span className="block text-[10px] text-gray-500 dark:text-gray-400">{meta.description}</span>
+              </button>
+            )
+          })}
+        </div>
+      </details>
     </div>
   )
 }
@@ -2788,6 +2926,14 @@ export default function EventDetailPage() {
               <FeedbackConfigEditor
                 value={(editDraft as { feedback_config?: EventFeedbackConfig | null }).feedback_config ?? null}
                 onChange={fc => setEditDraft(d => ({ ...d, feedback_config: fc }))}
+              />
+            </Section>
+
+            <Section id="automations" title="Automated emails" subtitle="Scheduled reminders + transactional sends — fires when the cron is wired">
+              <AutomationsEditor
+                automations={(editDraft.email_automations ?? event.email_automations ?? []) as EmailAutomationRow[]}
+                templates={templates}
+                onChange={rows => setEditDraft(d => ({ ...d, email_automations: rows }))}
               />
             </Section>
           </div>
