@@ -802,7 +802,7 @@ export default function EventDetailPage() {
     { field: 'applications_close_at', label: 'Applications close' },
     { field: 'banner_image_url', label: 'Banner image' },
     { field: 'hub_image_url', label: 'Hub card image' },
-    { field: 'form_config', label: 'At least one custom question' },
+    { field: 'form_config', label: 'At least three custom questions' },
   ]
 
   const buildEventPatch = useCallback((draft: Partial<EventRow>, baseline: EventRow): Record<string, any> => {

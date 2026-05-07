@@ -311,15 +311,23 @@ export function validateForPublish(e: Partial<EventRow>): PublishValidationError
   // eligibility check both honour that). So an event with no boxes ticked
   // is a valid "open to all" configuration and should publish cleanly.
 
-  // At least one custom (non-standard) field on the application form.
+  // At least three custom (non-standard) fields on the application form.
+  // Three rather than one because: a single question rarely tells you enough
+  // about who's a fit, and forcing a small bank of questions encourages admins
+  // to think through what they actually want to learn from applicants.
   const fc = (e.form_config ?? {}) as { fields?: { id: string }[]; pages?: { fields?: { id: string }[] }[] }
   const allFields = [
     ...(Array.isArray(fc.fields) ? fc.fields : []),
     ...((fc.pages ?? []).flatMap(p => Array.isArray(p?.fields) ? p.fields : [])),
   ]
   const customFields = allFields.filter(f => f && typeof f.id === 'string' && !STD_FIELD_IDS.has(f.id))
-  if (customFields.length === 0) {
-    errs.push({ field: 'form_config', label: 'At least one custom question', reason: 'Add one application question beyond the standard identity fields.' })
+  if (customFields.length < 3) {
+    const remaining = 3 - customFields.length
+    errs.push({
+      field: 'form_config',
+      label: 'At least three custom questions',
+      reason: `Add ${remaining} more application question${remaining === 1 ? '' : 's'} beyond the standard identity fields.`,
+    })
   }
 
   return errs
