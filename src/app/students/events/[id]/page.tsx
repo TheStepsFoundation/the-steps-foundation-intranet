@@ -680,6 +680,66 @@ function AutomationsEditor({ automations, templates, onChange }: {
   )
 }
 
+
+// ---------------------------------------------------------------------------
+// ActionsMenu — overflow dropdown for uncommon editor actions.
+// Groups Archive, Cancel event, Versions, Delete so the sticky bar
+// keeps Save / Cancel-edit / Preview / Test mode / Copy link standalone.
+// ---------------------------------------------------------------------------
+function ActionsMenu({ isArchived, isCancelled, archiving, cancelling, deleting, onArchive, onCancel, onVersions, onDelete }: {
+  isArchived: boolean
+  isCancelled: boolean
+  archiving: boolean
+  cancelling: boolean
+  deleting: boolean
+  onArchive: () => void
+  onCancel: () => void
+  onVersions: () => void
+  onDelete: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('click', onDoc)
+    return () => document.removeEventListener('click', onDoc)
+  }, [open])
+  const busy = archiving || cancelling || deleting
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        disabled={busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 inline-flex items-center gap-1.5 disabled:opacity-50"
+      >
+        Actions
+        <svg className="w-3 h-3 opacity-70" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 z-30 min-w-[200px] rounded-xl border border-slate-200 bg-white shadow-lg py-1 text-sm">
+          <button role="menuitem" onClick={() => { setOpen(false); onVersions() }} className="w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50 inline-flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" /></svg>
+            Versions / restore
+          </button>
+          <button role="menuitem" onClick={() => { setOpen(false); onArchive() }} className="block w-full text-left px-3 py-2 text-amber-800 hover:bg-amber-50">
+            {archiving ? '…' : isArchived ? 'Unarchive' : 'Archive'}
+          </button>
+          <button role="menuitem" onClick={() => { setOpen(false); onCancel() }} className="block w-full text-left px-3 py-2 text-slate-700 hover:bg-slate-50">
+            {cancelling ? '…' : isCancelled ? 'Uncancel event' : 'Cancel event'}
+          </button>
+          <button role="menuitem" onClick={() => { setOpen(false); onDelete() }} className="block w-full text-left px-3 py-2 text-rose-700 hover:bg-rose-50">
+            {deleting ? 'Deleting…' : 'Delete event'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function EventDetailPage() {
   const params = useParams()
   const searchParams = useSearchParams()
@@ -2556,41 +2616,17 @@ export default function EventDetailPage() {
               </button>
               {/* Autosave status pill — shows live progress so the admin can trust their edits are landing without hitting Save. */}
               <AutosaveStatusPill status={autosaveStatus} savedAt={autosaveSavedAt} error={autosaveError} onRetry={() => { void runAutosave() }} />
-              <button
-                type="button"
-                onClick={handleArchiveEvent}
-                disabled={archiving || deleting || cancelling}
-                className="px-3 py-1.5 text-sm rounded-md border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-50"
-                title={event.archived_at ? 'Restore this event to the default events list' : 'Hide this event from the default events list'}
-              >
-                {archiving ? '…' : event.archived_at ? 'Unarchive' : 'Archive'}
-              </button>
-              <button
-                type="button"
-                onClick={handleCancelEvent}
-                disabled={archiving || deleting || cancelling}
-                className="px-3 py-1.5 text-sm rounded-md border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/40 hover:bg-slate-100 disabled:opacity-50"
-                title={event.status === 'cancelled' ? 'Restore from cancelled back to draft' : 'Mark this event as cancelled — applicants will see cancelled status'}
-              >
-                {cancelling ? '…' : event.status === 'cancelled' ? 'Uncancel' : 'Cancel event'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setVersionsOpen(true)}
-                className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                title="Restore points — snapshots from each edit session"
-              >
-                Versions
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteEvent}
-                disabled={archiving || deleting}
-                className="px-3 py-1.5 text-sm rounded-md border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 disabled:opacity-50"
-                title="Soft-delete this event. Applications stay in the DB; the row can be restored from Supabase."
-              >
-                {deleting ? 'Deleting…' : 'Delete'}
-              </button>
+              <ActionsMenu
+                isArchived={!!event.archived_at}
+                isCancelled={event.status === 'cancelled'}
+                archiving={archiving}
+                cancelling={cancelling}
+                deleting={deleting}
+                onArchive={handleArchiveEvent}
+                onCancel={handleCancelEvent}
+                onVersions={() => setVersionsOpen(true)}
+                onDelete={handleDeleteEvent}
+              />
               <span className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" aria-hidden />
               <button onClick={() => { void cancelEditing() }} disabled={editSaving} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50" title="Reverts any changes saved during this edit session">Cancel</button>
               <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
