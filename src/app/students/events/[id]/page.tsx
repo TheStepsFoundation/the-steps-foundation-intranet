@@ -714,9 +714,24 @@ export default function EventDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [eventActionErr, setEventActionErr] = useState<string | null>(null)
   const [publishErrors, setPublishErrors] = useState<PublishValidationError[] | null>(null)
-  // Read once to suppress 'never read' warnings — the value is mirrored in the
-  // checklist UI, but separately owned here so we can clear it on save.
   void publishErrors
+  // Team members for the Lead organiser picker. Fetched once on mount;
+  // tiny list, no need to debounce or paginate.
+  const [teamMembers, setTeamMembers] = useState<{ auth_uuid: string; name: string }[]>([])
+  useEffect(() => {
+    let active = true
+    supabase
+      .from('team_members')
+      .select('auth_uuid, name')
+      .is('deleted_at', null)
+      .order('name', { ascending: true })
+      .then(({ data }) => {
+        if (!active) return
+        setTeamMembers((data ?? [])
+          .filter((m: any) => m.auth_uuid && m.name) as { auth_uuid: string; name: string }[])
+      })
+    return () => { active = false }
+  }, [])
   const router = useRouter()
 
   const handleArchiveEvent = async () => {
@@ -2282,8 +2297,8 @@ export default function EventDetailPage() {
 
             {/* Section: Basics (Name, slug, status, date, times, location, capacity) */}
             <Section id="basics" title="Basics" subtitle="Name, status, date, times, location, capacity, application window, description" defaultOpen>
-            {/* Row 1: Name + Slug + Status */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Row 1: Name + Slug + Status + Lead organiser */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Event name *</label>
                 <input value={editDraft.name ?? ''} onChange={e => setEditDraft(d => ({ ...d, name: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
@@ -2299,6 +2314,19 @@ export default function EventDetailPage() {
                   <option value="open">Open</option>
                   <option value="closed">Closed</option>
                   <option value="completed">Completed</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Lead organiser</label>
+                <select
+                  value={editDraft.lead_team_member_id ?? event.lead_team_member_id ?? ''}
+                  onChange={e => setEditDraft(d => ({ ...d, lead_team_member_id: e.target.value || null }))}
+                  className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                >
+                  <option value="">— Unassigned —</option>
+                  {teamMembers.map(m => (
+                    <option key={m.auth_uuid} value={m.auth_uuid}>{m.name}</option>
+                  ))}
                 </select>
               </div>
             </div>

@@ -415,8 +415,9 @@ function Inner() {
         </label>
       </div>
 
-      {/* Bulk action bar (table view, selection > 0) */}
-      {url.view === 'table' && selected.size > 0 && (
+      {/* Bulk action bar — visible whenever something is selected, regardless
+          of view mode (cards or table). */}
+      {selected.size > 0 && (
         <div className="flex items-center gap-3 mb-3 px-4 py-2 rounded-xl bg-steps-blue-50 border border-steps-blue-200 text-sm">
           <span className="font-semibold text-steps-blue-800">{selected.size} selected</span>
           <button onClick={handleBulkArchive} className="px-3 py-1 rounded-lg bg-steps-blue-600 text-white font-semibold hover:bg-steps-blue-700 transition">Archive selected</button>
@@ -465,6 +466,9 @@ function Inner() {
             { title: upcoming.length > 0 && past.length > 0 ? 'Upcoming & live' : null, rows: upcoming },
             { title: upcoming.length > 0 && past.length > 0 ? 'Past events' : null, rows: past },
           ]}
+          selected={selected}
+          onToggle={toggleSelected}
+          onToggleAll={toggleSelectAll}
           onArchive={handleArchive}
           onDelete={handleDelete}
           busyId={busyId}
@@ -491,8 +495,11 @@ type DecoratedEvent = EventWithStats & {
 // ---------------------------------------------------------------------------
 // CardsView
 // ---------------------------------------------------------------------------
-function CardsView({ buckets, onArchive, onDelete, busyId }: {
+function CardsView({ buckets, selected, onToggle, onToggleAll, onArchive, onDelete, busyId }: {
   buckets: { title: string | null; rows: DecoratedEvent[] }[]
+  selected: Set<string>
+  onToggle: (id: string) => void
+  onToggleAll: (ids: string[]) => void
   onArchive: (id: string, currentlyArchived: boolean) => void
   onDelete: (id: string, name: string) => void
   busyId: string | null
@@ -503,13 +510,30 @@ function CardsView({ buckets, onArchive, onDelete, busyId }: {
         <div key={i}>
           {b.title && (
             <div className="flex items-baseline justify-between mb-3">
-              <h3 className="font-display text-sm font-bold text-steps-dark uppercase tracking-wider">{b.title}</h3>
+              <div className="inline-flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={b.rows.length > 0 && b.rows.every(r => selected.has(r.id))}
+                  onChange={() => onToggleAll(b.rows.map(r => r.id))}
+                  className="w-4 h-4 rounded border-slate-300 text-steps-blue-600 focus:ring-steps-blue-500"
+                  aria-label={`Select all ${b.title}`}
+                />
+                <h3 className="font-display text-sm font-bold text-steps-dark uppercase tracking-wider">{b.title}</h3>
+              </div>
               <span className="text-xs text-slate-400">{b.rows.length}</span>
             </div>
           )}
           <div className="grid gap-3">
             {b.rows.map(event => (
-              <EventCard key={event.id} event={event} busy={busyId === event.id} onArchive={() => onArchive(event.id, !!event.archived_at)} onDelete={() => onDelete(event.id, event.name)} />
+              <EventCard
+                key={event.id}
+                event={event}
+                busy={busyId === event.id}
+                isSelected={selected.has(event.id)}
+                onToggleSelected={() => onToggle(event.id)}
+                onArchive={() => onArchive(event.id, !!event.archived_at)}
+                onDelete={() => onDelete(event.id, event.name)}
+              />
             ))}
           </div>
         </div>
@@ -518,7 +542,7 @@ function CardsView({ buckets, onArchive, onDelete, busyId }: {
   )
 }
 
-function EventCard({ event, busy, onArchive, onDelete }: { event: DecoratedEvent; busy: boolean; onArchive: () => void; onDelete: () => void }) {
+function EventCard({ event, busy, isSelected, onToggleSelected, onArchive, onDelete }: { event: DecoratedEvent; busy: boolean; isSelected: boolean; onToggleSelected: () => void; onArchive: () => void; onDelete: () => void }) {
   const meta = EFFECTIVE_STATUS_META[event.effective]
   const formattedDate = event.event_date
     ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
@@ -544,9 +568,23 @@ function EventCard({ event, busy, onArchive, onDelete }: { event: DecoratedEvent
     : ''
 
   return (
-    <div className={`relative group rounded-2xl border ${isArchived ? 'border-slate-200 bg-slate-50 opacity-80' : 'border-slate-200 bg-white'} hover:border-steps-blue-300 hover:shadow-md transition-all ${rimClass}`}>
+    <div className={`relative group rounded-2xl border ${isSelected ? 'ring-2 ring-steps-blue-400 border-steps-blue-300' : isArchived ? 'border-slate-200 bg-slate-50 opacity-80' : 'border-slate-200 bg-white'} hover:border-steps-blue-300 hover:shadow-md transition-all ${rimClass}`}>
+      {/* Selection checkbox — top-left, always visible. stopPropagation so
+          clicking it doesn't navigate into the card. */}
+      <label
+        className="absolute top-3 left-3 z-10 inline-flex items-center justify-center w-8 h-8 rounded-lg cursor-pointer hover:bg-slate-100 transition"
+        onClick={e => e.stopPropagation()}
+        aria-label={`Select ${event.name}`}
+      >
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={onToggleSelected}
+          className="w-4 h-4 rounded border-slate-300 text-steps-blue-600 focus:ring-steps-blue-500"
+        />
+      </label>
       <Link href={`/students/events/${event.id}`} className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 rounded-2xl">
-        <div className="p-5 pr-12">
+        <div className="p-5 pl-14 pr-12">
           <div className="flex items-start justify-between gap-4 mb-3">
             <div className="min-w-0">
               <h2 className="font-display text-lg font-bold text-steps-dark truncate group-hover:text-steps-blue-700 transition-colors">{event.name}</h2>
@@ -615,7 +653,7 @@ function EventCard({ event, busy, onArchive, onDelete }: { event: DecoratedEvent
         )}
       </div>
 
-      {isArchived && <span className="absolute top-3 left-5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-200 text-slate-600 border border-slate-300">Archived</span>}
+      {isArchived && <span className="absolute top-3 left-14 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-200 text-slate-600 border border-slate-300">Archived</span>}
     </div>
   )
 }
@@ -678,10 +716,25 @@ function TableView({ rowsByBucket, selected, onToggle, onToggleAll, onArchive, o
           )}
           <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              {/* table-fixed + colgroup pins column widths so the two
+                  bucketed tables (Upcoming & Past) line up vertically.
+                  Without this they'd auto-size to their own widest cell
+                  and the columns would drift between sections. */}
+              <table className="w-full text-sm table-fixed min-w-[820px]">
+                <colgroup>
+                  <col className="w-10" />          {/* checkbox */}
+                  <col />                            {/* event (flex) */}
+                  <col className="w-28" />          {/* date */}
+                  <col className="w-32" />          {/* status */}
+                  <col className="w-20" />          {/* pending */}
+                  <col className="w-20" />          {/* accepted */}
+                  <col className="w-20" />          {/* total */}
+                  <col className="w-28" />          {/* owner */}
+                  <col className="w-12" />          {/* actions */}
+                </colgroup>
                 <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
                   <tr>
-                    <th className="px-3 py-2.5 text-left w-8">
+                    <th className="px-3 py-2.5 text-left">
                       <input
                         type="checkbox"
                         checked={b.rows.every(r => selected.has(r.id))}
@@ -697,7 +750,7 @@ function TableView({ rowsByBucket, selected, onToggle, onToggleAll, onArchive, o
                     <th className="px-3 py-2.5 text-right">Accepted</th>
                     <th className="px-3 py-2.5 text-right">Total</th>
                     <th className="px-3 py-2.5 text-left">Owner</th>
-                    <th className="px-3 py-2.5 text-right w-12">Act</th>
+                    <th className="px-3 py-2.5 text-right">Act</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -708,8 +761,8 @@ function TableView({ rowsByBucket, selected, onToggle, onToggleAll, onArchive, o
                     return (
                       <tr key={e.id} className={`${isSelected ? 'bg-steps-blue-50' : ''} ${e.archived_at ? 'opacity-70' : ''} hover:bg-slate-50 transition-colors`}>
                         <td className="px-3 py-2.5"><input type="checkbox" checked={isSelected} onChange={() => onToggle(e.id)} className="w-4 h-4 rounded border-slate-300 text-steps-blue-600 focus:ring-steps-blue-500" aria-label={`Select ${e.name}`} /></td>
-                        <td className="px-3 py-2.5">
-                          <Link href={`/students/events/${e.id}`} className="font-semibold text-steps-dark hover:text-steps-blue-700 transition-colors">{e.name}</Link>
+                        <td className="px-3 py-2.5 truncate">
+                          <Link href={`/students/events/${e.id}`} className="font-semibold text-steps-dark hover:text-steps-blue-700 transition-colors truncate inline-block max-w-full align-middle" title={e.name}>{e.name}</Link>
                           {e.archived_at && <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-200 text-slate-600">Archived</span>}
                         </td>
                         <td className="px-3 py-2.5 text-slate-600">{date}</td>
@@ -720,7 +773,7 @@ function TableView({ rowsByBucket, selected, onToggle, onToggleAll, onArchive, o
                         <td className={`px-3 py-2.5 text-right tabular-nums ${e.submitted_count > 0 ? 'text-sky-700 font-bold' : 'text-slate-400'}`}>{e.submitted_count}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{e.accepted_count}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{e.total_applicants}</td>
-                        <td className="px-3 py-2.5 text-slate-600">{e.owner ?? <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2.5 text-slate-600 truncate" title={e.owner ?? ''}>{e.owner ?? <span className="text-slate-300">—</span>}</td>
                         <td className="px-3 py-2.5 text-right">
                           <RowActions busy={busyId === e.id} archived={!!e.archived_at} onArchive={() => onArchive(e.id, !!e.archived_at)} onDelete={() => onDelete(e.id, e.name)} />
                         </td>
