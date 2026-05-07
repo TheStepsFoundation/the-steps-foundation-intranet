@@ -359,6 +359,18 @@ export default function StudentsDashboard() {
     }
   }
 
+  // Preview Student Hub modal state
+  const [showPreviewHub, setShowPreviewHub] = useState(false)
+  const [previewSearch, setPreviewSearch] = useState('')
+  const previewMatches = useMemo(() => {
+    const q = previewSearch.trim().toLowerCase()
+    if (!q) return [] as typeof students
+    return students.filter(s =>
+      (s.first_name + ' ' + s.last_name).toLowerCase().includes(q) ||
+      (s.personal_email ?? '').toLowerCase().includes(q)
+    ).slice(0, 8)
+  }, [students, previewSearch])
+
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6 animate-tsf-fade-up">
@@ -733,6 +745,55 @@ export default function StudentsDashboard() {
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+    {showPreviewHub && (
+        <div role="dialog" aria-modal="true" aria-label="Preview Student Hub" onClick={() => setShowPreviewHub(false)} className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-tsf-fade-in">
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-2xl w-full p-6 sm:p-7 animate-tsf-fade-up">
+            <h2 className="font-display text-xl font-bold text-steps-dark mb-1">Preview Student Hub</h2>
+            <p className="text-sm text-slate-500 mb-4">
+              Open the hub from a specific student's perspective — useful for debugging visibility, eligibility, or status display.
+            </p>
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Find a student</label>
+              <input
+                type="search"
+                value={previewSearch}
+                onChange={e => setPreviewSearch(e.target.value)}
+                placeholder="Type a name or email…"
+                autoFocus
+                className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent outline-none"
+              />
+            </div>
+            <div className="space-y-1 max-h-[280px] overflow-y-auto">
+              {previewSearch.trim() === '' ? (
+                <p className="text-xs text-slate-400 italic px-1 py-2">Start typing to find a student…</p>
+              ) : previewMatches.length === 0 ? (
+                <p className="text-xs text-slate-400 italic px-1 py-2">No matches.</p>
+              ) : (
+                previewMatches.map(s => (
+                  <Link
+                    key={s.id}
+                    href={`/students/${s.id}`}
+                    onClick={() => setShowPreviewHub(false)}
+                    className="block px-3 py-2 rounded-lg hover:bg-violet-50 transition"
+                  >
+                    <span className="text-sm font-semibold text-steps-dark">{s.first_name} {s.last_name}</span>
+                    <span className="block text-xs text-slate-500">{s.personal_email}{s.year_group ? ` · Year ${s.year_group}` : ''}{s.school_name_raw ? ` · ${s.school_name_raw}` : ''}</span>
+                  </Link>
+                ))
+              )}
+            </div>
+            <div className="mt-5 pt-4 border-t border-slate-200 text-xs text-slate-500">
+              <p className="font-semibold text-slate-700 mb-1">Coming soon: synthetic profile preview</p>
+              <p>Build a hypothetical student (year group, school type, eligibility, simulated event statuses) and view the hub as if they were signed in. This release covers the real-student path — pick a student above to open their student-side detail page.</p>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button type="button" onClick={() => setShowPreviewHub(false)} className="px-4 py-2 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition">
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
