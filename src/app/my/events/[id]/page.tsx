@@ -227,7 +227,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         {renderTopNav()}
-        <div role="status" aria-live="polite" aria-label="Loading event details" className="max-w-7xl 2xl:max-w-[110rem] mx-auto px-4 sm:px-8 lg:px-10 py-16 flex flex-col items-center gap-3">
+        <div role="status" aria-live="polite" aria-label="Loading event details" className="max-w-4xl mx-auto px-4 sm:px-6 py-16 flex flex-col items-center gap-3">
           <div aria-hidden="true" className="animate-spin w-7 h-7 border-2 border-steps-blue-600 border-t-transparent rounded-full" />
           <p className="text-sm text-slate-500">Loading event details…</p>
         </div>
@@ -239,7 +239,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
     return (
       <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         {renderTopNav()}
-        <div className="max-w-7xl 2xl:max-w-[110rem] mx-auto px-4 sm:px-8 lg:px-10 py-16 text-center animate-tsf-fade-up">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-16 text-center animate-tsf-fade-up">
           <div className="w-14 h-14 mx-auto rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mb-4" aria-hidden>
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
@@ -280,7 +280,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
       {/* === Page wrapper — single max-width for banner + content so they
           line up. Padding stays generous so the page fills the screen
           on big monitors without sprawling all the way to the edges. */}
-      <div className="max-w-7xl 2xl:max-w-[110rem] mx-auto px-4 sm:px-8 lg:px-10 pt-4 sm:pt-6">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
         <Link
           href="/my"
           className="inline-flex items-center gap-1 text-sm text-steps-blue-700 hover:text-steps-blue-900 mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 rounded"
@@ -307,7 +307,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
         <header className="mt-5 sm:mt-7 animate-tsf-fade-up-1">
           <div className="flex flex-wrap items-center gap-2 mb-3">
             {journey && (
-              <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${journey.badgeClasses}`}>
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${journey.badgeClasses}`}>
                 {journey.prefix ? (
                   <>
                     <span className="opacity-70 mr-1">{journey.prefix}</span>
@@ -327,9 +327,9 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
             )}
           </div>
 
-          <h1 className="font-display-tight text-4xl sm:text-6xl xl:text-7xl font-black text-steps-dark">{event.name}</h1>
+          <h1 className="font-display-tight text-3xl sm:text-5xl font-black text-steps-dark">{event.name}</h1>
 
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-base sm:text-lg text-slate-600 mt-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-slate-600 mt-4">
             {event.event_date && <span className="inline-flex items-center gap-1.5"><CalIcon /> {formatDate(event.event_date)}</span>}
             {event.time_start && (
               <span className="inline-flex items-center gap-1.5"><ClockIcon /> {event.time_start}{event.time_end ? ` – ${event.time_end}` : ''}</span>
@@ -338,7 +338,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
               <span className="inline-flex items-center gap-1.5"><PinIcon /> {displayLocation}</span>
             )}
             {daysUntil !== null && daysUntil >= 0 && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-steps-blue-50 text-steps-blue-700 border border-steps-blue-200 text-sm font-semibold">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-steps-blue-50 text-steps-blue-700 border border-steps-blue-200 text-xs font-semibold">
                 {daysUntil === 0 ? 'Today!' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil} days to go`}
               </span>
             )}
@@ -346,16 +346,16 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
         </header>
       </div>
 
-      <div className="max-w-7xl 2xl:max-w-[110rem] mx-auto px-4 sm:px-8 lg:px-10 py-6 sm:py-8">
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_24rem] gap-6 lg:gap-10">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="grid lg:grid-cols-[1fr_18rem] gap-6">
           {/* === Main column === */}
           <div className="space-y-6 min-w-0">
             {/* About */}
             {event.description && (
-              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 lg:p-10 animate-tsf-fade-up-2" aria-labelledby="about-heading">
-                <h2 id="about-heading" className="font-display text-xl sm:text-2xl font-bold text-steps-dark">About this event</h2>
+              <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 animate-tsf-fade-up-2" aria-labelledby="about-heading">
+                <h2 id="about-heading" className="font-display text-lg font-bold text-steps-dark">About this event</h2>
                 <div
-                  className="text-base sm:text-lg text-slate-700 whitespace-pre-wrap leading-relaxed rich-html mt-3 max-w-[68ch]"
+                  className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed rich-html mt-3"
                   dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(event.description) }}
                 />
 
@@ -370,7 +370,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
                     {showActionsEdit && (
                       <Link
                         href={`/apply/${event.slug}?edit=1`}
-                        className="px-5 py-2.5 text-base text-steps-blue-700 hover:text-steps-blue-900 font-semibold border border-steps-blue-200 rounded-xl hover:bg-steps-blue-50 transition"
+                        className="px-4 py-2 text-sm text-steps-blue-700 hover:text-steps-blue-900 font-semibold border border-steps-blue-200 rounded-xl hover:bg-steps-blue-50 transition"
                       >
                         Edit application
                       </Link>
@@ -379,7 +379,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
                       <button
                         type="button"
                         onClick={() => { setShowWithdrawModal(true); setWithdrawErr(null) }}
-                        className="px-5 py-2.5 text-base text-steps-berry hover:text-white font-semibold border border-steps-berry/40 rounded-xl hover:bg-steps-berry transition"
+                        className="px-4 py-2 text-sm text-steps-berry hover:text-white font-semibold border border-steps-berry/40 rounded-xl hover:bg-steps-berry transition"
                       >
                         Withdraw
                       </button>
@@ -391,10 +391,10 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
                 {ineligibleOpenToLabel && (
                   <div className="mt-6 pt-6 border-t border-slate-100">
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                      <div className="flex-shrink-0 inline-flex items-center px-3.5 py-1.5 rounded-full text-sm font-semibold bg-slate-200 text-slate-600 border border-slate-300">
+                      <div className="flex-shrink-0 inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-600 border border-slate-300">
                         Not available for your year group
                       </div>
-                      <p className="text-base text-slate-600">
+                      <p className="text-sm text-slate-600">
                         This event is open to {ineligibleOpenToLabel.toLowerCase()}.
                       </p>
                     </div>
@@ -414,8 +414,8 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
             {application && (
               <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 animate-tsf-fade-up-3" aria-labelledby="answers-heading">
                 <div className="flex items-baseline justify-between flex-wrap gap-2">
-                  <h2 id="answers-heading" className="font-display text-xl sm:text-2xl font-bold text-steps-dark">Your application</h2>
-                  <p className="text-sm text-slate-500">
+                  <h2 id="answers-heading" className="font-display text-lg font-bold text-steps-dark">Your application</h2>
+                  <p className="text-xs text-slate-500">
                     Submitted {new Date(application.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
                     {application.updated_at && application.updated_at !== application.created_at && (
                       <> · last updated {new Date(application.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</>
@@ -465,7 +465,7 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
           {/* === Side rail (desktop) — key info === */}
           <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start animate-tsf-fade-up-2">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-              <h2 className="font-display text-base sm:text-lg font-bold text-steps-dark uppercase tracking-wider">Key info</h2>
+              <h2 className="font-display text-sm font-bold text-steps-dark uppercase tracking-wider">Key info</h2>
               <dl className="mt-3 divide-y divide-slate-100">
                 {event.event_date && (
                   <KeyInfo label="Date" value={formatDate(event.event_date)} />
@@ -548,10 +548,10 @@ export default function EventOverviewPage({ params }: { params: { id: string } }
 
 function KeyInfo({ label, value, hint }: { label: string; value: string; hint?: string | null }) {
   return (
-    <div className="py-3 first:pt-0 last:pb-0">
-      <dt className="text-xs sm:text-sm font-semibold text-slate-500 uppercase tracking-wider">{label}</dt>
-      <dd className="text-base sm:text-lg text-slate-900 mt-0.5">{value}</dd>
-      {hint && <p className="text-sm text-slate-400 mt-1">{hint}</p>}
+    <div className="py-2.5 first:pt-0 last:pb-0">
+      <dt className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{label}</dt>
+      <dd className="text-sm text-slate-900 mt-0.5">{value}</dd>
+      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
     </div>
   )
 }
@@ -559,8 +559,8 @@ function KeyInfo({ label, value, hint }: { label: string; value: string; hint?: 
 function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
     <div className={className}>
-      <div className="text-xs sm:text-sm font-semibold text-slate-500 uppercase tracking-wider">{label}</div>
-      <div className="text-base sm:text-lg text-slate-800 mt-1 whitespace-pre-wrap">{children}</div>
+      <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{label}</div>
+      <div className="text-sm text-slate-800 mt-1 whitespace-pre-wrap">{children}</div>
     </div>
   )
 }
@@ -628,10 +628,10 @@ function CheckinQrCard({ eventId, eventDate }: { eventId: string; eventDate: str
   return (
     <div>
       <div className="flex items-baseline justify-between gap-2 flex-wrap">
-        <h2 className="font-display text-xl sm:text-2xl font-bold text-steps-dark">Your check-in code</h2>
-        <span className="text-sm uppercase tracking-wider font-semibold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">Accepted</span>
+        <h2 className="font-display text-lg font-bold text-steps-dark">Your check-in code</h2>
+        <span className="text-xs uppercase tracking-wider font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">Accepted</span>
       </div>
-      <p className="text-base text-slate-600 mt-1">{dateHint} A team member will scan it at the door — no need to print it.</p>
+      <p className="text-sm text-slate-600 mt-1">{dateHint} A team member will scan it at the door — no need to print it.</p>
 
       <div className="mt-5 flex flex-col sm:flex-row items-center sm:items-start gap-5">
         <div className="shrink-0 rounded-2xl border border-slate-200 bg-white p-3 w-44 h-44 flex items-center justify-center shadow-sm">
@@ -642,7 +642,7 @@ function CheckinQrCard({ eventId, eventDate }: { eventId: string; eventDate: str
           )}
         </div>
 
-        <div className="text-base text-slate-600 max-w-md flex-1 self-center">
+        <div className="text-sm text-slate-600 max-w-md flex-1 self-center">
           <ul className="list-disc pl-5 space-y-1.5">
             <li>Bring your phone fully charged — you won&apos;t be able to attend without showing your code.</li>
             <li>If your screen is hard to read, turn brightness up before queuing at the door.</li>

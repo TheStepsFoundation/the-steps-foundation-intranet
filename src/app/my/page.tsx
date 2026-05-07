@@ -368,13 +368,13 @@ export default function StudentHub() {
         </button>
       </TopNav>
 
-      <div className="max-w-7xl 2xl:max-w-[110rem] mx-auto px-4 sm:px-8 lg:px-10 py-10 sm:py-14">
+      <div className="max-w-3xl mx-auto px-4 py-10 sm:py-14">
         {/* === Hero === */}
         <header className="mb-8 animate-tsf-fade-up">
           <div className="inline-flex items-center gap-2 bg-steps-blue-100 text-steps-blue-700 text-xs font-semibold tracking-[0.15em] uppercase px-3 py-1 rounded-full mb-3">
             Student Hub
           </div>
-          <h1 className="font-display-tight text-4xl sm:text-6xl xl:text-7xl font-black text-steps-dark">
+          <h1 className="font-display-tight text-4xl sm:text-5xl font-black text-steps-dark">
             {profile?.first_name ? `Hey, ${profile.first_name}.` : 'Welcome back.'}
           </h1>
           <p className="text-slate-500 text-sm mt-3 sm:hidden">{authEmail}</p>
@@ -492,7 +492,7 @@ export default function StudentHub() {
         {eligibleOpenEvents.length > 0 && (
           <section className="mb-10 animate-tsf-fade-up-2" aria-labelledby="apply-heading">
             <div className="flex items-baseline justify-between mb-4">
-              <h2 id="apply-heading" className="font-display text-2xl sm:text-3xl font-bold text-steps-dark">Apply now</h2>
+              <h2 id="apply-heading" className="font-display text-xl font-bold text-steps-dark">Apply now</h2>
               <span className="text-xs text-slate-400 uppercase tracking-wider">{eligibleOpenEvents.length} open</span>
             </div>
             <div className="space-y-4">
@@ -561,7 +561,7 @@ export default function StudentHub() {
         {ineligibleOpenEvents.length > 0 && (
           <section className="mb-10" aria-labelledby="other-heading">
             <div className="flex items-baseline justify-between mb-1">
-              <h2 id="other-heading" className="font-display text-2xl sm:text-3xl font-bold text-steps-dark">Other upcoming events</h2>
+              <h2 id="other-heading" className="font-display text-xl font-bold text-steps-dark">Other upcoming events</h2>
               <span className="text-xs text-slate-400 uppercase tracking-wider">Heads-up</span>
             </div>
             <p className="text-sm text-slate-500 mb-4">These aren’t open to your year group — but here’s what’s coming up.</p>
@@ -616,7 +616,7 @@ export default function StudentHub() {
         {/* === Section: My applications === */}
         <section className="mb-10" aria-labelledby="apps-heading">
           <div className="flex items-baseline justify-between mb-4">
-            <h2 id="apps-heading" className="font-display text-2xl sm:text-3xl font-bold text-steps-dark">My applications</h2>
+            <h2 id="apps-heading" className="font-display text-xl font-bold text-steps-dark">My applications</h2>
             {applications.length > 0 && (
               <span className="text-xs text-slate-400 uppercase tracking-wider">{applications.length} total</span>
             )}
@@ -769,7 +769,7 @@ export default function StudentHub() {
         {/* === Section: My details === */}
         <section className="mb-10" aria-labelledby="details-heading">
           <div className="flex items-center justify-between mb-4">
-            <h2 id="details-heading" className="font-display text-2xl sm:text-3xl font-bold text-steps-dark">My details</h2>
+            <h2 id="details-heading" className="font-display text-xl font-bold text-steps-dark">My details</h2>
             {!editing && profile && (
               <button
                 onClick={() => setEditing(true)}
