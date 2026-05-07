@@ -134,6 +134,7 @@ export type EventRow = {
   eligible_year_groups: number[] | null
   open_to_gap_year: boolean
   feedback_config: EventFeedbackConfig | null
+  archived_at: string | null
   created_at: string
 }
 
@@ -164,17 +165,22 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,archived_at,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
+ *
+ * Archived events are hidden by default. Pass `{ includeArchived: true }`
+ * to surface them — used by the events list page when admins toggle
+ * "Show archived" on.
  */
-export async function fetchAllEvents(): Promise<EventRow[]> {
-  const { data, error } = await supabase
+export async function fetchAllEvents(opts: { includeArchived?: boolean } = {}): Promise<EventRow[]> {
+  let q = supabase
     .from('events')
     .select(EVENT_COLUMNS)
     .is('deleted_at', null)
-    .order('event_date', { ascending: false })
+  if (!opts.includeArchived) q = q.is('archived_at', null)
+  const { data, error } = await q.order('event_date', { ascending: false })
   if (error) throw error
   return (data ?? []) as EventRow[]
 }
@@ -198,10 +204,10 @@ export async function fetchEvent(id: string): Promise<EventRow | null> {
  * Uses the event_application_stats() RPC to get counts server-side
  * instead of pulling all application rows to the client.
  */
-export async function fetchEventsWithStats(): Promise<EventWithStats[]> {
+export async function fetchEventsWithStats(opts: { includeArchived?: boolean } = {}): Promise<EventWithStats[]> {
   // Parallel: events + aggregated counts via RPC
   const [events, statsResult] = await Promise.all([
-    fetchAllEvents(),
+    fetchAllEvents(opts),
     supabase.rpc('event_application_stats'),
   ])
 
@@ -265,8 +271,8 @@ export async function updateEvent(
  * Slug is a placeholder timestamp (untitled-<ms>) so the row satisfies the
  * NOT NULL constraint; the admin renames it in the editor before going live.
  *
- * RLS: insert is gated to admins (matches the existing events policy set).
- * Surfaces the Supabase error verbatim so the caller can show it inline.
+ * RLS: insert is gated to team members (matches the existing events policy
+ * set). Surfaces the Supabase error verbatim so the caller can show it inline.
  */
 export async function createDraftEvent(): Promise<EventRow> {
   const placeholderName = 'Untitled event'
@@ -282,6 +288,49 @@ export async function createDraftEvent(): Promise<EventRow> {
     .single()
   if (error) throw error
   return data as EventRow
+}
+
+/**
+ * Archive an event — hides it from the default events list. Reversible
+ * via unarchiveEvent. Sets archived_at = now() (or null to undo).
+ */
+export async function archiveEvent(id: string): Promise<EventRow> {
+  const { data, error } = await supabase
+    .from('events')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('id', id)
+    .select(EVENT_COLUMNS)
+    .single()
+  if (error) throw error
+  return data as EventRow
+}
+
+export async function unarchiveEvent(id: string): Promise<EventRow> {
+  const { data, error } = await supabase
+    .from('events')
+    .update({ archived_at: null })
+    .eq('id', id)
+    .select(EVENT_COLUMNS)
+    .single()
+  if (error) throw error
+  return data as EventRow
+}
+
+/**
+ * Soft-delete an event. Sets deleted_at = now() so the row disappears
+ * from every default query but is preserved in the DB for audit / restore.
+ *
+ * The applications.event_id FK is ON DELETE RESTRICT, so a hard delete
+ * would fail for any event with applications. Soft-delete sidesteps that
+ * — applications continue to reference the row, but neither admin nor
+ * student-facing queries surface it (all use `.is('deleted_at', null)`).
+ */
+export async function deleteEvent(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('events')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
 }
 
 /**

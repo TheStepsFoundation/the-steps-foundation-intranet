@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useState } from 'react'
-import { EventWithStats, fetchEventsWithStats, createDraftEvent } from '@/lib/events-api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { EventWithStats, fetchEventsWithStats, createDraftEvent, archiveEvent, unarchiveEvent, deleteEvent } from '@/lib/events-api'
 
 // ---------------------------------------------------------------------------
 // /students/events — events overview / management entry point.
@@ -37,6 +37,9 @@ export default function EventsOverview() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [creating, setCreating] = useState(false)
   const [createErr, setCreateErr] = useState<string | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [actionErr, setActionErr] = useState<string | null>(null)
 
   const handleCreate = async () => {
     setCreating(true); setCreateErr(null)
@@ -54,11 +57,47 @@ export default function EventsOverview() {
   useEffect(() => {
     let active = true
     setLoading(true)
-    fetchEventsWithStats()
+    fetchEventsWithStats({ includeArchived: showArchived })
       .then(data => { if (active) { setEvents(data); setLoading(false) } })
       .catch(err => { if (active) { setError(err?.message ?? 'Failed to load events'); setLoading(false) } })
     return () => { active = false }
-  }, [])
+  }, [showArchived])
+
+  // Reload helper used after archive / unarchive / delete actions.
+  const reload = async () => {
+    try {
+      const fresh = await fetchEventsWithStats({ includeArchived: showArchived })
+      setEvents(fresh)
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to refresh events')
+    }
+  }
+
+  const handleArchive = async (id: string, currentlyArchived: boolean) => {
+    setBusyId(id); setActionErr(null)
+    try {
+      if (currentlyArchived) await unarchiveEvent(id)
+      else await archiveEvent(id)
+      await reload()
+    } catch (e: any) {
+      setActionErr(e?.message ?? 'Action failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"? It'll be hidden everywhere — applications stay in the database for audit, and you can restore it from Supabase if needed.`)) return
+    setBusyId(id); setActionErr(null)
+    try {
+      await deleteEvent(id)
+      await reload()
+    } catch (e: any) {
+      setActionErr(e?.message ?? 'Delete failed')
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   const totals = useMemo(() => {
     let totalApps = 0, totalAccepted = 0, totalRejected = 0, totalAttended = 0
@@ -126,6 +165,11 @@ export default function EventsOverview() {
           Couldn&apos;t create event: {createErr}
         </div>
       )}
+      {actionErr && (
+        <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {actionErr}
+        </div>
+      )}
 
       {/* === KPI tiles === */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6 animate-tsf-fade-up-1">
@@ -136,7 +180,7 @@ export default function EventsOverview() {
         <Kpi label="Attended" value={totals.totalAttended} accent />
       </div>
 
-      {/* === Status filter tabs === */}
+      {/* === Status filter tabs + archive toggle === */}
       <div className="flex items-center gap-1 mb-4 flex-wrap">
         {(['all', 'open', 'closed', 'completed', 'draft'] as StatusFilter[]).map(s => (
           <button
@@ -152,6 +196,15 @@ export default function EventsOverview() {
             <span className="ml-1.5 text-xs opacity-70">{statusCounts[s] ?? 0}</span>
           </button>
         ))}
+        <label className="ml-auto inline-flex items-center gap-2 text-sm text-slate-600 dark:text-gray-300 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={e => setShowArchived(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 text-steps-blue-600 focus:ring-steps-blue-500"
+          />
+          Show archived
+        </label>
       </div>
 
       {/* === List === */}
@@ -176,7 +229,13 @@ export default function EventsOverview() {
       ) : (
         <div className="grid gap-3 animate-tsf-fade-up-2">
           {filtered.map(event => (
-            <EventCard key={event.id} event={event} />
+            <EventCard
+              key={event.id}
+              event={event}
+              busy={busyId === event.id}
+              onArchive={() => handleArchive(event.id, !!event.archived_at)}
+              onDelete={() => handleDelete(event.id, event.name)}
+            />
           ))}
         </div>
       )}
@@ -184,7 +243,18 @@ export default function EventsOverview() {
   )
 }
 
-function EventCard({ event }: { event: EventWithStats }) {
+function EventCard({ event, busy, onArchive, onDelete }: { event: EventWithStats; busy: boolean; onArchive: () => void; onDelete: () => void }) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener('click', onDoc)
+    return () => document.removeEventListener('click', onDoc)
+  }, [menuOpen])
+
   const badge = STATUS_BADGE[event.status] ?? STATUS_BADGE.draft
   const formattedDate = event.event_date
     ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-GB', {
@@ -194,12 +264,14 @@ function EventCard({ event }: { event: EventWithStats }) {
 
   const timeStr = [event.time_start, event.time_end].filter(Boolean).join(' – ')
 
+  const isArchived = !!event.archived_at
   return (
-    <Link
-      href={`/students/events/${event.id}`}
-      className="group block rounded-2xl border border-slate-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-steps-blue-300 dark:hover:border-steps-blue-700 hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
-    >
-      <div className="p-5">
+    <div className={`relative group rounded-2xl border ${isArchived ? 'border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-gray-900/60 opacity-80' : 'border-slate-200 dark:border-gray-800 bg-white dark:bg-gray-900'} hover:border-steps-blue-300 dark:hover:border-steps-blue-700 hover:shadow-md transition-all`}>
+      <Link
+        href={`/students/events/${event.id}`}
+        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 rounded-2xl"
+      >
+        <div className="p-5 pr-12">
         <div className="flex items-start justify-between gap-4 mb-3">
           <div className="min-w-0">
             <h2 className="font-display text-lg font-bold text-steps-dark dark:text-gray-100 truncate group-hover:text-steps-blue-700 transition-colors">
@@ -233,8 +305,51 @@ function EventCard({ event }: { event: EventWithStats }) {
             </div>
           )}
         </div>
+        </div>
+      </Link>
+
+      {/* Kebab menu — Archive / Delete. Stacked above the card link with
+          stopPropagation so clicks don't navigate. */}
+      <div ref={menuRef} className="absolute top-3 right-3">
+        <button
+          type="button"
+          aria-label="Event actions"
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          disabled={busy}
+          onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(o => !o) }}
+          className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:hover:bg-gray-800 disabled:opacity-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500"
+        >
+          <svg aria-hidden className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M10 6a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm0 5.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>
+        </button>
+        {menuOpen && (
+          <div role="menu" className="absolute right-0 top-9 min-w-[160px] rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 z-30 text-sm">
+            <button
+              role="menuitem"
+              type="button"
+              onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onArchive() }}
+              className="block w-full text-left px-3 py-2 text-slate-700 dark:text-gray-200 hover:bg-slate-100 dark:hover:bg-gray-700"
+            >
+              {isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+            <button
+              role="menuitem"
+              type="button"
+              onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false); onDelete() }}
+              className="block w-full text-left px-3 py-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+            >
+              Delete
+            </button>
+          </div>
+        )}
       </div>
-    </Link>
+
+      {isArchived && (
+        <span className="absolute top-3 left-5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-200 text-slate-600 border border-slate-300">
+          Archived
+        </span>
+      )}
+    </div>
   )
 }
 

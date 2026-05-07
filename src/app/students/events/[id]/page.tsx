@@ -1,9 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useParams, useSearchParams } from 'next/navigation'
+import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EventRow, fetchEvent, updateEvent, formatOpenTo } from '@/lib/events-api'
+import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
@@ -710,6 +710,38 @@ export default function EventDetailPage() {
 
   // Inline event editing
   const [editing, setEditing] = useState(false)
+  const [archiving, setArchiving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [eventActionErr, setEventActionErr] = useState<string | null>(null)
+  const router = useRouter()
+
+  const handleArchiveEvent = async () => {
+    if (!event) return
+    setArchiving(true); setEventActionErr(null)
+    try {
+      const updated = event.archived_at
+        ? await unarchiveEvent(event.id)
+        : await archiveEvent(event.id)
+      setEvent(updated)
+    } catch (e: any) {
+      setEventActionErr(e?.message ?? 'Could not archive event')
+    } finally {
+      setArchiving(false)
+    }
+  }
+
+  const handleDeleteEvent = async () => {
+    if (!event) return
+    if (!window.confirm(`Delete "${event.name}"? It'll be hidden everywhere — applications stay in the database for audit, and you can restore it from Supabase if needed.`)) return
+    setDeleting(true); setEventActionErr(null)
+    try {
+      await deleteEvent(event.id)
+      router.push('/students/events')
+    } catch (e: any) {
+      setEventActionErr(e?.message ?? 'Delete failed')
+      setDeleting(false)
+    }
+  }
   // Effect below flips editing=true once on mount when ?new=1 is present.
   // We don't initialise the state to isNewDraft directly because Suspense
   // hydration can fire searchParams late on first render.
@@ -2109,6 +2141,11 @@ export default function EventDetailPage() {
         {editing ? (
           /* ---- EDIT MODE ---- */
           <div className="space-y-4">
+            {eventActionErr && (
+              <div role="alert" className="mb-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300">
+                {eventActionErr}
+              </div>
+            )}
             {/* Sticky action bar: always-visible Save / Cancel / Preview / Copy-link */}
             <div className="sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 mb-2 flex flex-wrap items-center gap-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-b border-gray-200 dark:border-gray-800">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mr-auto">Edit Event</h2>
@@ -2133,6 +2170,25 @@ export default function EventDetailPage() {
               </a>
               {/* Autosave status pill — shows live progress so the admin can trust their edits are landing without hitting Save. */}
               <AutosaveStatusPill status={autosaveStatus} savedAt={autosaveSavedAt} error={autosaveError} onRetry={() => { void runAutosave() }} />
+              <button
+                type="button"
+                onClick={handleArchiveEvent}
+                disabled={archiving || deleting}
+                className="px-3 py-1.5 text-sm rounded-md border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 disabled:opacity-50"
+                title={event.archived_at ? 'Restore this event to the default events list' : 'Hide this event from the default events list'}
+              >
+                {archiving ? '…' : event.archived_at ? 'Unarchive' : 'Archive'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteEvent}
+                disabled={archiving || deleting}
+                className="px-3 py-1.5 text-sm rounded-md border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 disabled:opacity-50"
+                title="Soft-delete this event. Applications stay in the DB; the row can be restored from Supabase."
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+              <span className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" aria-hidden />
               <button onClick={() => { void cancelEditing() }} disabled={editSaving} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50" title="Reverts any changes saved during this edit session">Cancel</button>
               <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
             </div>
@@ -2349,7 +2405,12 @@ export default function EventDetailPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">{event.name}</h1>
+                  <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100 inline-flex items-center gap-2 flex-wrap">
+                    {event.name}
+                    {event.archived_at && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-slate-200 text-slate-600 border border-slate-300">Archived</span>
+                    )}
+                  </h1>
                   <button onClick={startEditing} className="p-1 rounded-md text-gray-400 hover:text-steps-blue-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" title="Edit event details">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   </button>
