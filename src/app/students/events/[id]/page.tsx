@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError } from '@/lib/events-api'
+import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
@@ -729,6 +729,35 @@ export default function EventDetailPage() {
   // Post-publish handoff banner. Shows a 'Send invitations now' link to open
   // InviteStudentsModal once the status has actually flipped to non-draft.
   const [justPublished, setJustPublished] = useState(false)
+  // Keyboard shortcuts (Cmd/Ctrl + S / P / /). Active only when editing.
+  useEffect(() => {
+    if (!editing) return
+    const onKey = (e: KeyboardEvent) => {
+      const cmd = e.metaKey || e.ctrlKey
+      if (!cmd) return
+      const target = e.target as HTMLElement | null
+      const inField = target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault()
+        void saveEditingRef.current?.()
+      } else if ((e.key === 'p' || e.key === 'P') && !inField) {
+        e.preventDefault()
+        void openPreviewRef.current?.()
+      } else if (e.key === '/' && !inField) {
+        e.preventDefault()
+        setShowShortcutsHelp(o => !o)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [editing])
+
+  // Refs to currently-active save/preview handlers — set further down once
+  // those handlers are declared (avoids hoisting issues since the handlers
+  // are themselves defined further down).
+  const saveEditingRef = useRef<(() => Promise<void>) | null>(null)
+  const openPreviewRef = useRef<(() => Promise<void>) | null>(null)
+
   const openPreview = async () => {
     // Flush any pending autosave before opening so the iframe loads the
     // latest state from the DB. Sets a fresh key so the iframe re-mounts
@@ -739,8 +768,9 @@ export default function EventDetailPage() {
     setPreviewKey(k => k + 1)
     setPreviewOpen(true)
   }
-  // Team members for the Lead organiser picker. Fetched once on mount;
-  // tiny list, no need to debounce or paginate.
+  useEffect(() => { openPreviewRef.current = openPreview }, [openPreview])
+  // Team members for the Lead organiser + collaborators pickers. Fetched
+  // once on mount; tiny list, no need to debounce or paginate.
   const [teamMembers, setTeamMembers] = useState<{ auth_uuid: string; name: string }[]>([])
   useEffect(() => {
     let active = true
@@ -809,6 +839,71 @@ export default function EventDetailPage() {
       setCancelling(false)
     }
   }
+
+  // ---- Edit-session versioning + restore points ------------------------------
+  const [versionsOpen, setVersionsOpen] = useState(false)
+  const [versions, setVersions] = useState<EventVersion[]>([])
+  const lastEditingRef = useRef<boolean>(false)
+  const editingOpenedSnapshotRef = useRef<Partial<EventRow> | null>(null)
+  // Capture an 'open' snapshot when admin enters edit mode, and a 'close'
+  // snapshot when they leave it (whether via Save or Cancel).
+  useEffect(() => {
+    const wasEditing = lastEditingRef.current
+    lastEditingRef.current = editing
+    if (!event) return
+    if (!wasEditing && editing) {
+      const snap = { ...event } as Partial<EventRow>
+      editingOpenedSnapshotRef.current = snap
+      void saveEventVersion(event.id, snap, 'open', `${teamMember?.name ?? 'Someone'} opened the editor`).catch(() => {})
+    } else if (wasEditing && !editing) {
+      const snap = { ...event } as Partial<EventRow>
+      const baseline = editingOpenedSnapshotRef.current ?? {}
+      let changed = 0
+      const keys = new Set<string>([...Object.keys(baseline), ...Object.keys(snap)])
+      for (const k of Array.from(keys)) {
+        if (JSON.stringify((baseline as Record<string, unknown>)[k]) !== JSON.stringify((snap as Record<string, unknown>)[k])) changed++
+      }
+      const summary = `${teamMember?.name ?? 'Someone'} · ${changed} field${changed === 1 ? '' : 's'} changed`
+      void saveEventVersion(event.id, snap, 'close', summary).catch(() => {})
+      editingOpenedSnapshotRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing])
+  useEffect(() => {
+    if (!versionsOpen || !event) return
+    void listEventVersions(event.id, 20).then(setVersions).catch(() => {})
+  }, [versionsOpen, event])
+
+  const restoreVersion = async (v: EventVersion) => {
+    if (!event) return
+    if (!window.confirm(`Restore this snapshot from ${new Date(v.created_at).toLocaleString('en-GB')}? Your current edits will be replaced — but a new checkpoint will be saved first so you can undo.`)) return
+    try { await saveEventVersion(event.id, { ...event } as Partial<EventRow>, 'close', 'Pre-restore checkpoint') } catch {}
+    const restorable: (keyof EventRow)[] = [
+      'name', 'slug', 'description', 'event_date', 'time_start', 'time_end',
+      'location', 'location_full', 'format', 'capacity', 'dress_code',
+      'applications_open_at', 'applications_close_at', 'interest_options',
+      'form_config', 'feedback_config', 'banner_image_url', 'hub_image_url',
+      'banner_focal_x', 'banner_focal_y', 'hub_focal_x', 'hub_focal_y',
+      'dashboard_columns', 'eligible_year_groups', 'open_to_gap_year',
+      'lead_team_member_id', 'collaborator_ids',
+    ]
+    const patch: Record<string, unknown> = {}
+    for (const k of restorable) {
+      if (k in (v.snapshot as Record<string, unknown>)) patch[k as string] = (v.snapshot as Record<string, unknown>)[k as string]
+    }
+    try {
+      const updated = await updateEvent(event.id, patch as Partial<EventRow>)
+      setEvent(updated)
+      setVersionsOpen(false)
+      void listEventVersions(event.id, 20).then(setVersions).catch(() => {})
+    } catch (e: any) {
+      setEventActionErr(e?.message ?? 'Restore failed')
+    }
+  }
+
+  // ---- Keyboard shortcuts ----------------------------------------------------
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
+
   // Effect below flips editing=true once on mount when ?new=1 is present.
   // We don't initialise the state to isNewDraft directly because Suspense
   // hydration can fire searchParams late on first render.
@@ -1104,6 +1199,8 @@ export default function EventDetailPage() {
   // saveEditing — explicit Save changes button. Flushes any pending or
   // in-flight autosave, then exits edit mode if the final state is clean.
   // On persistent failure, stays in edit mode so the user can retry.
+  // Imperatively expose saveEditing via ref (declared above) so the keyboard
+  // handler effect doesn't have to depend on it directly.
   const saveEditing = async () => {
     if (!event) return
     setEditSaving(true)
@@ -1128,6 +1225,7 @@ export default function EventDetailPage() {
       setEditSaving(false)
     }
   }
+  useEffect(() => { saveEditingRef.current = saveEditing }, [saveEditing])
 
   const [templates, setTemplates] = useState<{ id: string; name: string; type: string; subject: string; body_html: string; event_id: string | null }[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<string>('')
@@ -2295,6 +2393,14 @@ export default function EventDetailPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setVersionsOpen(true)}
+                className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                title="Restore points — snapshots from each edit session"
+              >
+                Versions
+              </button>
+              <button
+                type="button"
                 onClick={handleDeleteEvent}
                 disabled={archiving || deleting}
                 className="px-3 py-1.5 text-sm rounded-md border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-900/20 hover:bg-rose-100 dark:hover:bg-rose-900/40 disabled:opacity-50"
@@ -2422,6 +2528,38 @@ export default function EventDetailPage() {
                     <option key={m.auth_uuid} value={m.auth_uuid}>{m.name}</option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            {/* Row 1b: Collaborators (multi-select via tickable chips) */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Collaborators <span className="font-normal text-gray-400">(supporting the lead organiser)</span></label>
+              <div className="flex flex-wrap gap-1.5">
+                {teamMembers.filter(m => m.auth_uuid !== (editDraft.lead_team_member_id ?? event.lead_team_member_id)).map(m => {
+                  const current = (editDraft.collaborator_ids ?? event.collaborator_ids ?? []) as string[]
+                  const checked = current.includes(m.auth_uuid)
+                  return (
+                    <button
+                      key={m.auth_uuid}
+                      type="button"
+                      onClick={() => {
+                        const cur = (editDraft.collaborator_ids ?? event.collaborator_ids ?? []) as string[]
+                        const next = checked ? cur.filter(id => id !== m.auth_uuid) : [...cur, m.auth_uuid]
+                        setEditDraft(d => ({ ...d, collaborator_ids: next }))
+                      }}
+                      className={`px-2.5 py-1 text-xs rounded-full border transition ${
+                        checked
+                          ? 'bg-steps-blue-600 text-white border-steps-blue-600 hover:bg-steps-blue-700'
+                          : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700 hover:border-steps-blue-300'
+                      }`}
+                    >
+                      {checked ? '✓ ' : '+ '}{m.name}
+                    </button>
+                  )
+                })}
+                {teamMembers.length === 0 && (
+                  <p className="text-xs text-gray-500">No team members loaded yet.</p>
+                )}
               </div>
             </div>
 
@@ -3036,6 +3174,28 @@ export default function EventDetailPage() {
                 className="px-2.5 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs w-56 placeholder:text-gray-400 focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none"
                 aria-label="Decision reason (optional)"
               />
+              {/* Smart shortlist target — encodes the Steps rule of 50% buffer
+                  over capacity. Updates as admin shortlists rows. */}
+              {event.capacity != null && event.capacity > 0 && (() => {
+                const target = Math.ceil(event.capacity * 1.5)
+                const currentShortlisted = applicants.filter(a =>
+                  a.status === 'shortlisted' || a.internal_review_status === 'shortlist'
+                ).length
+                const overTarget = currentShortlisted > target
+                const atTarget = currentShortlisted === target
+                return (
+                  <span
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium ${
+                      overTarget ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                      : atTarget ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-violet-50 text-violet-700 border border-violet-200'
+                    }`}
+                    title={`Steps rule: aim for ~1.5× capacity shortlisted (${event.capacity} places × 1.5 = ${target}).`}
+                  >
+                    {currentShortlisted}/{target} shortlisted{overTarget ? ' · over target' : atTarget ? ' · at target' : ''}
+                  </span>
+                )
+              })()}
               <div ref={bulkMenuRef} className="flex flex-wrap items-center gap-2">
                 {NOTIFY_STATUSES.map(ns => {
                   const internalCode = ns.code === 'accepted' ? 'accept'
@@ -3906,6 +4066,57 @@ export default function EventDetailPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* === Versions sidebar === */}
+      {versionsOpen && event && (
+        <div role="dialog" aria-modal="true" aria-label="Restore points" onClick={() => setVersionsOpen(false)} className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-stretch justify-end animate-tsf-fade-in">
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-md bg-white shadow-2xl border-l border-slate-200 flex flex-col">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200">
+              <div>
+                <p className="text-xs uppercase tracking-[0.15em] font-bold text-slate-500">Restore points</p>
+                <p className="text-sm font-semibold text-steps-dark mt-0.5">Snapshots from each edit session</p>
+              </div>
+              <button type="button" onClick={() => setVersionsOpen(false)} aria-label="Close" className="w-8 h-8 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+              {versions.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No snapshots yet — they're captured each time you open and close the editor.</p>
+              ) : versions.map(v => (
+                <div key={v.id} className="rounded-xl border border-slate-200 p-3 hover:border-steps-blue-300 transition">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs uppercase tracking-wider font-bold text-slate-500">
+                        {v.mode === 'open' ? 'Edit started' : v.mode === 'close' ? 'Edit ended' : 'Manual checkpoint'}
+                      </div>
+                      <div className="text-sm font-semibold text-steps-dark mt-0.5">{new Date(v.created_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</div>
+                      {v.summary && <div className="text-xs text-slate-500 mt-0.5">{v.summary}</div>}
+                    </div>
+                    <button type="button" onClick={() => restoreVersion(v)} className="px-2.5 py-1 text-xs rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 transition">Restore</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400 px-4 py-2 border-t border-slate-100">Restoring will save your current state as a new snapshot first, so you can undo the restore.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Keyboard shortcuts help (Cmd+/) */}
+      {showShortcutsHelp && (
+        <div role="dialog" aria-modal="true" onClick={() => setShowShortcutsHelp(false)} className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-tsf-fade-in">
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5">
+            <h3 className="font-display text-lg font-bold text-steps-dark mb-3">Keyboard shortcuts</h3>
+            <ul className="space-y-2 text-sm">
+              <li className="flex justify-between"><span>Save</span><kbd className="font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">⌘ S</kbd></li>
+              <li className="flex justify-between"><span>Open preview</span><kbd className="font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">⌘ P</kbd></li>
+              <li className="flex justify-between"><span>Show this help</span><kbd className="font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">⌘ /</kbd></li>
+            </ul>
+            <button type="button" onClick={() => setShowShortcutsHelp(false)} className="mt-4 w-full px-3 py-2 text-sm rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200">Close</button>
           </div>
         </div>
       )}

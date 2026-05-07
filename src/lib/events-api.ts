@@ -136,6 +136,7 @@ export type EventRow = {
   feedback_config: EventFeedbackConfig | null
   archived_at: string | null
   lead_team_member_id: string | null
+  collaborator_ids: string[]
   created_at: string
 }
 
@@ -166,7 +167,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,archived_at,lead_team_member_id,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,archived_at,lead_team_member_id,collaborator_ids,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
@@ -352,7 +353,7 @@ export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
     'name' | 'slug' | 'location' | 'location_full' | 'format' | 'time_start' | 'time_end' | 'dress_code' |
-    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'feedback_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year' | 'lead_team_member_id'
+    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'feedback_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year' | 'lead_team_member_id' | 'collaborator_ids'
   >>,
 ): Promise<EventRow> {
   // Guard against malformed form_config landing in the DB.
@@ -759,4 +760,39 @@ export const EFFECTIVE_STATUS_META: Record<EffectiveStatus, { label: string; cla
   closed:    { label: 'Closed',    tone: 'amber',   classes: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300' },
   completed: { label: 'Completed', tone: 'violet',  classes: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300' },
   cancelled: { label: 'Cancelled', tone: 'slate',   classes: 'bg-slate-100 text-slate-700 border-slate-200 line-through dark:bg-slate-800 dark:text-slate-300' },
+}
+
+// ---------------------------------------------------------------------------
+// Event versions (edit-session restore points)
+// ---------------------------------------------------------------------------
+
+export type EventVersion = {
+  id: string
+  event_id: string
+  snapshot: Partial<EventRow>
+  created_at: string
+  created_by: string | null
+  mode: 'open' | 'close' | 'manual'
+  summary: string | null
+}
+
+export async function saveEventVersion(eventId: string, snapshot: Partial<EventRow>, mode: EventVersion['mode'], summary: string | null): Promise<void> {
+  const { error } = await supabase.from('event_versions').insert({
+    event_id: eventId,
+    snapshot,
+    mode,
+    summary,
+  })
+  if (error) throw error
+}
+
+export async function listEventVersions(eventId: string, limit: number = 20): Promise<EventVersion[]> {
+  const { data, error } = await supabase
+    .from('event_versions')
+    .select('id, event_id, snapshot, created_at, created_by, mode, summary')
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return (data ?? []) as EventVersion[]
 }
