@@ -949,9 +949,15 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
 
   // localStorage-keyed payload — avoids URL length + UTF-8 base64 issues.
   const [previewKey] = useState(() => `tsf_synth_preview_${Math.random().toString(36).slice(2, 10)}`)
+  // syntheticVersion bumps on any picker change so the iframe re-mounts and
+  // re-reads localStorage. Without this the iframe just sits on the URL it
+  // first loaded with — no signal to refresh when the admin tweaks the
+  // profile or simulated statuses on the side panel.
+  const [syntheticVersion, setSyntheticVersion] = useState(0)
   useEffect(() => {
     try {
       localStorage.setItem(previewKey, JSON.stringify({ profile, applications, openEvents }))
+      setSyntheticVersion(v => v + 1)
     } catch { /* swallow — preview is best-effort */ }
     return () => { try { localStorage.removeItem(previewKey) } catch {} }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1020,6 +1026,7 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
           {/* Preview pane — iframe of /my in admin-preview synthetic mode */}
           <main className="bg-white overflow-hidden">
             <iframe
+              key={syntheticVersion}
               src={`/my?_admin_preview=synthetic&_key=${previewKey}`}
               title="Synthetic Student Hub preview"
               className="w-full h-full bg-white"

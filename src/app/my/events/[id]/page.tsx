@@ -300,7 +300,7 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
   }
 
   const renderTopNav = () => (
-    <TopNav variant="light" homeHref="/my">
+    <TopNav variant="light" homeHref={adminPreviewMode ? `/my${previewQuerystring}` : "/my"}>
       <button
         onClick={handleSignOut}
         className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"

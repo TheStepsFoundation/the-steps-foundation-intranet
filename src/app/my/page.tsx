@@ -459,7 +459,7 @@ function StudentHubInner() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <TopNav>
+      <TopNav homeHref={adminPreviewMode ? `/my${previewQuerystring}` : undefined}>
         <span className="hidden sm:block text-sm text-slate-600 truncate max-w-[14rem]">{authEmail}</span>
         {!adminPreviewMode && (
           <button
