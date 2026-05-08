@@ -1011,31 +1011,43 @@ export default function ApplyPage() {
           </div>
         </div>
       )}
-      {/* Editorial hero — banner image bleeds behind a dark gradient that
-          carries the event name, date, and a "Steps Foundation" eyebrow.
-          Wave 1 redesign: matches the visual language of /my/events/[id]
-          so the student transitions smoothly from event detail → apply. */}
-      <header className="relative bg-steps-dark text-white overflow-hidden">
-        {event.banner_image_url && (
+      {/* Hero — show the banner at full strength (no dark overlay) so the
+          custom banner art lands as designed. A compact metadata strip
+          below carries the name + date + time so students still see the
+          key details at a glance without obscuring the artwork. Matches
+          the visual language of /my/events/[id]. */}
+      <header className="max-w-2xl mx-auto px-4 pt-6 sm:pt-8 animate-tsf-fade-up">
+        {event.banner_image_url ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
             src={event.banner_image_url}
-            alt=""
-            aria-hidden
-            className="absolute inset-0 w-full h-full object-cover opacity-40"
+            alt={event.name}
+            className="w-full aspect-[4/1] object-cover rounded-2xl shadow-sm"
             style={{ objectPosition: `${event.banner_focal_x ?? 50}% ${event.banner_focal_y ?? 50}%` }}
           />
-        )}
-        <div aria-hidden className="absolute inset-0 bg-gradient-to-b from-steps-dark/85 via-steps-dark/85 to-steps-dark pointer-events-none" />
-        <div aria-hidden className="absolute inset-0 bg-tsf-grain pointer-events-none" />
-        <div className="relative max-w-2xl mx-auto px-4 py-10 sm:py-14 text-center animate-tsf-fade-up">
-          <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-steps-mist/90 font-semibold mb-3">The Steps Foundation</p>
-          <h1 className="font-display-tight text-3xl sm:text-5xl font-black text-white">{event.name}</h1>
-          <p className="text-sm text-steps-mist/85 mt-3">
-            {event.event_date ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''}
-            {event.time_start ? ` \u00b7 ${event.time_start}${event.time_end ? ' \u2013 ' + event.time_end : ''}` : ''}
-          </p>
-          {event.location && <p className="text-sm text-steps-mist/70 mt-1">{event.location}</p>}
+        ) : null}
+        <div className={`${event.banner_image_url ? 'mt-5' : ''}`}>
+          <p className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-steps-blue-700 font-semibold mb-2">The Steps Foundation</p>
+          <h1 className="font-display-tight text-3xl sm:text-4xl font-black text-steps-dark">{event.name}</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600 mt-2">
+            {event.event_date && (
+              <span>
+                {new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </span>
+            )}
+            {event.time_start && (
+              <>
+                <span aria-hidden className="text-slate-300">·</span>
+                <span>{event.time_start}{event.time_end ? ' – ' + event.time_end : ''}</span>
+              </>
+            )}
+            {event.location && (
+              <>
+                <span aria-hidden className="text-slate-300">·</span>
+                <span>{event.location}</span>
+              </>
+            )}
+          </div>
         </div>
       </header>
 

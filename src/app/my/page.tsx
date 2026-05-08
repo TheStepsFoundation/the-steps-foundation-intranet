@@ -102,8 +102,16 @@ function StudentHubInner() {
   // Eligibility filtering
   const yg = profile?.year_group ?? null
   const isEligibleForYearGroup = (event: HubEvent): boolean => isEligibleForYG(event, yg)
-  const eligibleOpenEvents = openEvents.filter(isEligibleForYearGroup)
-  const ineligibleOpenEvents = openEvents.filter(e => !isEligibleForYearGroup(e))
+  // Belt-and-braces filter: hide any event the student has already applied to
+  // from the Apply Now section. The real-student loader (loadAll) already
+  // strips these out of openEvents server-side, but the admin-preview loaders
+  // (synthetic + real-student preview API) populate openEvents straight from
+  // their payloads without this filter, so applied events would leak back in.
+  // Doing it here makes the rule uniform across all loading paths.
+  const appliedEventIds = useMemo(() => new Set(applications.map(a => a.event_id)), [applications])
+  const notYetAppliedOpenEvents = openEvents.filter(e => !appliedEventIds.has(e.id))
+  const eligibleOpenEvents = notYetAppliedOpenEvents.filter(isEligibleForYearGroup)
+  const ineligibleOpenEvents = notYetAppliedOpenEvents.filter(e => !isEligibleForYearGroup(e))
 
   // Edit mode
   const [editing, setEditing] = useState(false)
@@ -389,61 +397,6 @@ function StudentHubInner() {
     router.replace('/my/sign-in')
   }
 
-  // -------------------------------------------------------------------------
-  // Derive "next up" highlight — surfaces the single most actionable thing
-  // for this student. Priority order:
-  //   1. An accepted event in the next 14 days (RSVP / show up)
-  //   2. An application open and eligible for me with a near deadline
-  //   3. Anything submitted/under-review (still gives a sense of progress)
-  // -------------------------------------------------------------------------
-  const nextUp = useMemo(() => {
-    const upcomingAccepted = applications
-      .filter(a => a.status === 'accepted' && a.event.event_date)
-      .map(a => ({ a, days: daysUntil(a.event.event_date) }))
-      .filter(x => x.days != null && x.days >= 0 && x.days <= 14)
-      .sort((a, b) => (a.days ?? 0) - (b.days ?? 0))[0]
-
-    if (upcomingAccepted) {
-      const d = upcomingAccepted.days ?? 0
-      return {
-        kind: 'accepted' as const,
-        href: `/my/events/${upcomingAccepted.a.event.id}`,
-        eventName: upcomingAccepted.a.event.name,
-        eventDate: upcomingAccepted.a.event.event_date,
-        eyebrow: d === 0 ? 'Today' : d === 1 ? 'Tomorrow' : `In ${d} days`,
-        line: 'You’re in. Tap to see joining details.',
-        cta: 'View details',
-      }
-    }
-
-    const closingSoon = eligibleOpenEvents
-      .filter(e => e.applications_close_at)
-      .map(e => ({ e, days: daysUntil(e.applications_close_at) }))
-      .filter(x => x.days != null && x.days >= 0 && x.days <= 14)
-      .sort((a, b) => (a.days ?? 0) - (b.days ?? 0))[0]
-
-    if (closingSoon) {
-      const d = closingSoon.days ?? 0
-      return {
-        kind: 'closing' as const,
-        href: `/my/events/${closingSoon.e.id}`,
-        eventName: closingSoon.e.name,
-        eventDate: closingSoon.e.event_date,
-        eyebrow: d === 0 ? 'Closes today' : d === 1 ? 'Closes tomorrow' : `Closes in ${d} days`,
-        line: 'Don’t miss it — applications are open now.',
-        cta: 'Apply now',
-      }
-    }
-
-    // No in-flight fallback. The "Next up" tile is reserved for *actionable*
-    // states — accepted-with-event-soon (RSVP / show up) or
-    // closing-application (apply now). For passive states like
-    // "application in review" the regular application card below already
-    // shows the right thing; doubling it up created visual noise and a
-    // tile that linked to the same place as the card.
-
-    return null
-  }, [applications, eligibleOpenEvents])
 
   // Loading
   if (loading) {
@@ -487,38 +440,6 @@ function StudentHubInner() {
           </h1>
           <p className="text-slate-500 text-sm mt-3 sm:hidden">{authEmail}</p>
         </header>
-
-        {/* === Next-up highlight === */}
-        {nextUp && (
-          <Link
-            href={nextUp.href}
-            className="group block mb-8 rounded-3xl bg-gradient-to-br from-steps-dark via-steps-blue-800 to-steps-blue-700 text-white p-6 sm:p-7 relative overflow-hidden hover:shadow-xl transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 animate-tsf-fade-up-1"
-          >
-            <div aria-hidden className="absolute inset-0 bg-tsf-grain pointer-events-none" />
-            <div aria-hidden className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-steps-sunrise/30 blur-3xl pointer-events-none" />
-            <div className="relative flex items-start gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs uppercase tracking-[0.2em] text-steps-mist font-semibold">
-                  Next up · {nextUp.eyebrow}
-                </p>
-                <h2 className="font-display-tight text-2xl sm:text-3xl font-black mt-2">
-                  {nextUp.eventName}
-                </h2>
-                <p className="text-sm text-white/80 mt-2">{nextUp.line}</p>
-                <span className="inline-flex items-center gap-1 mt-4 text-sm font-semibold text-steps-mist group-hover:text-white transition-colors">
-                  {nextUp.cta}
-                  <svg aria-hidden className="w-4 h-4 transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                  </svg>
-                </span>
-              </div>
-              <div className="hidden sm:flex flex-col items-center justify-center bg-white/10 backdrop-blur-sm border border-white/15 rounded-2xl px-3 py-2 text-center min-w-[68px]">
-                <span className="text-[10px] uppercase tracking-wider text-steps-mist font-semibold">{nextUp.eventDate ? new Date(nextUp.eventDate + 'T00:00:00').toLocaleDateString('en-GB', { month: 'short' }) : '—'}</span>
-                <span className="text-2xl font-display font-black text-white leading-none mt-0.5">{nextUp.eventDate ? new Date(nextUp.eventDate + 'T00:00:00').getDate() : '—'}</span>
-              </div>
-            </div>
-          </Link>
-        )}
 
         {/* Save banner */}
         {saveMsg && (
