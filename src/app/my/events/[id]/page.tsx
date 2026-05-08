@@ -301,12 +301,14 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
 
   const renderTopNav = () => (
     <TopNav variant="light" homeHref={adminPreviewMode ? `/my${previewQuerystring}` : "/my"}>
-      <button
-        onClick={handleSignOut}
-        className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
-      >
-        Sign out
-      </button>
+      {!adminPreviewMode && (
+        <button
+          onClick={handleSignOut}
+          className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 border border-slate-200 rounded-lg hover:bg-slate-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
+        >
+          Sign out
+        </button>
+      )}
     </TopNav>
   )
 
@@ -384,7 +386,7 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
           on big monitors without sprawling all the way to the edges. */}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-4 sm:pt-6">
         <Link
-          href="/my"
+          href={`/my${previewQuerystring}`}
           className="inline-flex items-center gap-1 text-sm text-steps-blue-700 hover:text-steps-blue-900 mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 rounded"
         >
           <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
