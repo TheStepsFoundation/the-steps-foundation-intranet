@@ -5,7 +5,7 @@ import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 import { buildWithdrawUrl, WITHDRAW_LINK_TAG_REGEX } from '@/lib/withdraw-token'
 import { buildEventOptoutUrl, EVENT_OPTOUT_LINK_TAG_REGEX } from '@/lib/event-optout-token'
-import { getMarketing24hCount, MARKETING_CAP_24H } from '@/lib/send-cap'
+import { getMarketing24hCount, MARKETING_CAP_24H, resolveMarketingCap } from '@/lib/send-cap'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -148,6 +148,8 @@ export async function POST(req: NextRequest) {
   // Send in-flight; small concurrency to be kind to Gmail's per-sender quota.
   // Gmail's burst cap is ~20-50 sends/sec for Workspace, but 429s kick in fast.
   // Serial within a batch + BATCH_SIZE=50 per minute = 50/min cruise.
+  const resolvedCap = await resolveMarketingCap()
+
   for (const row of rows) {
     // ---- MARKETING-ONLY GUARDS -------------------------------------------
     // Defense-in-depth: the enqueue path already filters unsubscribed
@@ -217,11 +219,11 @@ export async function POST(req: NextRequest) {
     // Cap exceeded? Defer this marketing row an hour out so the window can
     // roll. Transactional rows pass through — they're never the bulk of
     // volume and the cap's 300-row headroom is there precisely for them.
-    if (row.kind === 'marketing' && marketingUsedNow >= MARKETING_CAP_24H) {
+    if (row.kind === 'marketing' && marketingUsedNow >= resolvedCap) {
       await supabase.from('email_outbox').update({
         status: 'queued',
         next_attempt_at: deferOneHour(),
-        last_error: `Deferred: marketing cap reached (${marketingUsedNow}/${MARKETING_CAP_24H}).`,
+        last_error: `Deferred: marketing cap reached (${marketingUsedNow}/${resolvedCap}).`,
       }).eq('id', row.id)
       deferred++
       continue
@@ -358,7 +360,7 @@ export async function POST(req: NextRequest) {
     deferred,
     skipped,
     marketingUsed: marketingUsedNow,
-    marketingCap: MARKETING_CAP_24H,
+    marketingCap: resolvedCap,
   })
 }
 

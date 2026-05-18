@@ -4,7 +4,7 @@ import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 import { buildEventOptoutUrl, EVENT_OPTOUT_LINK_TAG_REGEX } from '@/lib/event-optout-token'
 import { createClient } from '@supabase/supabase-js'
-import { getMarketing24hCount, MARKETING_CAP_24H } from '@/lib/send-cap'
+import { getMarketing24hCount, MARKETING_CAP_24H, resolveMarketingCap } from '@/lib/send-cap'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -107,13 +107,14 @@ export async function POST(req: NextRequest) {
 
         // Rolling-24h marketing cap (global)
         const used = await getMarketing24hCount(sb)
-        if (used >= MARKETING_CAP_24H) {
+        const cap = await resolveMarketingCap()
+        if (used >= cap) {
           return NextResponse.json(
             {
-              error: `Daily marketing cap reached (${used}/${MARKETING_CAP_24H} sent in last 24h). Try again later — the window is rolling, not midnight-based.`,
+              error: `Daily marketing cap reached (${used}/${cap} sent in last 24h). Try again later — the window is rolling, not midnight-based.`,
               capReached: true,
               used,
-              cap: MARKETING_CAP_24H,
+              cap,
             },
             { status: 429 }
           )
