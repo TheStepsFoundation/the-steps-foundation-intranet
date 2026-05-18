@@ -78,18 +78,30 @@ BEGIN
 
     -- Project latest state onto the keeper, clear deleted_at.
     UPDATE applications SET
-      status              = latest_row.status,
-      raw_response        = latest_row.raw_response,
-      channel             = latest_row.channel,
-      attribution_source  = latest_row.attribution_source,
-      reviewed_at         = latest_row.reviewed_at,
-      reviewed_by         = latest_row.reviewed_by,
-      attended            = latest_row.attended,
-      attended_at         = latest_row.attended_at,
-      submitted_at        = latest_row.submitted_at,
+      status                 = latest_row.status,
+      raw_response           = latest_row.raw_response,
+      channel                = latest_row.channel,
+      attribution_source     = latest_row.attribution_source,
+      reviewed_at            = latest_row.reviewed_at,
+      reviewed_by            = latest_row.reviewed_by,
+      review_notes           = latest_row.review_notes,
+      attended               = latest_row.attended,
+      attended_at            = latest_row.attended_at,
+      submitted_at           = latest_row.submitted_at,
       internal_review_status = latest_row.internal_review_status,
-      deleted_at          = NULL,
-      updated_at          = NOW()
+      internal_review_at     = latest_row.internal_review_at,
+      internal_review_by     = latest_row.internal_review_by,
+      bonus_points           = latest_row.bonus_points,
+      bonus_reason           = latest_row.bonus_reason,
+      decision_reason        = latest_row.decision_reason,
+      consent_text_version   = latest_row.consent_text_version,
+      is_test                = latest_row.is_test,
+      updated_by             = latest_row.updated_by,
+      deleted_at             = NULL,
+      updated_at             = NOW()
+      -- Deliberately NOT copied: id (keeper's), student_id, event_id (pair
+      -- identity, identical anyway), created_at, created_by (the keeper IS
+      -- the original creation — keep its provenance).
     WHERE id = keeper_id;
   END LOOP;
 END;
