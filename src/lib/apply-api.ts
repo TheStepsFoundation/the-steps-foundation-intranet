@@ -305,12 +305,15 @@ export async function lookupSelf(): Promise<StudentSelf | null> {
   return data as StudentSelf | null
 }
 
-// Check if student already applied to a specific event
+// Check if student already applied to a specific event.
+// Withdrew rows return false — the student can re-apply by updating the row
+// (handled in submitEventApplication's lookup path), and the apply form
+// shouldn't treat a withdrew row as "you've already applied, here's edit
+// mode".
 export async function hasExistingApplication(eventId: string): Promise<boolean> {
   const email = await currentUserEmail()
   if (!email) return false
 
-  // First get the student id
   const { data: student } = await supabase
     .from('students')
     .select('id')
@@ -321,12 +324,13 @@ export async function hasExistingApplication(eventId: string): Promise<boolean> 
 
   const { data } = await supabase
     .from('applications')
-    .select('id')
+    .select('id, status')
     .eq('student_id', student.id)
     .eq('event_id', eventId)
     .maybeSingle()
 
-  return !!data
+  if (!data) return false
+  return data.status !== 'withdrew'
 }
 
 
@@ -365,12 +369,16 @@ export async function fetchExistingApplication(eventId: string): Promise<Existin
 
   const { data } = await supabase
     .from('applications')
-    .select('id, raw_response, attribution_source, channel')
+    .select('id, status, raw_response, attribution_source, channel')
     .eq('student_id', student.id)
     .eq('event_id', eventId)
     .maybeSingle()
 
   if (!data) return null
+  // Withdrew rows are surfaced via fetchPriorWithdrawnApplication instead so
+  // the apply form treats re-apply as fresh-submission-with-prefill, not as
+  // edit-mode.
+  if (data.status === 'withdrew') return null
   return data as ExistingApplicationData
 }
 
@@ -394,23 +402,32 @@ export type PriorWithdrawnApplication = {
 export async function fetchPriorWithdrawnApplication(eventId: string): Promise<PriorWithdrawnApplication | null> {
   const email = await currentUserEmail()
   if (!email) return null
+
+  const { data: student } = await supabase
+    .from('students')
+    .select('id')
+    .eq('personal_email', email)
+    .maybeSingle()
+  if (!student) return null
+
   const { data, error } = await supabase
-    .rpc('get_latest_withdrawn_application', { p_event_id: eventId })
+    .from('applications')
+    .select('id, raw_response, attribution_source, channel, updated_at')
+    .eq('student_id', student.id)
+    .eq('event_id', eventId)
+    .eq('status', 'withdrew')
+    .maybeSingle()
   if (error) {
-    // RPC might not exist on a stale environment — fail soft so re-apply
-    // still works (just without prefill) rather than blocking the form.
     console.warn('fetchPriorWithdrawnApplication:', error.message)
     return null
   }
-  if (!data || (Array.isArray(data) && data.length === 0)) return null
-  const row = Array.isArray(data) ? data[0] : data
-  if (!row) return null
+  if (!data) return null
   return {
-    id: row.id as string,
-    raw_response: (row.raw_response ?? null) as ExistingApplicationData['raw_response'],
-    attribution_source: (row.attribution_source as string | null) ?? null,
-    channel: (row.channel as string | null) ?? null,
-    withdrawn_at: (row.withdrawn_at as string | null) ?? null,
+    id: data.id as string,
+    raw_response: (data.raw_response ?? null) as ExistingApplicationData['raw_response'],
+    attribution_source: (data.attribution_source as string | null) ?? null,
+    channel: (data.channel as string | null) ?? null,
+    withdrawn_at: (data.updated_at as string | null) ?? null,
   }
 }
 
@@ -638,10 +655,13 @@ export async function submitEventApplication(
     const existingApp = existingLookup.data as { id: string; status: string } | null
 
     if (existingApp) {
-      // Don't overwrite a meaningful status (e.g. accepted/shortlisted) just
-      // because the student re-submitted. Only promote 'ineligible' → 'submitted'
-      // if they've become eligible, or keep existing status otherwise.
+      // Don't overwrite a meaningful status (accepted/shortlisted) just
+      // because the student re-submitted. Promote ineligible→submitted on
+      // newly-eligible students, demote submitted→ineligible on newly-
+      // ineligible ones, and surface 'withdrew' as a fresh submission (the
+      // student re-applied via the apply form after withdrawing).
       const nextStatus =
+        existingApp.status === 'withdrew' ? (options.eligible ? 'submitted' : 'ineligible') :
         existingApp.status === 'ineligible' && options.eligible ? 'submitted' :
         existingApp.status === 'submitted' && !options.eligible ? 'ineligible' :
         existingApp.status

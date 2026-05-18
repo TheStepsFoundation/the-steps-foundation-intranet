@@ -103,7 +103,6 @@ async function resolveOperativeApplication(tokenApplicationId: string): Promise<
     .select('id')
     .eq('student_id', studentId)
     .eq('event_id', eventId)
-    .neq('status', 'withdrew')
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -123,16 +122,19 @@ async function resolveOperativeApplication(tokenApplicationId: string): Promise<
 async function applyWithdraw(applicationId: string): Promise<{ ok: boolean; error?: string }> {
   const sb = getServiceClient()
   const nowIso = new Date().toISOString()
-  // Idempotent: only update if not already in 'withdrew' / not already soft-deleted.
+  // Under the one-row-per-student-event model the row stays live; status is
+  // the sole signal. Filter on `deleted_at IS NULL` so admin-soft-deleted
+  // rows (rare escape hatch for erroneous submissions) aren't resurrected.
+  // status != 'withdrew' makes the call idempotent.
   const { error } = await sb
     .from('applications')
     .update({
       status: 'withdrew',
-      deleted_at: nowIso,
       updated_at: nowIso,
     } as any)
     .eq('id', applicationId)
     .is('deleted_at', null)
+    .neq('status', 'withdrew')
   if (error) return { ok: false, error: error.message }
   return { ok: true }
 }

@@ -1542,11 +1542,10 @@ export default function EventDetailPage() {
           application_rsvp(confirmed, confirmed_at)
         `)
         .eq('event_id', eventId)
-        // Include withdrew rows even when soft-deleted, so admins can see
-        // "Tenzin withdrew" instead of having them silently vanish. Other
-        // soft-deleted rows (admin soft-delete of erroneous submissions)
-        // stay hidden.
-        .or('deleted_at.is.null,status.eq.withdrew')
+        // One-row-per-student-event model: withdrew is just another status
+        // on a live row, so the simple deleted_at filter is enough. Admin-
+        // soft-deleted rows (erroneous submissions) stay hidden.
+        .is('deleted_at', null)
         .order('submitted_at', { ascending: false })
         .range(from, from + BATCH - 1)
 
@@ -1556,11 +1555,11 @@ export default function EventDetailPage() {
       from += BATCH
     }
 
-    // Dedup by student_id: a re-applied student may have both a withdrew
-    // row (soft-deleted) and a fresh submitted row. Prefer the non-withdrew
-    // row so the admin table shows their current journey state. Falls back
-    // to the withdrew row if it's the only one — that's the visibility we
-    // want for students who haven't re-applied.
+    // Under the one-row-per-student-event model the unique index on
+    // applications(student_id, event_id) WHERE deleted_at IS NULL means at
+    // most one row should arrive per student. We keep a defensive dedup
+    // pass anyway in case a stale deploy is briefly writing two rows:
+    // prefer the non-withdrew row.
     const byStudent = new Map<string, any>()
     for (const row of allRows) {
       const sid = row.student_id
@@ -1570,7 +1569,6 @@ export default function EventDetailPage() {
       if (existing.status === 'withdrew' && row.status !== 'withdrew') {
         byStudent.set(sid, row)
       }
-      // else: existing is preferred (already non-withdrew, or both are withdrew)
     }
     const data = Array.from(byStudent.values())
 
