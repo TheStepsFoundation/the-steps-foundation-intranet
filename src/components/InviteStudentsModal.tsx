@@ -1302,6 +1302,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               ...(eventData?.dress_code ? [{ tag: 'event_dress_code', label: 'Dress Code' }] : []),
               { tag: 'open_to', label: 'Open To' },
               ...(eventData?.applications_close_at ? [{ tag: 'application_deadline', label: 'Application Deadline' }] : []),
+              { tag: 'event_optout_link', label: 'Opt-out link (this event only)' },
               ...getAvailableDynamicTags(recipients),
             ]
             const subjectTags = mergeTags.filter(t =>

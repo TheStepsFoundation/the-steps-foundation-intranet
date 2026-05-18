@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { google } from 'googleapis'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
+import { buildEventOptoutUrl, EVENT_OPTOUT_LINK_TAG_REGEX } from '@/lib/event-optout-token'
 import { createClient } from '@supabase/supabase-js'
 import { getMarketing24hCount, MARKETING_CAP_24H } from '@/lib/send-cap'
 
@@ -37,12 +38,13 @@ function getOAuth2Client() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { to, subject, html, attachments, studentId, kind } = body as {
+    const { to, subject, html, attachments, studentId, eventId, kind } = body as {
       to?: string
       subject?: string
       html?: string
       attachments?: unknown
       studentId?: string
+      eventId?: string
       kind?: 'marketing' | 'transactional'
     }
 
@@ -86,6 +88,23 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // Per-event opt-out check (per-recipient + event). Skips regardless
+        // of `kind` — same policy as the queue worker.
+        if (studentId && eventId) {
+          const { data: opt } = await sb
+            .from('event_email_optouts')
+            .select('student_id')
+            .eq('student_id', studentId)
+            .eq('event_id', eventId)
+            .maybeSingle()
+          if (opt) {
+            return NextResponse.json(
+              { error: 'Recipient opted out of emails for this event.', skipped: true },
+              { status: 409 }
+            )
+          }
+        }
+
         // Rolling-24h marketing cap (global)
         const used = await getMarketing24hCount(sb)
         if (used >= MARKETING_CAP_24H) {
@@ -106,10 +125,24 @@ export async function POST(req: NextRequest) {
     const auth = getOAuth2Client()
     const gmail = google.gmail({ version: 'v1', auth })
 
+    // Resolve {{event_optout_link}} server-side using studentId + eventId.
+    // The InviteStudentsModal sends the literal merge tag in the body;
+    // we swap it for a real signed anchor here.
+    const optoutUrl = (studentId && eventId) ? buildEventOptoutUrl(studentId, eventId) : null
+    const OPTOUT_STYLE = 'color:#1d4ed8;text-decoration:underline;font-weight:600'
+    const resolveOptout = (s: string): string => {
+      if (!s) return s
+      if (!optoutUrl) return s.replace(EVENT_OPTOUT_LINK_TAG_REGEX, '#')
+      let out = s.replace(/href=("|&quot;|')\{\{event_optout_link\}\}\1/g, (_m, q) => `href=${q}${optoutUrl}${q}`)
+      out = out.replace(EVENT_OPTOUT_LINK_TAG_REGEX, `<a href="${optoutUrl}" style="${OPTOUT_STYLE}">Opt out of further emails about this event</a>`)
+      return out
+    }
+    const resolvedSubject = resolveOptout(subject!)
+    const resolvedHtml = resolveOptout(html!)
     const raw = await buildRawEmail({
       to,
-      subject,
-      htmlBody: html,
+      subject: resolvedSubject,
+      htmlBody: resolvedHtml,
       attachments: sanitiseAttachments(attachments),
       unsubscribeUrl: studentId ? buildUnsubscribeUrl(studentId) : undefined,
     })

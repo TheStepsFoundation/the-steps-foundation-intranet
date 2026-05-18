@@ -4119,7 +4119,6 @@ export default function EventDetailPage() {
                   { tag: 'rsvp_link', label: 'RSVP Link' },
                   { tag: 'portal_link', label: 'Portal Link' },
                   { tag: 'withdraw_link', label: 'Withdraw link' },
-                  { tag: 'event_optout_link', label: 'Opt-out link (this event only)' },
                 ]
                 const subjectMergeTags: MergeTag[] = [
                   { tag: 'first_name', label: 'First Name' },
