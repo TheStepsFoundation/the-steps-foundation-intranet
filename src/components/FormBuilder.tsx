@@ -933,11 +933,31 @@ export default function FormBuilder({ fields, pages, standardOverrides, onChange
                 />
               </div>
 
-              {/* Required toggle (not for section_heading or media — both are display-only) */}
+              {/* Required toggle (not for section_heading or media — both are display-only).
+                  When flipping a checkbox_list to required, force minSelections to
+                  at least 1 so the data-model invariant matches the user-facing
+                  rule ("required means pick at least one"). Same for
+                  repeatable_group's minEntries. */}
               {field.type !== "section_heading" && field.type !== "media" && (
                 <label className="flex items-center gap-2 mb-2 cursor-pointer">
                   <input type="checkbox" checked={field.required}
-                    onChange={e => updateField(idx, { required: e.target.checked })}
+                    onChange={e => {
+                      const required = e.target.checked
+                      const patch: Partial<FormFieldConfig> = { required }
+                      if (required && field.type === 'checkbox_list') {
+                        const current = field.config?.minSelections ?? 0
+                        if (current < 1) {
+                          patch.config = { ...field.config, minSelections: 1 }
+                        }
+                      }
+                      if (required && field.type === 'repeatable_group') {
+                        const current = field.config?.minEntries ?? 0
+                        if (current < 1) {
+                          patch.config = { ...field.config, minEntries: 1 }
+                        }
+                      }
+                      updateField(idx, patch)
+                    }}
                     className="accent-steps-blue-600" />
                   <span className="text-xs text-gray-600 dark:text-gray-400">Required</span>
                 </label>
@@ -970,10 +990,13 @@ export default function FormBuilder({ fields, pages, standardOverrides, onChange
               {field.type === "checkbox_list" && (
                 <div className="mb-2 grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-0.5">Min selections (empty = no minimum)</label>
-                    <input type="number" min={0} value={field.config?.minSelections ?? ""}
+                    <label className="block text-xs text-gray-500 mb-0.5">
+                      Min selections {field.required ? <span className="text-amber-700 dark:text-amber-400">(required → at least 1)</span> : '(empty = no minimum)'}
+                    </label>
+                    <input type="number" min={field.required ? 1 : 0} value={field.config?.minSelections ?? ""}
                       onChange={e => {
-                        const v = e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0)
+                        const floor = field.required ? 1 : 0
+                        const v = e.target.value === '' ? (field.required ? 1 : undefined) : Math.max(floor, Number(e.target.value) || 0)
                         updateField(idx, { config: { ...field.config, minSelections: v } })
                       }}
                       className={`w-full ${inputClass}`} />
