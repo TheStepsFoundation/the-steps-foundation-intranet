@@ -19,6 +19,7 @@ import { createClient } from '@supabase/supabase-js'
 export const SETTINGS_KEYS = {
   signatureHtml: 'brand.signature_html',
   fromEmail: 'brand.from_email',
+  fromName: 'brand.from_name',
   replyToEmail: 'brand.reply_to_email',
   marketingCap24h: 'send.marketing_cap_24h',
   eventOptoutScope: 'send.event_optout_scope', // 'all' | 'marketing_only'
@@ -33,6 +34,7 @@ export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
 
 export const SETTINGS_DEFAULTS = {
   fromEmail: 'events@thestepsfoundation.com',
+  fromName: 'Events - The Steps Foundation',
   replyToEmail: 'events@thestepsfoundation.com',
   marketingCap24h: 1700,
   eventOptoutScope: 'all' as 'all' | 'marketing_only',

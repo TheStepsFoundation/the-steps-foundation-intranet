@@ -914,6 +914,13 @@ export default function EventDetailPage() {
   const [eventActionErr, setEventActionErr] = useState<string | null>(null)
   const [publishErrors, setPublishErrors] = useState<PublishValidationError[] | null>(null)
   const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
+  const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
+  useEffect(() => {
+    fetchAllSettings().then(set => {
+      const v = set[SETTINGS_KEYS.signatureHtml]
+      if (typeof v === 'string' && v.trim().length > 0) setSignatureHtml(v)
+    })
+  }, [])
   useEffect(() => {
     fetchAllSettings().then(set => {
       const v = set[SETTINGS_KEYS.minCustomQuestions]
@@ -2356,7 +2363,7 @@ export default function EventDetailPage() {
       const renderedSubject = fillMergeFields(emailSubject, recipient)
       const renderedBody = fillMergeFields(emailBody, recipient)
       const bodyHtml = looksLikeHtml(renderedBody) ? renderedBody : plainTextToHtml(renderedBody)
-      const fullBody = bodyHtml + EMAIL_SIGNATURE_HTML
+      const fullBody = bodyHtml + signatureHtml
       return {
         queued_by: (teamMember as any)?.auth_uuid ?? null,
         event_id: eventId,

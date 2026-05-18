@@ -5,6 +5,7 @@ import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 import { buildWithdrawUrl, WITHDRAW_LINK_TAG_REGEX } from '@/lib/withdraw-token'
 import { buildEventOptoutUrl, EVENT_OPTOUT_LINK_TAG_REGEX } from '@/lib/event-optout-token'
+import { fetchSettingsServer, SETTINGS_KEYS, SETTINGS_DEFAULTS, getString, getStringEnum } from '@/lib/settings-api'
 import { getMarketing24hCount, MARKETING_CAP_24H, resolveMarketingCap } from '@/lib/send-cap'
 
 export const runtime = 'nodejs'
@@ -149,6 +150,11 @@ export async function POST(req: NextRequest) {
   // Gmail's burst cap is ~20-50 sends/sec for Workspace, but 429s kick in fast.
   // Serial within a batch + BATCH_SIZE=50 per minute = 50/min cruise.
   const resolvedCap = await resolveMarketingCap()
+    const settings = await fetchSettingsServer()
+    const fromEmail = getString(settings, SETTINGS_KEYS.fromEmail, SETTINGS_DEFAULTS.fromEmail)
+    const fromName = getString(settings, SETTINGS_KEYS.fromName, SETTINGS_DEFAULTS.fromName)
+    const replyToEmail = getString(settings, SETTINGS_KEYS.replyToEmail, SETTINGS_DEFAULTS.replyToEmail)
+    const optoutScope = getStringEnum(settings, SETTINGS_KEYS.eventOptoutScope, ['all', 'marketing_only'] as const, SETTINGS_DEFAULTS.eventOptoutScope)
 
   for (const row of rows) {
     // ---- MARKETING-ONLY GUARDS -------------------------------------------
@@ -183,12 +189,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ---- PER-EVENT OPT-OUT GUARD ----------------------------------------
-    // Per Favour's spec: opting out of an event blocks ALL emails about
-    // that event regardless of kind — invites, decisions, reminders. If
-    // that ever feels too aggressive (e.g. blocks a 'you got in' email)
-    // the easy mitigation is to add `&& row.kind === 'marketing'` here.
+    // Scope is admin-configurable in /students/settings:
+    //   • 'all'             — blocks every kind (default; strictest).
+    //   • 'marketing_only'  — transactional sends bypass (accept/reject
+    //                         decisions still go through).
     // ---------------------------------------------------------------------
-    if (row.student_id && row.event_id) {
+    const optoutApplies = optoutScope === 'all' || row.kind !== 'transactional'
+    if (row.student_id && row.event_id && optoutApplies) {
       const { data: opt } = await supabase
         .from('event_email_optouts')
         .select('student_id')
@@ -279,6 +286,9 @@ export async function POST(req: NextRequest) {
         htmlBody: resolvedBodyHtml,
         attachments: sanitiseAttachments(row.attachments),
         unsubscribeUrl: row.student_id ? buildUnsubscribeUrl(row.student_id) : undefined,
+        fromEmail,
+        fromName,
+        replyTo: replyToEmail,
       })
       const result = await gmail.users.messages.send({
         userId: 'me',

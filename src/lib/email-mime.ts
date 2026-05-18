@@ -97,6 +97,10 @@ export type BuildRawEmailOpts = {
    * Required for Google bulk-sender compliance (>5k/day threshold).
    */
   unsubscribeUrl?: string
+  /** Optional overrides — falls back to module-level FROM_EMAIL / FROM_NAME constants. */
+  fromEmail?: string
+  fromName?: string
+  replyTo?: string
 }
 
 /**
@@ -109,13 +113,18 @@ export async function buildRawEmail(opts: BuildRawEmailOpts): Promise<string> {
   const htmlBody = wrapHtmlForEmail(opts.htmlBody, opts.unsubscribeUrl)
   const attachments = (opts.attachments ?? []).filter(Boolean)
 
-  const fromHeader = `${FROM_NAME} <${FROM_EMAIL}>`
+  const effectiveFromEmail = opts.fromEmail || FROM_EMAIL
+  const effectiveFromName = opts.fromName || FROM_NAME
+  const fromHeader = `${effectiveFromName} <${effectiveFromEmail}>`
   const headers = [
     `From: ${fromHeader}`,
     `To: ${to}`,
     `Subject: =?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`,
     'MIME-Version: 1.0',
   ]
+  if (opts.replyTo && opts.replyTo !== effectiveFromEmail) {
+    headers.push(`Reply-To: ${opts.replyTo}`)
+  }
   if (opts.unsubscribeUrl) {
     // RFC 2369 visible-to-client link + RFC 8058 one-click POST support.
     // Gmail inspects both before showing its native unsubscribe chip.

@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import {
   RichTextEmailEditor,
@@ -12,6 +12,7 @@ import {
   type EmailAttachmentInfo,
 } from './RichTextEmailEditor'
 import { EMAIL_SIGNATURE_HTML, EmailPreviewPanel } from './EmailComposePanels'
+import { fetchAllSettings, SETTINGS_KEYS } from '@/lib/settings-api'
 
 // ---------------------------------------------------------------------------
 // EmailStudentModal — one-off email to a single student, ad-hoc / non-event.
@@ -40,6 +41,14 @@ type Props = {
 type Step = 'compose' | 'preview' | 'sending' | 'done'
 
 export default function EmailStudentModal({ studentId, studentEmail, studentFirstName, studentLastName, preferredName, teamMemberUuid, onClose, onSent }: Props) {
+  const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
+  useEffect(() => {
+    fetchAllSettings().then(set => {
+      const v = set[SETTINGS_KEYS.signatureHtml]
+      if (typeof v === 'string' && v.trim().length > 0) setSignatureHtml(v)
+    })
+  }, [])
+
   const [step, setStep] = useState<Step>('compose')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
@@ -87,7 +96,7 @@ export default function EmailStudentModal({ studentId, studentEmail, studentFirs
     const renderedSubject = fillMerge(subject)
     const renderedBody = fillMerge(body)
     const bodyHtml = looksLikeHtml(renderedBody) ? renderedBody : plainTextToHtml(renderedBody)
-    const fullBody = bodyHtml + EMAIL_SIGNATURE_HTML
+    const fullBody = bodyHtml + signatureHtml
 
     // Pre-write the log row so the activity timeline shows the attempt
     // even if the network round-trip fails. Mirror InviteStudentsModal.

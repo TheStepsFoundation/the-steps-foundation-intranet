@@ -69,6 +69,7 @@ export default function SettingsPage() {
 function BrandTab() {
   const [signature, setSignature] = useState('')
   const [fromEmail, setFromEmail] = useState('')
+  const [fromName, setFromName] = useState('')
   const [replyTo, setReplyTo] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -81,6 +82,8 @@ function BrandTab() {
       setSignature(typeof sig === 'string' ? sig : '')
       const fe = s[SETTINGS_KEYS.fromEmail]
       setFromEmail(typeof fe === 'string' ? fe : SETTINGS_DEFAULTS.fromEmail)
+      const fn = s[SETTINGS_KEYS.fromName]
+      setFromName(typeof fn === 'string' ? fn : SETTINGS_DEFAULTS.fromName)
       const rt = s[SETTINGS_KEYS.replyToEmail]
       setReplyTo(typeof rt === 'string' ? rt : SETTINGS_DEFAULTS.replyToEmail)
       setLoading(false)
@@ -94,6 +97,7 @@ function BrandTab() {
     const writes = await Promise.all([
       setSetting(SETTINGS_KEYS.signatureHtml, signature),
       setSetting(SETTINGS_KEYS.fromEmail, fromEmail.trim()),
+      setSetting(SETTINGS_KEYS.fromName, fromName.trim()),
       setSetting(SETTINGS_KEYS.replyToEmail, replyTo.trim()),
     ])
     const firstErr = writes.find(w => w.error)
@@ -122,6 +126,15 @@ function BrandTab() {
           onChange={e => setFromEmail(e.target.value)}
           className="w-full max-w-md px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
           placeholder={SETTINGS_DEFAULTS.fromEmail}
+        />
+      </Section>
+      <Section title="From name" hint="Display name shown next to the From email in recipients' inboxes.">
+        <input
+          type="text"
+          value={fromName}
+          onChange={e => setFromName(e.target.value)}
+          className="w-full max-w-md px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+          placeholder={SETTINGS_DEFAULTS.fromName}
         />
       </Section>
       <Section title="Reply-to email" hint="Where replies to outgoing emails land. Usually the same as From.">

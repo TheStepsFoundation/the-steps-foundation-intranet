@@ -20,6 +20,7 @@ import {
   TemplateEditDialog,
   EMAIL_SIGNATURE_HTML,
 } from './EmailComposePanels'
+import { fetchAllSettings, SETTINGS_KEYS } from '@/lib/settings-api'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -197,6 +198,16 @@ function saveInviteColPrefs(prefs: InviteColPrefs) {
 // ---------------------------------------------------------------------------
 
 export default function InviteStudentsModal({ eventId, eventName, eventSlug, teamMemberUuid, onClose, onSent }: Props) {
+  // Configured signature (fetched from app_settings). Falls back to the
+  // EMAIL_SIGNATURE_HTML constant if the setting is empty / fetch fails.
+  const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
+  useEffect(() => {
+    fetchAllSettings().then(set => {
+      const v = set[SETTINGS_KEYS.signatureHtml]
+      if (typeof v === 'string' && v.trim().length > 0) setSignatureHtml(v)
+    })
+  }, [])
+
   // Canonical event list (names/dates live in the events table, not the old constant).
   const { events: EVENTS, byId: EVENT_BY_ID } = useEvents()
   // Event details (for merge tags)
@@ -749,7 +760,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
         .split('\n\n')
         .map(p => `<p style="margin:0 0 12px 0;font-family:arial,sans-serif;font-size:14px;color:#222">${p.replace(/\n/g, '<br>')}</p>`)
         .join('')
-      const fullBody = htmlBody + EMAIL_SIGNATURE_HTML
+      const fullBody = htmlBody + signatureHtml
 
       // Insert email_log at 'pending' so we can flip it to 'sent'/'failed'
       // after the API call. If the insert fails we still attempt the send.
@@ -872,7 +883,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
         .split('\n\n')
         .map(p => `<p style="margin:0 0 12px 0;font-family:arial,sans-serif;font-size:14px;color:#222">${p.replace(/\n/g, '<br>')}</p>`)
         .join('')
-      const fullBody = htmlBody + EMAIL_SIGNATURE_HTML
+      const fullBody = htmlBody + signatureHtml
       return {
         queued_by: teamMemberUuid,
         event_id: eventId,

@@ -3,6 +3,7 @@ import { google } from 'googleapis'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 import { buildEventOptoutUrl, EVENT_OPTOUT_LINK_TAG_REGEX } from '@/lib/event-optout-token'
+import { fetchSettingsServer, SETTINGS_KEYS, SETTINGS_DEFAULTS, getString, getStringEnum } from '@/lib/settings-api'
 import { createClient } from '@supabase/supabase-js'
 import { getMarketing24hCount, MARKETING_CAP_24H, resolveMarketingCap } from '@/lib/send-cap'
 
@@ -38,7 +39,15 @@ function getOAuth2Client() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { to, subject, html, attachments, studentId, eventId, kind } = body as {
+    // Fetch app_settings once per request — cheap read, drives several
+    // downstream decisions (from header, reply-to, per-event opt-out scope).
+    const settings = await fetchSettingsServer()
+    const fromEmail = getString(settings, SETTINGS_KEYS.fromEmail, SETTINGS_DEFAULTS.fromEmail)
+    const fromName = getString(settings, SETTINGS_KEYS.fromName, SETTINGS_DEFAULTS.fromName)
+    const replyToEmail = getString(settings, SETTINGS_KEYS.replyToEmail, SETTINGS_DEFAULTS.replyToEmail)
+    const optoutScope = getStringEnum(settings, SETTINGS_KEYS.eventOptoutScope, ['all', 'marketing_only'] as const, SETTINGS_DEFAULTS.eventOptoutScope)
+
+        const { to, subject, html, attachments, studentId, eventId, kind } = body as {
       to?: string
       subject?: string
       html?: string
@@ -88,8 +97,16 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Per-event opt-out check (per-recipient + event). Skips regardless
-        // of `kind` — same policy as the queue worker.
+        // Per-event opt-out check. Scope is admin-configurable in
+        // /students/settings — when 'marketing_only' is selected, transactional
+        // sends (e.g. decision emails) bypass the skip so a student who opted
+        // out of further invites still gets their accept/reject result.
+        // We're already inside `if (kind !== 'transactional')` above, so
+        // transactional sends never reach this check regardless of the
+        // configured opt-out scope. The queue worker enforces the wider
+        // 'all' vs 'marketing_only' distinction.
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        void optoutScope
         if (studentId && eventId) {
           const { data: opt } = await sb
             .from('event_email_optouts')
@@ -146,6 +163,9 @@ export async function POST(req: NextRequest) {
       htmlBody: resolvedHtml,
       attachments: sanitiseAttachments(attachments),
       unsubscribeUrl: studentId ? buildUnsubscribeUrl(studentId) : undefined,
+      fromEmail,
+      fromName,
+      replyTo: replyToEmail,
     })
 
     const result = await gmail.users.messages.send({
