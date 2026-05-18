@@ -338,7 +338,7 @@ export type PublishValidationError = {
 
 const STD_FIELD_IDS = new Set(['std_name', 'std_email', 'std_school', 'std_year_group'])
 
-export function validateForPublish(e: Partial<EventRow>): PublishValidationError[] {
+export function validateForPublish(e: Partial<EventRow>, opts?: { minCustomFields?: number }): PublishValidationError[] {
   const errs: PublishValidationError[] = []
   const blank = (v: unknown) => v == null || (typeof v === 'string' && v.trim().length === 0)
 

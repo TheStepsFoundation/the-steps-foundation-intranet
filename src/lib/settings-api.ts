@@ -24,6 +24,7 @@ export const SETTINGS_KEYS = {
   eventOptoutScope: 'send.event_optout_scope', // 'all' | 'marketing_only'
   defaultEligibleYearGroups: 'events.default_eligible_year_groups',
   defaultApplicationsOpenLeadDays: 'events.default_applications_open_lead_days',
+  minCustomQuestions: 'events.min_custom_questions',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -37,6 +38,7 @@ export const SETTINGS_DEFAULTS = {
   eventOptoutScope: 'all' as 'all' | 'marketing_only',
   defaultEligibleYearGroups: [11, 12, 13] as number[],
   defaultApplicationsOpenLeadDays: 14,
+  minCustomQuestions: 3,
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------
