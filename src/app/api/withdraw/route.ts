@@ -74,6 +74,52 @@ async function lookupApplication(applicationId: string): Promise<{ ok: true; dat
   }
 }
 
+/**
+ * Resolve the "operative" application for a withdraw link click.
+ *
+ * The token is HMAC-signed over a specific application_id, but tying the
+ * action to that exact row breaks re-applicants: after a withdraw + re-
+ * apply cycle a NEW application row exists, and the token still points at
+ * the old (soft-deleted) one. The student would see "you've already
+ * withdrawn" while their fresh application is sitting there untouched.
+ *
+ * Fix: use the token only to identify *who* the student is and *which*
+ * event this is about — then find the current live application for that
+ * (student, event) pair. If there isn't one, fall back to the token's
+ * own application so the "already withdrawn + re-apply" page still works.
+ *
+ * Security: the token already authorises operations on this student's
+ * application for this event. Letting it follow a re-applied row doesn't
+ * widen the blast radius — same student, same event, just a newer row.
+ */
+async function resolveOperativeApplication(tokenApplicationId: string): Promise<{ ok: true; data: AppLookup } | { ok: false; error: string }> {
+  const tokenLookup = await lookupApplication(tokenApplicationId)
+  if (!tokenLookup.ok) return tokenLookup
+  const { studentId, eventId } = tokenLookup.data
+  if (!studentId || !eventId) return tokenLookup
+  const sb = getServiceClient()
+  const { data, error } = await sb
+    .from('applications')
+    .select('id')
+    .eq('student_id', studentId)
+    .eq('event_id', eventId)
+    .neq('status', 'withdrew')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) {
+    // Fall back to the token's row rather than failing — the worst case
+    // is the legacy "already withdrawn" experience, not a hard error.
+    console.warn('[withdraw] resolve fallback:', error.message)
+    return tokenLookup
+  }
+  if (!data?.id || data.id === tokenApplicationId) return tokenLookup
+  // A different live application exists for the same (student, event) —
+  // that's the one the email-link should act on now.
+  return lookupApplication(data.id as string)
+}
+
 async function applyWithdraw(applicationId: string): Promise<{ ok: boolean; error?: string }> {
   const sb = getServiceClient()
   const nowIso = new Date().toISOString()
@@ -169,7 +215,7 @@ export async function GET(req: NextRequest) {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     })
   }
-  const lookup = await lookupApplication(verified.applicationId)
+  const lookup = await resolveOperativeApplication(verified.applicationId)
   if (!lookup.ok) {
     return new NextResponse(renderErrorPage(lookup.error), {
       status: 404,
@@ -177,7 +223,9 @@ export async function GET(req: NextRequest) {
     })
   }
   // Already withdrawn — go straight to the confirmed page (still safe,
-  // shows the re-apply link).
+  // shows the re-apply link). Note `lookup` here is the *resolved*
+  // application: if the student re-applied since the email was sent,
+  // it's the current live row, not the original withdrew one.
   if (lookup.data.deletedAt || lookup.data.status === 'withdrew') {
     return new NextResponse(renderConfirmedPage(lookup.data), {
       status: 200,
@@ -199,16 +247,20 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     })
   }
-  const lookup = await lookupApplication(verified.applicationId)
+  const lookup = await resolveOperativeApplication(verified.applicationId)
   if (!lookup.ok) {
     return new NextResponse(renderErrorPage(lookup.error), {
       status: 404,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     })
   }
-  // Already withdrawn — render confirmed without touching the row.
+  // Already withdrawn — render confirmed without touching the row. The
+  // resolved application is the *current* state for this (student, event):
+  // if the student re-applied, we act on the new row; if they didn't, we
+  // see the original withdrew row and show the re-apply page.
+  const operativeId = lookup.data.applicationId
   if (!(lookup.data.deletedAt || lookup.data.status === 'withdrew')) {
-    const res = await applyWithdraw(verified.applicationId)
+    const res = await applyWithdraw(operativeId)
     if (!res.ok) {
       return new NextResponse(renderErrorPage(res.error ?? 'Could not withdraw your application'), {
         status: 500,
@@ -221,7 +273,7 @@ export async function POST(req: NextRequest) {
     try {
       const sb = getServiceClient()
       await sb.from('application_status_history').insert({
-        application_id: verified.applicationId,
+        application_id: operativeId,
         old_status: lookup.data.status,
         new_status: 'withdrew',
         changed_by: null, // student-initiated via email link
@@ -230,9 +282,9 @@ export async function POST(req: NextRequest) {
       console.warn('[withdraw] failed to write status history:', e)
     }
   }
-  // Re-fetch so the confirmed page sees the latest state (and so eventSlug
-  // is populated for the re-apply link even if the row was already deleted).
-  const after = await lookupApplication(verified.applicationId)
+  // Re-fetch the *operative* row so the confirmed page reflects the row
+  // we just touched (and so eventSlug is populated for re-apply).
+  const after = await lookupApplication(operativeId)
   const display = after.ok ? after.data : lookup.data
   return new NextResponse(renderConfirmedPage(display), {
     status: 200,
