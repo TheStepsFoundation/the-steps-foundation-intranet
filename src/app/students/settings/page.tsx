@@ -305,6 +305,7 @@ function TeamTab() {
 function DefaultsTab() {
   const [yearGroups, setYearGroups] = useState<number[]>(SETTINGS_DEFAULTS.defaultEligibleYearGroups as number[])
   const [leadDays, setLeadDays] = useState<number>(SETTINGS_DEFAULTS.defaultApplicationsOpenLeadDays)
+  const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -316,6 +317,8 @@ function DefaultsTab() {
       if (Array.isArray(yg) && yg.every(n => typeof n === 'number')) setYearGroups(yg as number[])
       const ld = s[SETTINGS_KEYS.defaultApplicationsOpenLeadDays]
       if (typeof ld === 'number' && Number.isFinite(ld)) setLeadDays(ld)
+      const mcq = s[SETTINGS_KEYS.minCustomQuestions]
+      if (typeof mcq === 'number' && Number.isFinite(mcq) && mcq >= 0) setMinCustomQuestions(mcq)
       setLoading(false)
     })
   }, [])
@@ -330,6 +333,7 @@ function DefaultsTab() {
     const writes = await Promise.all([
       setSetting(SETTINGS_KEYS.defaultEligibleYearGroups, yearGroups),
       setSetting(SETTINGS_KEYS.defaultApplicationsOpenLeadDays, Math.max(0, Math.floor(leadDays))),
+      setSetting(SETTINGS_KEYS.minCustomQuestions, Math.max(0, Math.floor(minCustomQuestions))),
     ])
     const firstErr = writes.find(w => w.error)
     if (firstErr) setError(firstErr.error)
@@ -365,6 +369,16 @@ function DefaultsTab() {
           className="w-32 px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
         />
         <span className="ml-2 text-xs text-gray-500">days</span>
+      </Section>
+      <Section title="Minimum custom questions to publish" hint="How many event-specific custom questions a form must have before publish is allowed. Standard auto-included questions (school type, FSM, GCSEs, etc.) don't count. Set to 0 to allow publishing with no custom questions — useful for lightweight events like office hours.">
+        <input
+          type="number"
+          min={0}
+          value={minCustomQuestions}
+          onChange={e => setMinCustomQuestions(parseInt(e.target.value) || 0)}
+          className="w-32 px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+        />
+        <span className="ml-2 text-xs text-gray-500">Default: {SETTINGS_DEFAULTS.minCustomQuestions}</span>
       </Section>
       <SaveBar saving={saving} onSave={save} saved={saved} error={error} />
     </Card>

@@ -10,6 +10,7 @@ import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS
 import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
+import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
 import FeedbackConfigEditor from "@/components/FeedbackConfigEditor"
 import type { FormFieldConfig, FormPage, StandardOverrides, EventFeedbackConfig } from "@/lib/events-api"
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
@@ -912,6 +913,13 @@ export default function EventDetailPage() {
   const [deleting, setDeleting] = useState(false)
   const [eventActionErr, setEventActionErr] = useState<string | null>(null)
   const [publishErrors, setPublishErrors] = useState<PublishValidationError[] | null>(null)
+  const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
+  useEffect(() => {
+    fetchAllSettings().then(set => {
+      const v = set[SETTINGS_KEYS.minCustomQuestions]
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) setMinCustomQuestions(v)
+    })
+  }, [])
   void publishErrors
   // Inline preview overlay state. When opened, an iframe loads the apply page
   // in preview mode. We force a save first so the iframe sees the current
@@ -1147,7 +1155,7 @@ export default function EventDetailPage() {
   const liveChecklist: PublishValidationError[] = (() => {
     if (!event) return []
     const projected = { ...event, ...editDraft } as Partial<EventRow>
-    return validateForPublish(projected)
+    return validateForPublish(projected, { minCustomFields: minCustomQuestions })
   })()
   const liveChecklistFields = new Set(liveChecklist.map(e => e.field))
   const ALL_PUBLISH_REQUIREMENTS: { field: string; label: string }[] = [
@@ -1164,7 +1172,7 @@ export default function EventDetailPage() {
     { field: 'applications_close_at', label: 'Applications close' },
     { field: 'banner_image_url', label: 'Banner image' },
     { field: 'hub_image_url', label: 'Hub card image' },
-    { field: 'form_config', label: 'At least three custom questions' },
+    { field: 'form_config', label: `At least ${minCustomQuestions} custom question${minCustomQuestions === 1 ? '' : 's'}` },
   ]
 
   const buildEventPatch = useCallback((draft: Partial<EventRow>, baseline: EventRow): Record<string, any> => {
@@ -2775,7 +2783,7 @@ export default function EventDetailPage() {
                   // (manual unpublish, auto-demote and back, etc.) skip the modal.
                   if (current === 'draft' && next !== 'draft' && next !== 'cancelled') {
                     const projected = { ...event, ...editDraft, status: next } as Partial<EventRow>
-                    const errs = validateForPublish(projected)
+                    const errs = validateForPublish(projected, { minCustomFields: minCustomQuestions })
                     if (errs.length > 0) { setPublishErrors(errs); return }
                     if (!event.first_published_at) {
                       setPendingPublishStatus(next)
