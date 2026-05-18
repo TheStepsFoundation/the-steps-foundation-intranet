@@ -566,8 +566,11 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     for (const [key, val] of Object.entries(dynTags)) {
       result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val)
     }
-    // Clear any unfilled dynamic tags
-    result = result.replace(/\{\{[a-z_0-9]+\}\}/g, '')
+    // Clear any unfilled dynamic tags, except server-resolved tags
+    // (event_optout_link is swapped by /api/send-email at send time so
+    // the WITHDRAW/OPTOUT secrets never ship to the browser).
+    const SERVER_RESOLVED_TAGS = ['event_optout_link']
+    result = result.replace(/\{\{([a-z_0-9]+)\}\}/g, (m, t) => SERVER_RESOLVED_TAGS.includes(t) ? m : '')
     return result
   }
 
@@ -776,6 +779,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
             html: fullBody,
             attachments: emailAttachments,
             studentId: student.id,
+            eventId: eventId,
           }),
         })
 
@@ -1351,10 +1355,13 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               filledSubject={fillMerge(emailSubject, firstRecipient)}
               filledBodyHtml={(() => {
                 const filled = fillMerge(emailBody, firstRecipient)
-                return filled
+                const html = filled
                   .split('\n\n')
                   .map(p => `<p style="margin:0 0 12px 0;font-family:arial,sans-serif;font-size:14px;color:#222">${p.replace(/\n/g, '<br>')}</p>`)
                   .join('')
+                // Server-resolved tag — show as a clearly non-clickable
+                // pill in the preview so the admin can't paste it.
+                return html.replace(/\{\{event_optout_link\}\}/g, '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:500" title="Real signed opt-out link inserted per recipient at send time">[Opt-out link for this event]</span>')
               })()}
               footerBanner={
                 <>
