@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { type PreviewProfile } from '@/components/StudentHubPreview'
+import EmailStudentModal from '@/components/EmailStudentModal'
 import {
   ATTRIBUTION_SOURCES,
   StudentRow,
@@ -43,6 +44,7 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
   const [error, setError] = useState<string | null>(null)
   const [enriched, setEnriched] = useState<EnrichedStudent | null>(null)
   const [showHubPreview, setShowHubPreview] = useState(false)
+  const [showEmailModal, setShowEmailModal] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<StudentUpdate>({})
   const [saving, setSaving] = useState(false)
@@ -236,6 +238,15 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
           >
             <svg aria-hidden className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
             Preview Student Hub
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowEmailModal(true)}
+            className="ml-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 inline-flex items-center gap-1.5"
+            title="Send a one-off email to this student"
+          >
+            <svg aria-hidden className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            Email
           </button>
           {!editing ? (
             <button onClick={startEdit} className="ml-2 px-3 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700">Edit</button>
@@ -562,6 +573,17 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
           onChanged={(next) => setEnriched(s => s ? { ...s, subscribed_to_mailing: next } as any : s)}
         />
       </div>
+    {showEmailModal && (
+      <EmailStudentModal
+        studentId={student.id}
+        studentEmail={student.personal_email ?? ''}
+        studentFirstName={student.first_name}
+        studentLastName={student.last_name}
+        preferredName={(student as any).preferred_name ?? null}
+        teamMemberUuid={null}
+        onClose={() => setShowEmailModal(false)}
+      />
+    )}
     {showHubPreview && previewProfile && (
         <div role="dialog" aria-modal="true" aria-label="Preview Student Hub" onClick={() => setShowHubPreview(false)}
           className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-stretch justify-center p-4 sm:p-6 animate-tsf-fade-in">
