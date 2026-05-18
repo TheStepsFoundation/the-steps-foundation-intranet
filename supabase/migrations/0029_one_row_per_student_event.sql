@@ -60,11 +60,20 @@ BEGIN
     WHERE student_id = pair.student_id AND event_id = pair.event_id
       AND id <> keeper_id;
 
-    -- Re-point any history rows from the discarded UUIDs to the keeper.
+    -- Re-point any history rows from the discarded UUIDs to the keeper
+    -- BEFORE the delete, so a cascade FK doesn't take history rows with it.
     IF discard IS NOT NULL THEN
       UPDATE application_status_history
          SET application_id = keeper_id
        WHERE application_id = ANY(discard);
+    END IF;
+
+    -- DELETE the discards BEFORE we clear deleted_at on the keeper —
+    -- otherwise the partial unique index applications_student_event_live_uniq
+    -- (UNIQUE WHERE deleted_at IS NULL) fires: a discard row that's live
+    -- would collide with the about-to-be-live keeper.
+    IF discard IS NOT NULL THEN
+      DELETE FROM applications WHERE id = ANY(discard);
     END IF;
 
     -- Project latest state onto the keeper, clear deleted_at.
@@ -82,11 +91,6 @@ BEGIN
       deleted_at          = NULL,
       updated_at          = NOW()
     WHERE id = keeper_id;
-
-    -- Drop the now-redundant rows.
-    IF discard IS NOT NULL THEN
-      DELETE FROM applications WHERE id = ANY(discard);
-    END IF;
   END LOOP;
 END;
 $$ LANGUAGE plpgsql;
