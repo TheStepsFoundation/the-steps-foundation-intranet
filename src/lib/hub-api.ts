@@ -86,7 +86,7 @@ export type ProfileUpdate = {
 // ---------------------------------------------------------------------------
 
 const PROFILE_COLS =
-  'id,first_name,last_name,personal_email,school_id,school_name_raw,year_group,school_type,free_school_meals,parental_income_band,first_generation_uni,gcse_results,qualifications,additional_context'
+  'id,first_name,last_name,personal_email,school_id,school_name_raw,year_group,school_type,free_school_meals,parental_income_band,subscribed_to_mailing,first_generation_uni,gcse_results,qualifications,additional_context'
 
 export async function fetchProfile(): Promise<StudentSelf | null> {
   const email = await currentUserEmail()
@@ -243,6 +243,27 @@ export async function fetchAllEvents(): Promise<HubEvent[]> {
 
 export async function withdrawApplication(applicationId: string): Promise<{ error: string | null }> {
   const { error } = await supabase.rpc('withdraw_application', { p_application_id: applicationId })
+  if (error) return { error: error.message }
+  return { error: null }
+}
+
+// ---------------------------------------------------------------------------
+// Update mailing list subscription (student-initiated from /my preferences)
+// ---------------------------------------------------------------------------
+
+export async function setMailingSubscription(
+  studentId: string,
+  subscribed: boolean,
+): Promise<{ error: string | null }> {
+  // Re-subscribing clears unsubscribed_at / unsubscribe_source so the row
+  // reflects current state rather than carrying a stale opt-out timestamp.
+  // Unsubscribing stamps the audit trio so admin can see when + how the
+  // student opted out (source='hub' distinguishes this from footer_link /
+  // one_click which are set by the /api/unsubscribe route).
+  const patch: Record<string, unknown> = subscribed
+    ? { subscribed_to_mailing: true, unsubscribed_at: null, unsubscribe_source: null }
+    : { subscribed_to_mailing: false, unsubscribed_at: new Date().toISOString(), unsubscribe_source: 'hub' }
+  const { error } = await supabase.from('students').update(patch).eq('id', studentId)
   if (error) return { error: error.message }
   return { error: null }
 }

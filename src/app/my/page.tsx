@@ -9,7 +9,7 @@ import { PressableButton } from '@/components/PressableButton'
 import Link from 'next/link'
 import {
   fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents,
-  signOut, getAuthEmail, withdrawApplication,
+  signOut, getAuthEmail, withdrawApplication, setMailingSubscription,
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
 import { getDisplayLocation } from '@/lib/event-display'
@@ -242,6 +242,7 @@ function StudentHubInner() {
               school_type: typeof p.school_type === 'string' ? p.school_type : 'state',
               free_school_meals: typeof p.free_school_meals === 'boolean' ? p.free_school_meals : true,
               parental_income_band: typeof p.parental_income_band === 'string' ? p.parental_income_band : 'under_40k',
+              subscribed_to_mailing: true,
               first_generation_uni: typeof p.first_generation_uni === 'boolean' ? p.first_generation_uni : false,
               gcse_results: null,
               qualifications: null,
@@ -395,6 +396,29 @@ function StudentHubInner() {
     clearAllDrafts()
     await signOut()
     router.replace('/my/sign-in')
+  }
+
+  // ------- Mailing list preferences -------------------------------------
+  // Lets the student toggle their global subscription without needing to
+  // click an unsubscribe email link. RLS allows them to update their own
+  // students row; setMailingSubscription stamps unsubscribed_at /
+  // unsubscribe_source='hub' on opt-out, clears them on re-subscribe.
+  const [mailingSaving, setMailingSaving] = useState(false)
+  const [mailingError, setMailingError] = useState<string | null>(null)
+  const handleToggleMailing = async () => {
+    if (!profile || mailingSaving) return
+    const target = !(profile.subscribed_to_mailing === true)
+    setMailingSaving(true)
+    setMailingError(null)
+    const { error } = await setMailingSubscription(profile.id, target)
+    if (error) {
+      setMailingError(error)
+      setMailingSaving(false)
+      return
+    }
+    // Optimistic local update so the button label flips without a refetch.
+    setProfile({ ...profile, subscribed_to_mailing: target })
+    setMailingSaving(false)
   }
 
 
@@ -944,6 +968,40 @@ function StudentHubInner() {
             )}
           </div>
         </section>
+
+        {profile && !adminPreviewMode && (
+          <section className="mt-10">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
+                  <h2 className="font-display text-lg font-bold text-steps-dark mb-1">Email preferences</h2>
+                  <p className="text-sm text-slate-600">
+                    {profile.subscribed_to_mailing === true
+                      ? `You're subscribed to The Steps Foundation mailing list. You'll get event invites and the occasional update.`
+                      : `You're not currently on our mailing list. Re-subscribe to get invites to future events.`}
+                  </p>
+                  {mailingError && (
+                    <p role="alert" className="mt-2 text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">{mailingError}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleMailing}
+                  disabled={mailingSaving}
+                  className={
+                    profile.subscribed_to_mailing === true
+                      ? 'px-4 py-2 text-sm font-semibold text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 transition disabled:opacity-50 flex-shrink-0'
+                      : 'px-4 py-2 text-sm font-semibold text-white bg-steps-blue-600 rounded-xl hover:bg-steps-blue-700 transition disabled:opacity-60 flex-shrink-0'
+                  }
+                >
+                  {mailingSaving
+                    ? 'Saving…'
+                    : profile.subscribed_to_mailing === true ? 'Unsubscribe' : 'Re-subscribe'}
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
 
         <p className="text-center text-xs text-slate-400 mt-12 tracking-[0.2em] uppercase">
           <em className="not-italic">Virtus non origo</em> &nbsp;·&nbsp; Character, not origin

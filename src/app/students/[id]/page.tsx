@@ -556,7 +556,11 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
       <div className="flex flex-wrap gap-2">
         {student.free_school_meals && <Flag>Free school meals</Flag>}
         {student.parental_income_band && <Flag>Income: {incomeLabel(student.parental_income_band)}</Flag>}
-        {student.subscribed_to_mailing ? <Flag tone="green">On mailing list</Flag> : <Flag tone="gray">Not subscribed</Flag>}
+        <MailingToggle
+          studentId={student.id}
+          subscribed={!!student.subscribed_to_mailing}
+          onChanged={(next) => setEnriched(s => s ? { ...s, subscribed_to_mailing: next } as any : s)}
+        />
       </div>
     {showHubPreview && previewProfile && (
         <div role="dialog" aria-modal="true" aria-label="Preview Student Hub" onClick={() => setShowHubPreview(false)}
@@ -662,6 +666,39 @@ function Badge({ label, tone }: { label: string; tone: 'emerald' | 'amber' | 'in
     indigo: 'bg-steps-blue-100 text-steps-blue-700 dark:bg-steps-blue-900/30 dark:text-steps-blue-400',
   }
   return <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${map[tone]}`}>{label}</span>
+}
+
+function MailingToggle({ studentId, subscribed, onChanged }: { studentId: string; subscribed: boolean; onChanged: (next: boolean) => void }) {
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const flip = async () => {
+    if (saving) return
+    setSaving(true)
+    setError(null)
+    const next = !subscribed
+    const patch: Record<string, unknown> = next
+      ? { subscribed_to_mailing: true, unsubscribed_at: null, unsubscribe_source: null }
+      : { subscribed_to_mailing: false, unsubscribed_at: new Date().toISOString(), unsubscribe_source: 'admin' }
+    const { error: e } = await supabase.from('students').update(patch).eq('id', studentId)
+    if (e) { setError(e.message); setSaving(false); return }
+    onChanged(next)
+    setSaving(false)
+  }
+  return (
+    <span className="inline-flex items-center gap-2">
+      {subscribed ? <Flag tone="green">On mailing list</Flag> : <Flag tone="gray">Not subscribed</Flag>}
+      <button
+        type="button"
+        onClick={flip}
+        disabled={saving}
+        className="text-xs px-2 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
+        title={subscribed ? 'Unsubscribe this student from the mailing list' : 'Re-subscribe this student to the mailing list'}
+      >
+        {saving ? 'Saving…' : subscribed ? 'Unsubscribe' : 'Re-subscribe'}
+      </button>
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </span>
+  )
 }
 
 function Flag({ children, tone = 'blue' }: { children: React.ReactNode; tone?: 'blue' | 'green' | 'gray' }) {

@@ -113,6 +113,7 @@ export type StudentSelf = {
   school_type: string | null
   free_school_meals: boolean | null
   parental_income_band: string | null
+  subscribed_to_mailing: boolean | null
   // Profile fields promoted from application raw_response in migration 0024/0025.
   // These persist across applications so students don't re-enter them each time.
   first_generation_uni: boolean | null
