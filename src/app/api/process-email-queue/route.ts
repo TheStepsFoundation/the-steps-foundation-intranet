@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 import { buildWithdrawUrl, WITHDRAW_LINK_TAG_REGEX } from '@/lib/withdraw-token'
+import { buildEventOptoutUrl, EVENT_OPTOUT_LINK_TAG_REGEX } from '@/lib/event-optout-token'
 import { getMarketing24hCount, MARKETING_CAP_24H } from '@/lib/send-cap'
 
 export const runtime = 'nodejs'
@@ -178,6 +179,41 @@ export async function POST(req: NextRequest) {
         continue
       }
     }
+
+    // ---- PER-EVENT OPT-OUT GUARD ----------------------------------------
+    // Per Favour's spec: opting out of an event blocks ALL emails about
+    // that event regardless of kind — invites, decisions, reminders. If
+    // that ever feels too aggressive (e.g. blocks a 'you got in' email)
+    // the easy mitigation is to add `&& row.kind === 'marketing'` here.
+    // ---------------------------------------------------------------------
+    if (row.student_id && row.event_id) {
+      const { data: opt } = await supabase
+        .from('event_email_optouts')
+        .select('student_id')
+        .eq('student_id', row.student_id)
+        .eq('event_id', row.event_id)
+        .maybeSingle()
+      if (opt) {
+        await supabase.from('email_log').insert({
+          student_id: row.student_id,
+          event_id: row.event_id,
+          template_id: row.template_id,
+          to_email: row.to_email,
+          from_email: FROM_EMAIL,
+          subject: row.subject,
+          body_html: row.body_html,
+          status: 'failed',
+          error_message: 'Recipient opted out of emails for this event (queue-time check).',
+          sent_by: row.queued_by,
+        })
+        await supabase.from('email_outbox').update({
+          status: 'failed',
+          last_error: 'Recipient opted out of event emails between enqueue and send.',
+        }).eq('id', row.id)
+        skipped++
+        continue
+      }
+    }
     // Cap exceeded? Defer this marketing row an hour out so the window can
     // roll. Transactional rows pass through — they're never the bulk of
     // volume and the cap's 300-row headroom is there precisely for them.
@@ -222,8 +258,19 @@ export async function POST(req: NextRequest) {
         out = out.replace(/href=("|&quot;|')[^"'&]*#withdraw-link-preview\1/g, (_m, q) => `href=${q}${withdrawUrl}${q}`)
         return out
       }
-      const resolvedSubject = resolveWithdraw(row.subject)
-      const resolvedBodyHtml = resolveWithdraw(row.body_html)
+      const optoutUrl = (row.student_id && row.event_id)
+        ? buildEventOptoutUrl(row.student_id, row.event_id)
+        : null
+      const OPTOUT_STYLE = 'color:#1d4ed8;text-decoration:underline;font-weight:600'
+      const resolveOptout = (s: string): string => {
+        if (!s) return s
+        if (!optoutUrl) return s.replace(EVENT_OPTOUT_LINK_TAG_REGEX, '#')
+        let out = s.replace(/href=("|&quot;|')\{\{event_optout_link\}\}\1/g, (_m, q) => `href=${q}${optoutUrl}${q}`)
+        out = out.replace(EVENT_OPTOUT_LINK_TAG_REGEX, `<a href="${optoutUrl}" style="${OPTOUT_STYLE}">Opt out of further emails about this event</a>`)
+        return out
+      }
+      const resolvedSubject = resolveOptout(resolveWithdraw(row.subject))
+      const resolvedBodyHtml = resolveOptout(resolveWithdraw(row.body_html))
       const raw = await buildRawEmail({
         to: row.to_email,
         subject: resolvedSubject,
