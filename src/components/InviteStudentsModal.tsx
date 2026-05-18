@@ -789,6 +789,15 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               .update({ status: 'sent', sent_at: new Date().toISOString() })
               .eq('id', emailLogId)
           }
+          // Record the invitation so private events become visible to this
+          // student on the hub. Idempotent via the PK so re-invites don't
+          // double-write. Best-effort — we don't fail the send if this errors.
+          try {
+            await supabase.from('event_invitations')
+              .upsert({ student_id: student.id, event_id: eventId }, { onConflict: 'student_id,event_id' })
+          } catch (e) {
+            console.warn('[invitation] upsert failed:', e)
+          }
           setSendProgress(p => ({ ...p, sent: p.sent + 1 }))
         } else {
           let errMsg = `HTTP ${res.status}`

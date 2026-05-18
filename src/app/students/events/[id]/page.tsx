@@ -1230,6 +1230,7 @@ export default function EventDetailPage() {
       format: event.format ?? '',
       description: event.description ?? '',
       capacity: event.capacity,
+      is_private: event.is_private,
       time_start: event.time_start ?? '',
       time_end: event.time_end ?? '',
       dress_code: event.dress_code ?? '',
@@ -1272,6 +1273,7 @@ export default function EventDetailPage() {
         format: original.format ?? '',
         description: original.description ?? '',
         capacity: original.capacity,
+      is_private: original.is_private,
         time_start: original.time_start ?? '',
         time_end: original.time_end ?? '',
         dress_code: original.dress_code ?? '',
@@ -2895,6 +2897,18 @@ export default function EventDetailPage() {
                 <input value={editDraft.dress_code ?? ''} onChange={e => setEditDraft(d => ({ ...d, dress_code: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
             </div>
+
+            <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!editDraft.is_private}
+                onChange={e => setEditDraft(d => ({ ...d, is_private: e.target.checked }))}
+                className="mt-0.5 w-4 h-4 rounded border-gray-300 text-steps-blue-600 focus:ring-steps-blue-500"
+              />
+              <span>
+                <strong className="font-semibold text-gray-700 dark:text-gray-300">Private event</strong> — hidden from the student hub for everyone except those invited via the Invite Students modal. Eligibility rules are bypassed for the visibility check.
+              </span>
+            </label>
 
             {/* Row 3c: Open to */}
             <div>
