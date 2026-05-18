@@ -76,6 +76,7 @@ export type FormFieldConfig = {
     minWords?: number
     maxWords?: number
     // Checkbox list
+    minSelections?: number
     maxSelections?: number
     // Ranked dropdown
     ranks?: number

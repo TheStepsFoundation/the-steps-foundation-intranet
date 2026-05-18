@@ -536,7 +536,7 @@ export default function FormBuilder({ fields, pages, standardOverrides, onChange
           secondaryOptions: [{ value: "", label: "" }],
         },
       } : {}),
-      ...(type === "checkbox_list" ? { config: { maxSelections: undefined } } : {}),
+      ...(type === "checkbox_list" ? { config: { minSelections: undefined, maxSelections: undefined } } : {}),
       ...(type === "scale" ? { config: { scaleMin: 1, scaleMax: 5 } } : {}),
       ...(type === "matrix" ? { config: { matrixRows: [{ value: "", label: "" }], matrixColumns: [{ value: "", label: "" }], matrixType: "single" as const } } : {}),
       ...(type === "repeatable_group" ? { config: { subFields: [{ id: `sf_${Date.now()}`, type: "text" as const, label: "", required: false }], minEntries: 1, maxEntries: 5 } } : {}),
@@ -964,13 +964,29 @@ export default function FormBuilder({ fields, pages, standardOverrides, onChange
                 </div>
               )}
 
-              {/* Checkbox list max */}
+              {/* Checkbox list min + max selections (paired). Empty means
+                  no bound on that side. Submit validation enforces min when
+                  set; the on-screen helper text shows whatever bounds exist. */}
               {field.type === "checkbox_list" && (
-                <div className="mb-2">
-                  <label className="block text-xs text-gray-500 mb-0.5">Max selections (empty = unlimited)</label>
-                  <input type="number" min={1} value={field.config?.maxSelections ?? ""}
-                    onChange={e => updateField(idx, { config: { ...field.config, maxSelections: Number(e.target.value) || undefined } })}
-                    className={`w-20 ${inputClass}`} />
+                <div className="mb-2 grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-0.5">Min selections (empty = no minimum)</label>
+                    <input type="number" min={0} value={field.config?.minSelections ?? ""}
+                      onChange={e => {
+                        const v = e.target.value === '' ? undefined : Math.max(0, Number(e.target.value) || 0)
+                        updateField(idx, { config: { ...field.config, minSelections: v } })
+                      }}
+                      className={`w-full ${inputClass}`} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-0.5">Max selections (empty = unlimited)</label>
+                    <input type="number" min={1} value={field.config?.maxSelections ?? ""}
+                      onChange={e => {
+                        const v = e.target.value === '' ? undefined : Math.max(1, Number(e.target.value) || 1)
+                        updateField(idx, { config: { ...field.config, maxSelections: v } })
+                      }}
+                      className={`w-full ${inputClass}`} />
+                  </div>
                 </div>
               )}
 

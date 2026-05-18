@@ -84,7 +84,7 @@ function checkField(f: unknown, path: string): void {
   if (f.config !== undefined) {
     if (!isObject(f.config)) throw new FormConfigValidationError(`${path}.config`, 'must be an object')
     const c = f.config
-    const numericKeys = ['min', 'max', 'minWords', 'maxWords', 'maxSelections', 'ranks', 'scaleMin', 'scaleMax', 'minEntries', 'maxEntries'] as const
+    const numericKeys = ['min', 'max', 'minWords', 'maxWords', 'minSelections', 'maxSelections', 'ranks', 'scaleMin', 'scaleMax', 'minEntries', 'maxEntries'] as const
     for (const k of numericKeys) {
       if (c[k] !== undefined && typeof c[k] !== 'number') {
         throw new FormConfigValidationError(`${path}.config.${k}`, 'must be a number if present')

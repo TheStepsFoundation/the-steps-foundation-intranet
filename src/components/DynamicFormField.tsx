@@ -383,6 +383,7 @@ function CheckboxListField({ field, value, onChange }: {
   field: FormFieldConfig; value: string[] | undefined; onChange: (v: string[]) => void
 }) {
   const selected = value ?? []
+  const min = field.config?.minSelections
   const max = field.config?.maxSelections
 
   const toggle = (val: string) => {
@@ -390,10 +391,19 @@ function CheckboxListField({ field, value, onChange }: {
     else if (!max || selected.length < max) onChange([...selected, val])
   }
 
+  // Helper text — show whichever bounds exist. Both = "Pick between X and Y";
+  // min only = "Pick at least X"; max only = "Pick up to Y".
+  const helper = (() => {
+    if (min && max) return `Select between ${min} and ${max}.`
+    if (min) return `Select at least ${min}.`
+    if (max) return `Select up to ${max}.`
+    return null
+  })()
+
   return (
     <fieldset className="mb-4">
       <FieldLabel field={field} asLegend />
-      {max && <p className="text-xs text-gray-400 mb-2">Select up to {max}.</p>}
+      {helper && <p className="text-xs text-gray-400 mb-2">{helper}</p>}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
         {(field.options ?? []).map(opt => (
           <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">

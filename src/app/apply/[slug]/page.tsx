@@ -782,9 +782,17 @@ export default function ApplyPage() {
           if (!entries[rk]) { errs[key] = `Please complete all choices for: ${stripToText(field.label)}`; order.push(key); break }
         }
       }
-      if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
-        errs[key] = `Please select at least one option for: ${stripToText(field.label)}`
-        order.push(key)
+      if (field.type === 'checkbox_list' && Array.isArray(val)) {
+        // Required questions default to a minimum of 1 even if no
+        // explicit minSelections is set. Explicit minSelections (when
+        // configured in the form builder) takes precedence.
+        const minSel = field.config?.minSelections ?? (field.required ? 1 : 0)
+        if (val.length < minSel) {
+          errs[key] = minSel === 1
+            ? `Please select at least one option for: ${stripToText(field.label)}`
+            : `Please select at least ${minSel} options for: ${stripToText(field.label)}`
+          order.push(key)
+        }
       }
       if (field.type === 'paired_dropdown' && Array.isArray(val)) {
         const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
@@ -856,9 +864,14 @@ export default function ApplyPage() {
             if (!entries[rk]) { errs[key] = `Please complete all choices for: ${stripToText(field.label)}`; order.push(key); break }
           }
         }
-        if (field.type === 'checkbox_list' && Array.isArray(val) && val.length === 0) {
-          errs[key] = `Please select at least one option for: ${stripToText(field.label)}`
-          order.push(key)
+        if (field.type === 'checkbox_list' && Array.isArray(val)) {
+          const minSel = field.config?.minSelections ?? (field.required ? 1 : 0)
+          if (val.length < minSel) {
+            errs[key] = minSel === 1
+              ? `Please select at least one option for: ${stripToText(field.label)}`
+              : `Please select at least ${minSel} options for: ${stripToText(field.label)}`
+            order.push(key)
+          }
         }
         if (field.type === 'paired_dropdown' && Array.isArray(val)) {
           const completeRows = (val as { primary: string; secondary: string }[]).filter(r => r.primary && r.secondary)
