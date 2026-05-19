@@ -56,7 +56,7 @@ async function requireTeamMember(req: NextRequest): Promise<{ email: string } | 
 }
 
 const HUB_EVENT_COLUMNS =
-  'id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year'
+  'id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year, is_private'
 
 export async function GET(req: NextRequest) {
   const gate = await requireTeamMember(req)
@@ -122,21 +122,33 @@ export async function GET(req: NextRequest) {
       status_history: historyByApp.get(a.id) ?? [],
     }))
 
-  // 3) Open events the student hasn't applied to
+  // 3) Open events the student hasn't applied to. Service-role bypasses
+  // the events_read RLS that normally filters private events to invited
+  // students only — so we replicate the same filter here. Without this,
+  // admin's Hub Preview leaks private events to non-invited students.
   const now = new Date().toISOString()
-  const { data: open } = await svc
-    .from('events')
-    .select(HUB_EVENT_COLUMNS)
-    .is('deleted_at', null)
-    .is('archived_at', null)
-    .neq('status', 'draft')
-    .neq('status', 'cancelled')
-    .lte('applications_open_at', now)
-    .gte('applications_close_at', now)
-    .order('event_date', { ascending: true })
+  const [{ data: open }, { data: invitations }] = await Promise.all([
+    svc.from('events')
+      .select(HUB_EVENT_COLUMNS)
+      .is('deleted_at', null)
+      .is('archived_at', null)
+      .neq('status', 'draft')
+      .neq('status', 'cancelled')
+      .lte('applications_open_at', now)
+      .gte('applications_close_at', now)
+      .order('event_date', { ascending: true }),
+    svc.from('event_invitations')
+      .select('event_id')
+      .eq('student_id', studentId),
+  ])
 
   const appliedSet = new Set(eventIds)
-  const openEvents = ((open ?? []) as Array<Record<string, unknown>>).filter(e => !appliedSet.has(e.id as string))
+  const invitedSet = new Set((invitations ?? []).map((i: { event_id: string }) => i.event_id))
+  const openEvents = ((open ?? []) as Array<Record<string, unknown>>).filter(e => {
+    if (appliedSet.has(e.id as string)) return false
+    if (e.is_private === true && !invitedSet.has(e.id as string)) return false
+    return true
+  })
 
   return NextResponse.json({ profile, applications, openEvents })
 }
