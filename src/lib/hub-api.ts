@@ -320,6 +320,42 @@ export async function fetchMyEventOptouts(): Promise<Set<string>> {
 }
 
 /**
+ * Opt-outs joined with their event details, filtered by RLS — so any
+ * event the student is no longer allowed to see (e.g. un-invited from a
+ * private event after opting out) doesn't surface as a stale 'opted out'
+ * row in the hub. Map keys are event_ids; values are the visible event's
+ * display name.
+ */
+export async function fetchMyEventOptoutsVisible(): Promise<Map<string, string>> {
+  const email = await currentUserEmail()
+  if (!email) return new Map()
+  const { data: student } = await supabase
+    .from('students')
+    .select('id')
+    .eq('personal_email', email)
+    .maybeSingle()
+  if (!student) return new Map()
+  // Inner-join through RLS: rows where the joined event is RLS-hidden drop
+  // out of the result set entirely.
+  const { data, error } = await supabase
+    .from('event_email_optouts')
+    .select('event_id, events!inner(id, name)')
+    .eq('student_id', student.id)
+  if (error) {
+    console.warn('[hub] fetchMyEventOptoutsVisible:', error.message)
+    return new Map()
+  }
+  const out = new Map<string, string>()
+  for (const row of (data ?? []) as { event_id: string; events: { id: string; name: string } | { id: string; name: string }[] }[]) {
+    // Supabase typings sometimes return the joined relation as an array
+    // even on a 1:1 — handle both shapes defensively.
+    const ev = Array.isArray(row.events) ? row.events[0] : row.events
+    if (ev?.id && ev.name) out.set(ev.id, ev.name)
+  }
+  return out
+}
+
+/**
  * Subscribe / unsubscribe the calling student from a specific event's emails.
  * Inserts an event_email_optouts row when `optedOut` is true (source='hub')
  * and deletes the row when false. Idempotent: re-calling with the same

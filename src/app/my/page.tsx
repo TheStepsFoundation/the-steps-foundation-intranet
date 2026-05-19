@@ -9,7 +9,7 @@ import { PressableButton } from '@/components/PressableButton'
 import Link from 'next/link'
 import {
   fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents,
-  signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, setEventOptout, fetchLiveEvents,
+  signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, fetchMyEventOptoutsVisible, setEventOptout, fetchLiveEvents,
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
 import { getDisplayLocation } from '@/lib/event-display'
@@ -412,9 +412,14 @@ function StudentHubInner() {
   const [eventOptouts, setEventOptouts] = useState<Set<string>>(new Set())
   const [eventOptoutSavingId, setEventOptoutSavingId] = useState<string | null>(null)
   const [liveEvents, setLiveEvents] = useState<HubEvent[]>([])
+  // Map<event_id, name> of the opt-outs that pass the events RLS filter —
+  // used so an event the student can no longer see (e.g. un-invited from
+  // a private event) doesn't surface as a stale row in their preferences.
+  const [visibleOptouts, setVisibleOptouts] = useState<Map<string, string>>(new Map())
   useEffect(() => {
     if (adminPreviewMode) return
     fetchMyEventOptouts().then(setEventOptouts)
+    fetchMyEventOptoutsVisible().then(setVisibleOptouts)
     fetchLiveEvents().then(setLiveEvents)
   }, [adminPreviewMode])
   const handleToggleEventOptout = async (eventId: string) => {
@@ -1032,20 +1037,21 @@ function StudentHubInner() {
                 // Union with any events they've already opted out of
                 // (even if those events are no longer 'live') so the
                 // re-subscribe path stays reachable.
-                // Filter live events to those the student is eligible for
-                // (year-group rules). Already-opted-out events bypass the
-                // eligibility filter so the re-subscribe button stays
-                // reachable even if eligibility has since changed.
+                // Eligible live events the student could (still) apply for.
+                // Opted-out events bypass the eligibility filter so the
+                // re-subscribe button stays reachable even if eligibility
+                // changed later, AND they must pass the events RLS check
+                // (sourced from visibleOptouts) so un-invited private
+                // events don't leak through as stale opt-out rows.
                 const byId = new Map<string, { id: string; name: string }>()
                 for (const ev of liveEvents) {
                   if (isEligibleForYearGroup(ev) || eventOptouts.has(ev.id)) {
                     byId.set(ev.id, { id: ev.id, name: ev.name })
                   }
                 }
-                for (const id of eventOptouts) {
+                for (const [id, name] of visibleOptouts) {
                   if (byId.has(id)) continue
-                  const fromApp = applications.find(a => a.event?.id === id)?.event
-                  if (fromApp) byId.set(id, { id: fromApp.id, name: fromApp.name })
+                  byId.set(id, { id, name })
                 }
                 const eventRows = Array.from(byId.values())
                 if (eventRows.length === 0) return null
