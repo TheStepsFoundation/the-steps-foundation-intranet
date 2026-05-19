@@ -226,6 +226,32 @@ export async function fetchOpenEvents(): Promise<HubEvent[]> {
 // Fetch all visible events (for "past events" section)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Live events — anything still upcoming or currently happening, regardless
+// of whether the student has applied. Used by the per-event opt-out list on
+// /my so students can pre-emptively decline emails about an event they're
+// not interested in (without having to wait for an invite or apply first).
+// Excludes draft + cancelled + past events to keep the list tidy.
+// RLS will hide private events the calling student hasn't been invited to.
+// ---------------------------------------------------------------------------
+
+export async function fetchLiveEvents(): Promise<HubEvent[]> {
+  const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year')
+    .is('deleted_at', null)
+    .is('archived_at', null)
+    .not('status', 'in', '(draft,cancelled)')
+    .or(`event_date.is.null,event_date.gte.${today}`)
+    .order('event_date', { ascending: true })
+  if (error) {
+    console.warn('[hub] fetchLiveEvents:', error.message)
+    return []
+  }
+  return (data ?? []) as HubEvent[]
+}
+
 export async function fetchAllEvents(): Promise<HubEvent[]> {
   const { data } = await supabase
     .from('events')

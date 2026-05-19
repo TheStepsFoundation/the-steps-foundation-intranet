@@ -557,6 +557,8 @@ export default function ApplyPage() {
       setError(err)
       return
     }
+    // Just used a password — obviously have one. Skip the success-screen prompt.
+    setHasPassword(true)
     // Re-fetch form config with auth
     fetchEventFormConfig(event!.id).then(config => {
       setFormFields(config.fields ?? [])
@@ -588,6 +590,10 @@ export default function ApplyPage() {
     setError(null)
     const { error: err } = await verifyOtp(email, otpCode)
     if (err) { setLoading(false); setError(err); return }
+
+    // Refresh password-known flag so the success screen's optional-password
+    // prompt is correctly hidden for returning users who already set one.
+    userHasPassword().then(has => setHasPassword(has))
 
     // Re-fetch form config now that student is authenticated
     fetchEventFormConfig(event!.id).then(config => {

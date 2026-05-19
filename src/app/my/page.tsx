@@ -9,7 +9,7 @@ import { PressableButton } from '@/components/PressableButton'
 import Link from 'next/link'
 import {
   fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents,
-  signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, setEventOptout,
+  signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, setEventOptout, fetchLiveEvents,
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
 import { getDisplayLocation } from '@/lib/event-display'
@@ -411,9 +411,11 @@ function StudentHubInner() {
   // noise.
   const [eventOptouts, setEventOptouts] = useState<Set<string>>(new Set())
   const [eventOptoutSavingId, setEventOptoutSavingId] = useState<string | null>(null)
+  const [liveEvents, setLiveEvents] = useState<HubEvent[]>([])
   useEffect(() => {
     if (adminPreviewMode) return
     fetchMyEventOptouts().then(setEventOptouts)
+    fetchLiveEvents().then(setLiveEvents)
   }, [adminPreviewMode])
   const handleToggleEventOptout = async (eventId: string) => {
     if (!profile) return
@@ -1025,13 +1027,19 @@ function StudentHubInner() {
               </div>
 
               {(() => {
-                // Build the per-event preference list: every event the
-                // student has applied to (the only ones they're getting
-                // event-specific emails about). Deduped by event_id.
-                const seen = new Set<string>()
-                const eventRows = applications
-                  .filter(app => app.event && !seen.has(app.event.id) && (seen.add(app.event.id), true))
-                  .map(app => app.event!)
+                // List every live event so the student can pre-emptively
+                // opt out without needing an invite or application first.
+                // Union with any events they've already opted out of
+                // (even if those events are no longer 'live') so the
+                // re-subscribe path stays reachable.
+                const byId = new Map<string, { id: string; name: string }>()
+                for (const ev of liveEvents) byId.set(ev.id, { id: ev.id, name: ev.name })
+                for (const id of eventOptouts) {
+                  if (byId.has(id)) continue
+                  const fromApp = applications.find(a => a.event?.id === id)?.event
+                  if (fromApp) byId.set(id, { id: fromApp.id, name: fromApp.name })
+                }
+                const eventRows = Array.from(byId.values())
                 if (eventRows.length === 0) return null
                 return (
                   <div className="mt-5 pt-5 border-t border-slate-200">

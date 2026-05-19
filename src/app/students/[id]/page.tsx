@@ -735,26 +735,53 @@ function EventOptoutsCard({ studentId, apps, eventNames }: {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const [liveEvents, setLiveEvents] = useState<{ id: string; name: string }[]>([])
   useEffect(() => {
     let cancelled = false
-    supabase
-      .from('event_email_optouts')
-      .select('event_id')
-      .eq('student_id', studentId)
-      .then(({ data, error }) => {
-        if (cancelled) return
-        if (error) setError(error.message)
-        else setOptouts(new Set((data ?? []).map(r => r.event_id as string)))
-        setLoading(false)
-      })
+    Promise.all([
+      supabase
+        .from('event_email_optouts')
+        .select('event_id')
+        .eq('student_id', studentId),
+      // Admin can see all live events regardless of privacy (RLS allows it),
+      // so the per-event opt-out card lists every event the student could
+      // conceivably hear about, not just ones they've applied to.
+      supabase
+        .from('events')
+        .select('id, name, event_date, status')
+        .is('deleted_at', null)
+        .is('archived_at', null)
+        .not('status', 'in', '(draft,cancelled)')
+        .or(`event_date.is.null,event_date.gte.${new Date().toISOString().slice(0, 10)}`)
+        .order('event_date', { ascending: true }),
+    ]).then(([optoutsRes, eventsRes]) => {
+      if (cancelled) return
+      if (optoutsRes.error) setError(optoutsRes.error.message)
+      else setOptouts(new Set((optoutsRes.data ?? []).map(r => r.event_id as string)))
+      if (eventsRes.error) setError(prev => prev ?? eventsRes.error!.message)
+      else setLiveEvents((eventsRes.data ?? []) as { id: string; name: string }[])
+      setLoading(false)
+    })
     return () => { cancelled = true }
   }, [studentId])
 
-  // Dedup events the student has applied to (one row per event).
-  const seen = new Set<string>()
-  const eventIds = apps
-    .map(a => a.event_id)
-    .filter(id => id && !seen.has(id) && (seen.add(id), true))
+  // Combine live events with any extra events the student is already
+  // opted out of (so the admin can re-subscribe them even if the event
+  // has since dropped out of the 'live' window).
+  const eventMap = new Map<string, string>()
+  for (const ev of liveEvents) eventMap.set(ev.id, ev.name)
+  for (const id of optouts) {
+    if (eventMap.has(id)) continue
+    eventMap.set(id, eventNames[id] || id)
+  }
+  // Apps-derived fallback for cases where the student has applied to an
+  // event that's now in the past — still surfaceable for admin clarity.
+  for (const a of apps) {
+    if (a.event_id && !eventMap.has(a.event_id)) {
+      eventMap.set(a.event_id, eventNames[a.event_id] || a.event_id)
+    }
+  }
+  const eventIds = Array.from(eventMap.keys())
 
   if (eventIds.length === 0) return null
 
