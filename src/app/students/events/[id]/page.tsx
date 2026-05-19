@@ -28,6 +28,7 @@ import {
   type EmailAttachmentInfo,
   plainTextToHtml as sharedPlainTextToHtml,
   looksLikeHtml as sharedLooksLikeHtml,
+  setMergeTagLabelOverrides,
 } from '@/components/RichTextEmailEditor'
 import {
   EmailComposePanel,
@@ -936,6 +937,7 @@ export default function EventDetailPage() {
   const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
   const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
   const [mergeTagLabels, setMergeTagLabels] = useState<Record<string, string>>({})
+  useEffect(() => { setMergeTagLabelOverrides(mergeTagLabels) }, [mergeTagLabels])
   const [applyLinkAnchor, setApplyLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.applyLinkAnchor)
   const [portalLinkAnchor, setPortalLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.portalLinkAnchor)
   const [rsvpLinkAnchor, setRsvpLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.rsvpLinkAnchor)

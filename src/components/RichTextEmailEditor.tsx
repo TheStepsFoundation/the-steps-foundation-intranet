@@ -36,12 +36,36 @@ export const MERGE_TAG_LABELS: Record<string, string> = {
   event_date: 'Event Date',
   event_time: 'Event Time',
   event_location: 'Location',
+  event_format: 'Format',
+  event_capacity: 'Capacity',
   event_dress_code: 'Dress Code',
   dress_code: 'Dress Code',
+  open_to: 'Open To',
+  application_deadline: 'Application Deadline',
   apply_link: 'Apply Link',
   rsvp_link: 'RSVP Link',
   portal_link: 'Portal Link',
   last_attended_event: 'Last Event',
+  withdraw_link: 'Withdraw link',
+  event_optout_link: 'Opt-out link (this event only)',
+}
+
+/**
+ * Admin-set label overrides for chip rendering. Set by the page-level
+ * component (events composer / InviteStudentsModal) when it reads settings.
+ * tokensToChips reads this in preference to MERGE_TAG_LABELS so that admin
+ * relabels on Settings → Merge tag formats are reflected on every chip
+ * (picker AND inserted AND round-tripped through chipsToTokens / tokens
+ * ToChips).
+ *
+ * Module-level mutable state is acceptable here because the page sets this
+ * before the editor renders; the alternative would be threading the map
+ * through every chip-touching API (insertMergeTag, tokensToChips, the
+ * editor's seed effect), which is far noisier.
+ */
+let MERGE_TAG_LABEL_OVERRIDES: Record<string, string> = {}
+export function setMergeTagLabelOverrides(overrides: Record<string, string>): void {
+  MERGE_TAG_LABEL_OVERRIDES = overrides ?? {}
 }
 
 export type MergeTag = { tag: string; label: string }
@@ -81,7 +105,7 @@ export const DEFAULT_MERGE_TAGS: MergeTag[] = [
 
 export function makeChipHtml(tag: string, label?: string): string {
   const safeTag = tag.replace(/[^a-zA-Z0-9_]/g, '')
-  const text = (label ?? MERGE_TAG_LABELS[safeTag] ?? safeTag)
+  const text = (label ?? MERGE_TAG_LABEL_OVERRIDES[safeTag] ?? MERGE_TAG_LABELS[safeTag] ?? safeTag)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
