@@ -4284,7 +4284,7 @@ export default function EventDetailPage() {
                   filledBodyHtml={(() => {
                     const raw = getRecipients()[0] ? fillMergeFields(emailBody, getRecipients()[0]) : emailBody
                     const html = looksLikeHtml(raw) ? raw : plainTextToHtml(raw)
-                    return html.replace(/\{\{withdraw_link\}\}/g, '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:500" title="Real signed Withdraw link inserted per recipient at send time">[Withdraw link]</span>').replace(/\{\{event_optout_link\}\}/g, '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:500" title="Real signed opt-out link inserted per recipient at send time">[Opt-out link for this event]</span>')
+                    return html.replace(/\{\{withdraw_link\}\}/g, '<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">Withdraw link</a>').replace(/\{\{event_optout_link\}\}/g, '<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">Opt out of further emails about this event</a>')
                   })()}
                   footerBanner={notifyAction ? (
                     <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">

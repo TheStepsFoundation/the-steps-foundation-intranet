@@ -1381,7 +1381,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                   .join('')
                 // Server-resolved tag — show as a clearly non-clickable
                 // pill in the preview so the admin can't paste it.
-                return html.replace(/\{\{event_optout_link\}\}/g, '<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-weight:500" title="Real signed opt-out link inserted per recipient at send time">[Opt-out link for this event]</span>')
+                return html.replace(/\{\{event_optout_link\}\}/g, '<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">Opt out of further emails about this event</a>')
               })()}
               footerBanner={
                 <>
