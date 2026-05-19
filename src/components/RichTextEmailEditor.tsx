@@ -467,7 +467,47 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
   }
 
   const insertChipAtCaret = (tag: string, label?: string) => {
-    insertHtmlAtCaret(makeChipHtml(tag, label) + '&nbsp;')
+    if (!divRef.current) return
+    // Make sure the editor is focused so getSelection() refers to it.
+    divRef.current.focus()
+    restoreSelection()
+
+    const sel = window.getSelection()
+    let range: Range
+    if (sel && sel.rangeCount > 0 && divRef.current.contains(sel.anchorNode)) {
+      range = sel.getRangeAt(0)
+    } else {
+      // No saved selection inside the editor — drop the chip at the end of
+      // the current content. Better than nothing if the picker was clicked
+      // before the user ever placed their caret.
+      range = document.createRange()
+      range.selectNodeContents(divRef.current)
+      range.collapse(false)
+    }
+
+    // Build the chip + trailing non-breaking space as detached DOM nodes so
+    // we can place the caret AFTER them deterministically (without relying on
+    // execCommand's positioning behaviour).
+    const chipWrapper = document.createElement('span')
+    chipWrapper.innerHTML = makeChipHtml(tag, label)
+    const chipEl = chipWrapper.firstElementChild as HTMLElement | null
+    if (!chipEl) return
+    const trailingSpace = document.createTextNode('\u00a0') // &nbsp;
+
+    range.deleteContents()
+    range.insertNode(trailingSpace)
+    range.insertNode(chipEl)
+
+    // Collapse selection to AFTER the trailing space so the user types
+    // inline immediately after the chip.
+    const after = document.createRange()
+    after.setStartAfter(trailingSpace)
+    after.collapse(true)
+    sel?.removeAllRanges()
+    sel?.addRange(after)
+
+    saveSelection()
+    emitChange()
   }
 
   React.useImperativeHandle(forwardedRef, () => ({
@@ -856,22 +896,45 @@ export const SingleLineMergeEditor = React.forwardRef<SingleLineMergeEditorHandl
   }
 
   const insertChipAtCaret = (tag: string, label?: string) => {
+    if (!divRef.current) return
+    // Make sure the editor is focused so getSelection() refers to it.
+    divRef.current.focus()
     restoreSelection()
-    divRef.current?.focus()
-    const html = makeChipHtml(tag, label) + '&nbsp;'
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      document.execCommand('insertHTML', false, html)
-    } catch {
-      const sel = window.getSelection()
-      if (sel && sel.rangeCount > 0 && divRef.current) {
-        const range = sel.getRangeAt(0)
-        const tpl = document.createElement('template')
-        tpl.innerHTML = html
-        range.deleteContents()
-        range.insertNode(tpl.content)
-      }
+
+    const sel = window.getSelection()
+    let range: Range
+    if (sel && sel.rangeCount > 0 && divRef.current.contains(sel.anchorNode)) {
+      range = sel.getRangeAt(0)
+    } else {
+      // No saved selection inside the editor — drop the chip at the end of
+      // the current content. Better than nothing if the picker was clicked
+      // before the user ever placed their caret.
+      range = document.createRange()
+      range.selectNodeContents(divRef.current)
+      range.collapse(false)
     }
+
+    // Build the chip + trailing non-breaking space as detached DOM nodes so
+    // we can place the caret AFTER them deterministically (without relying on
+    // execCommand's positioning behaviour).
+    const chipWrapper = document.createElement('span')
+    chipWrapper.innerHTML = makeChipHtml(tag, label)
+    const chipEl = chipWrapper.firstElementChild as HTMLElement | null
+    if (!chipEl) return
+    const trailingSpace = document.createTextNode('\u00a0') // &nbsp;
+
+    range.deleteContents()
+    range.insertNode(trailingSpace)
+    range.insertNode(chipEl)
+
+    // Collapse selection to AFTER the trailing space so the user types
+    // inline immediately after the chip.
+    const after = document.createRange()
+    after.setStartAfter(trailingSpace)
+    after.collapse(true)
+    sel?.removeAllRanges()
+    sel?.addRange(after)
+
     saveSelection()
     emitChange()
   }
