@@ -28,6 +28,7 @@ export const SETTINGS_KEYS = {
   minCustomQuestions: 'events.min_custom_questions',
   studentDashboardPageSize: 'students.dashboard_page_size',
   enabledAutomationTypes: 'events.enabled_automation_types',
+  publishRequiredFields: 'events.publish_required_fields',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -51,6 +52,21 @@ export const SETTINGS_DEFAULTS = {
     'post_event_feedback',
     'applications_closing',
     'application_draft_stale',
+  ] as string[],
+  publishRequiredFields: [
+    'name',
+    'slug',
+    'event_date',
+    'time_start',
+    'time_end',
+    'location',
+    'format',
+    'capacity',
+    'description',
+    'applications_open_at',
+    'applications_close_at',
+    'banner_image_url',
+    'hub_image_url',
   ] as string[],
 } as const
 

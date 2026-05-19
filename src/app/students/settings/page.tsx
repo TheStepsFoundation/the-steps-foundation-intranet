@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { EMAIL_AUTOMATION_TYPE_META, type EmailAutomationType } from '@/lib/events-api'
+import { EMAIL_AUTOMATION_TYPE_META, type EmailAutomationType, PUBLISH_REQUIRED_FIELD_OPTIONS } from '@/lib/events-api'
 import { SETTINGS_KEYS, SETTINGS_DEFAULTS, fetchAllSettings, setSetting } from '@/lib/settings-api'
 
 // ---------------------------------------------------------------------------
@@ -322,6 +322,7 @@ function DefaultsTab() {
   const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
   const [pageSize, setPageSize] = useState<number>(SETTINGS_DEFAULTS.studentDashboardPageSize)
   const [enabledAutomationTypes, setEnabledAutomationTypes] = useState<EmailAutomationType[]>(SETTINGS_DEFAULTS.enabledAutomationTypes as EmailAutomationType[])
+  const [publishRequiredFields, setPublishRequiredFields] = useState<string[]>(SETTINGS_DEFAULTS.publishRequiredFields as string[])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -339,6 +340,8 @@ function DefaultsTab() {
       if (typeof ps === 'number' && Number.isFinite(ps) && ps > 0) setPageSize(Math.floor(ps))
       const eat = s[SETTINGS_KEYS.enabledAutomationTypes]
       if (Array.isArray(eat) && eat.every(x => typeof x === 'string')) setEnabledAutomationTypes(eat as EmailAutomationType[])
+      const prf = s[SETTINGS_KEYS.publishRequiredFields]
+      if (Array.isArray(prf) && prf.every(x => typeof x === 'string')) setPublishRequiredFields(prf as string[])
       setLoading(false)
     })
   }, [])
@@ -356,6 +359,7 @@ function DefaultsTab() {
       setSetting(SETTINGS_KEYS.minCustomQuestions, Math.max(0, Math.floor(minCustomQuestions))),
       setSetting(SETTINGS_KEYS.studentDashboardPageSize, Math.max(10, Math.floor(pageSize))),
       setSetting(SETTINGS_KEYS.enabledAutomationTypes, enabledAutomationTypes),
+      setSetting(SETTINGS_KEYS.publishRequiredFields, publishRequiredFields),
     ])
     const firstErr = writes.find(w => w.error)
     if (firstErr) setError(firstErr.error)
@@ -423,6 +427,26 @@ function DefaultsTab() {
           ))}
         </div>
       </Section>
+      <Section title="Publish requirements" hint="Which event fields must be set before an event can move from draft to open. Untick a field to make it optional at publish time — e.g. drop the banner image requirement for lightweight events.">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          {PUBLISH_REQUIRED_FIELD_OPTIONS.map(opt => (
+            <label key={opt.field} className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={publishRequiredFields.includes(opt.field)}
+                onChange={e => {
+                  if (e.target.checked) setPublishRequiredFields([...publishRequiredFields, opt.field])
+                  else setPublishRequiredFields(publishRequiredFields.filter(f => f !== opt.field))
+                }}
+                className="accent-steps-blue-600"
+              />
+              <span className="text-sm">{opt.label}</span>
+            </label>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-gray-500">Name + slug are technically optional here too, but the validator will still trip on missing them at publish since they\'re needed elsewhere — leave them ticked.</p>
+      </Section>
+
 
 
             <Section title="Minimum custom questions to publish" hint="How many event-specific custom questions a form must have before publish is allowed. Standard auto-included questions (school type, FSM, GCSEs, etc.) don't count. Set to 0 to allow publishing with no custom questions — useful for lightweight events like office hours.">

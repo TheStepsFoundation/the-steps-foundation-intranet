@@ -339,23 +339,53 @@ export type PublishValidationError = {
 
 const STD_FIELD_IDS = new Set(['std_name', 'std_email', 'std_school', 'std_year_group'])
 
-export function validateForPublish(e: Partial<EventRow>, opts?: { minCustomFields?: number }): PublishValidationError[] {
-  const errs: PublishValidationError[] = []
-  const blank = (v: unknown) => v == null || (typeof v === 'string' && v.trim().length === 0)
+// Catalogue of every publish-time required-field check. The values match
+// the keys on EventRow. Admins can untick entries on the Settings page to
+// stop enforcing them at publish time (e.g. banner image optional). The
+// settings store an opt-in array; if not supplied / empty, we fall back to
+// the full catalogue so existing call sites without opts stay strict.
+const PUBLISH_REQUIRED_FIELD_CATALOGUE: ReadonlyArray<{
+  field: string
+  label: string
+  reason: string
+  test: (e: Partial<EventRow>) => boolean
+}> = [
+  { field: 'name',                  label: 'Event name',         reason: 'Required.',                                                          test: e => blankVal(e.name) },
+  { field: 'slug',                  label: 'URL slug',           reason: 'Required.',                                                          test: e => blankVal(e.slug) },
+  { field: 'event_date',            label: 'Event date',         reason: 'Set the date students should plan around.',                          test: e => blankVal(e.event_date) },
+  { field: 'time_start',            label: 'Start time',         reason: 'Required so students know when to show up.',                         test: e => blankVal(e.time_start) },
+  { field: 'time_end',              label: 'End time',           reason: 'Required so students can plan their day.',                           test: e => blankVal(e.time_end) },
+  { field: 'location',              label: 'Rough location',     reason: 'Like "Central London". Full address can wait.',                      test: e => blankVal(e.location) },
+  { field: 'format',                label: 'Format',             reason: 'In person, online, or hybrid.',                                      test: e => blankVal(e.format) },
+  { field: 'capacity',              label: 'Capacity',           reason: 'Honest expectation-setting on competitiveness.',                     test: e => e.capacity == null },
+  { field: 'description',           label: 'Description',        reason: "Tells students what they're applying to.",                          test: e => blankVal(e.description) },
+  { field: 'applications_open_at',  label: 'Applications open',  reason: 'When the form goes live to students.',                               test: e => blankVal(e.applications_open_at) },
+  { field: 'applications_close_at', label: 'Applications close', reason: 'Without this, the form would never auto-close.',                     test: e => blankVal(e.applications_close_at) },
+  { field: 'banner_image_url',      label: 'Banner image',       reason: 'Top of the event detail page on the student hub.',                   test: e => blankVal(e.banner_image_url) },
+  { field: 'hub_image_url',         label: 'Hub card image',     reason: 'Side image on each card on /my.',                                    test: e => blankVal(e.hub_image_url) },
+]
 
-  if (blank(e.name))                  errs.push({ field: 'name',                  label: 'Event name',          reason: 'Required.' })
-  if (blank(e.slug))                  errs.push({ field: 'slug',                  label: 'URL slug',            reason: 'Required.' })
-  if (blank(e.event_date))            errs.push({ field: 'event_date',            label: 'Event date',          reason: 'Set the date students should plan around.' })
-  if (blank(e.time_start))            errs.push({ field: 'time_start',            label: 'Start time',          reason: 'Required so students know when to show up.' })
-  if (blank(e.time_end))              errs.push({ field: 'time_end',              label: 'End time',            reason: 'Required so students can plan their day.' })
-  if (blank(e.location))              errs.push({ field: 'location',              label: 'Rough location',      reason: 'Like "Central London". Full address can wait.' })
-  if (blank(e.format))                errs.push({ field: 'format',                label: 'Format',              reason: 'In person, online, or hybrid.' })
-  if (e.capacity == null)             errs.push({ field: 'capacity',              label: 'Capacity',            reason: 'Honest expectation-setting on competitiveness.' })
-  if (blank(e.description))           errs.push({ field: 'description',           label: 'Description',         reason: "Tells students what they're applying to." })
-  if (blank(e.applications_open_at))  errs.push({ field: 'applications_open_at',  label: 'Applications open',   reason: 'When the form goes live to students.' })
-  if (blank(e.applications_close_at)) errs.push({ field: 'applications_close_at', label: 'Applications close',  reason: 'Without this, the form would never auto-close.' })
-  if (blank(e.banner_image_url))      errs.push({ field: 'banner_image_url',      label: 'Banner image',        reason: 'Top of the event detail page on the student hub.' })
-  if (blank(e.hub_image_url))         errs.push({ field: 'hub_image_url',         label: 'Hub card image',      reason: 'Side image on each card on /my.' })
+function blankVal(v: unknown): boolean {
+  return v == null || (typeof v === 'string' && v.trim().length === 0)
+}
+
+/** All field keys the catalogue knows about — useful for the settings UI. */
+export const PUBLISH_REQUIRED_FIELD_KEYS = PUBLISH_REQUIRED_FIELD_CATALOGUE.map(f => f.field)
+
+/** Catalogue projection (field + label) for rendering the settings checkboxes. */
+export const PUBLISH_REQUIRED_FIELD_OPTIONS: { field: string; label: string }[] =
+  PUBLISH_REQUIRED_FIELD_CATALOGUE.map(({ field, label }) => ({ field, label }))
+
+export function validateForPublish(e: Partial<EventRow>, opts?: { minCustomFields?: number; requiredFields?: ReadonlyArray<string> }): PublishValidationError[] {
+  const errs: PublishValidationError[] = []
+  const required = opts?.requiredFields && opts.requiredFields.length > 0
+    ? new Set(opts.requiredFields)
+    : new Set(PUBLISH_REQUIRED_FIELD_KEYS)
+
+  for (const item of PUBLISH_REQUIRED_FIELD_CATALOGUE) {
+    if (!required.has(item.field)) continue
+    if (item.test(e)) errs.push({ field: item.field, label: item.label, reason: item.reason })
+  }
 
   // Eligible year groups: NOT required. The form-builder convention is
   // "leave all unchecked = open to any student" (and formatOpenTo / the

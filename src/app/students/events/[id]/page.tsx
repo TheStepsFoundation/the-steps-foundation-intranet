@@ -915,6 +915,7 @@ export default function EventDetailPage() {
   const [publishErrors, setPublishErrors] = useState<PublishValidationError[] | null>(null)
   const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
   const [enabledAutomationTypes, setEnabledAutomationTypes] = useState<EmailAutomationType[]>(SETTINGS_DEFAULTS.enabledAutomationTypes as EmailAutomationType[])
+  const [publishRequiredFields, setPublishRequiredFields] = useState<string[]>(SETTINGS_DEFAULTS.publishRequiredFields as string[])
   const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
   useEffect(() => {
     fetchAllSettings().then(set => {
@@ -929,6 +930,10 @@ export default function EventDetailPage() {
       const eat = set[SETTINGS_KEYS.enabledAutomationTypes]
       if (Array.isArray(eat) && eat.every(x => typeof x === 'string')) {
         setEnabledAutomationTypes(eat as EmailAutomationType[])
+      }
+      const prf = set[SETTINGS_KEYS.publishRequiredFields]
+      if (Array.isArray(prf) && prf.every(x => typeof x === 'string')) {
+        setPublishRequiredFields(prf as string[])
       }
     })
   }, [])
@@ -1167,7 +1172,7 @@ export default function EventDetailPage() {
   const liveChecklist: PublishValidationError[] = (() => {
     if (!event) return []
     const projected = { ...event, ...editDraft } as Partial<EventRow>
-    return validateForPublish(projected, { minCustomFields: minCustomQuestions })
+    return validateForPublish(projected, { minCustomFields: minCustomQuestions, requiredFields: publishRequiredFields })
   })()
   const liveChecklistFields = new Set(liveChecklist.map(e => e.field))
   const ALL_PUBLISH_REQUIREMENTS: { field: string; label: string }[] = [
@@ -1185,7 +1190,7 @@ export default function EventDetailPage() {
     { field: 'banner_image_url', label: 'Banner image' },
     { field: 'hub_image_url', label: 'Hub card image' },
     { field: 'form_config', label: `At least ${minCustomQuestions} custom question${minCustomQuestions === 1 ? '' : 's'}` },
-  ]
+  ].filter(req => req.field === 'form_config' || publishRequiredFields.includes(req.field))
 
   const buildEventPatch = useCallback((draft: Partial<EventRow>, baseline: EventRow): Record<string, any> => {
     const patch: Record<string, any> = {}
@@ -2806,7 +2811,7 @@ export default function EventDetailPage() {
                   // (manual unpublish, auto-demote and back, etc.) skip the modal.
                   if (current === 'draft' && next !== 'draft' && next !== 'cancelled') {
                     const projected = { ...event, ...editDraft, status: next } as Partial<EventRow>
-                    const errs = validateForPublish(projected, { minCustomFields: minCustomQuestions })
+                    const errs = validateForPublish(projected, { minCustomFields: minCustomQuestions, requiredFields: publishRequiredFields })
                     if (errs.length > 0) { setPublishErrors(errs); return }
                     if (!event.first_published_at) {
                       setPendingPublishStatus(next)
