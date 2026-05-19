@@ -38,7 +38,7 @@ export const SETTINGS_DEFAULTS = {
   replyToEmail: 'events@thestepsfoundation.com',
   marketingCap24h: 1700,
   eventOptoutScope: 'all' as 'all' | 'marketing_only',
-  defaultEligibleYearGroups: [11, 12, 13] as number[],
+  defaultEligibleYearGroups: [12, 13] as number[],
   defaultApplicationsOpenLeadDays: 14,
   minCustomQuestions: 3,
 } as const

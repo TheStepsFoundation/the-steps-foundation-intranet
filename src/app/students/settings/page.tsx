@@ -360,7 +360,7 @@ function DefaultsTab() {
     <Card>
       <Section title="Default eligible year groups for new events" hint="Pre-selected on the event-create form. You can still override per event.">
         <div className="flex flex-wrap gap-2">
-          {[10, 11, 12, 13].map(yg => (
+          {[12, 13, 14].map(yg => (
             <label key={yg} className="inline-flex items-center gap-1.5 cursor-pointer">
               <input
                 type="checkbox"
@@ -368,7 +368,7 @@ function DefaultsTab() {
                 onChange={() => toggleYg(yg)}
                 className="accent-steps-blue-600"
               />
-              <span className="text-sm">Y{yg}</span>
+              <span className="text-sm">{yg === 14 ? 'Gap year' : `Y${yg}`}</span>
             </label>
           ))}
         </div>
