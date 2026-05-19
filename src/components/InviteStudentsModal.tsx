@@ -21,7 +21,7 @@ import {
   EMAIL_SIGNATURE_HTML,
 } from './EmailComposePanels'
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
-import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, resolveMergeTagLabel } from '@/lib/merge-tag-format'
+import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, resolveMergeTagLabel, titleCase } from '@/lib/merge-tag-format'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -582,8 +582,8 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       .replace(/\{\{event_date\}\}/g, formatMergeDate(eventData?.event_date, dateFmt, ''))
       .replace(/\{\{event_time\}\}/g, formatMergeTime(eventData?.time_start, eventData?.time_end, timeFmt, ''))
       .replace(/\{\{event_location\}\}/g, eventData?.location ?? '')
-      .replace(/\{\{event_format\}\}/g, eventData?.format === 'in_person' ? 'in person' : eventData?.format === 'online' ? 'online' : eventData?.format === 'hybrid' ? 'hybrid' : '')
-      .replace(/\{\{event_dress_code\}\}/g, eventData?.dress_code ?? '')
+      .replace(/\{\{event_format\}\}/g, eventData?.format === 'in_person' ? 'In Person' : eventData?.format === 'online' ? 'Online' : eventData?.format === 'hybrid' ? 'Hybrid' : '')
+      .replace(/\{\{event_dress_code\}\}/g, titleCase(eventData?.dress_code ?? ''))
       .replace(/\{\{event_capacity\}\}/g, eventData?.capacity != null ? String(eventData.capacity) : '')
       .replace(/\{\{open_to\}\}/g, formatMergeOpenTo(eventData?.eligible_year_groups, eventData?.open_to_gap_year ?? false, openToFmt))
       .replace(/\{\{application_deadline\}\}/g, (() => {

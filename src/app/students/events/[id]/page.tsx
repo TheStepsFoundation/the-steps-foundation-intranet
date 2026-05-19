@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
-import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, resolveMergeTagLabel } from '@/lib/merge-tag-format'
+import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, resolveMergeTagLabel, titleCase } from '@/lib/merge-tag-format'
 import FeedbackConfigEditor from "@/components/FeedbackConfigEditor"
 import type { FormFieldConfig, FormPage, StandardOverrides, EventFeedbackConfig } from "@/lib/events-api"
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
@@ -2374,8 +2374,8 @@ export default function EventDetailPage() {
       .replace(/\{\{event_location\}\}/g, event?.location ?? 'TBC')
       .replace(/\{\{event_location_full\}\}/g, event?.location_full ?? event?.location ?? 'TBC')
       .replace(/\{\{event_time\}\}/g, formatMergeTime(event?.time_start, event?.time_end, timeFmt))
-      .replace(/\{\{dress_code\}\}/g, event?.dress_code ?? '')
-      .replace(/\{\{event_dress_code\}\}/g, event?.dress_code ?? '')
+      .replace(/\{\{dress_code\}\}/g, titleCase(event?.dress_code ?? ''))
+      .replace(/\{\{event_dress_code\}\}/g, titleCase(event?.dress_code ?? ''))
       // Link tags: prefer href-attribute swap when the admin has wrapped
       // {{tag}} in their own anchor, else expand to a clickable styled
       // anchor with admin-editable text.

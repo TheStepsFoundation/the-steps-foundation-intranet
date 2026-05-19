@@ -162,3 +162,39 @@ export function resolveMergeTagLabel(tag: string, fallback: string, overrides: R
   if (typeof v === 'string' && v.trim().length > 0) return v
   return fallback
 }
+
+
+/**
+ * Title-case a short phrase using standard English rules: capitalise the
+ * first and last word always, plus every other word EXCEPT short articles,
+ * prepositions, and conjunctions ('of', 'the', 'in', 'on', 'and', 'or',
+ * 'for', 'to', 'by', 'a', 'an', 'at', 'as', 'is', 'with', etc.).
+ *
+ * Use on short phrase values like event_format and event_dress_code where
+ * the input might be 'smart casual' or 'business casual', not on full
+ * prose or addresses.
+ */
+const LOWERCASE_TITLE_WORDS = new Set([
+  'a', 'an', 'the',
+  'and', 'but', 'or', 'nor', 'for', 'yet', 'so',
+  'as', 'at', 'by', 'in', 'of', 'on', 'to', 'up', 'via', 'vs',
+  'is', 'be', 'with',
+])
+export function titleCase(value: string | null | undefined): string {
+  if (!value) return ''
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  const tokens = trimmed.split(/(\s+)/) // keep whitespace tokens to preserve original spacing
+  const wordIdxs = tokens.map((t, i) => t.trim().length > 0 ? i : -1).filter(i => i >= 0)
+  const firstWordIdx = wordIdxs[0]
+  const lastWordIdx = wordIdxs[wordIdxs.length - 1]
+  return tokens
+    .map((tok, i) => {
+      if (tok.trim().length === 0) return tok
+      const lower = tok.toLowerCase()
+      const isEdge = i === firstWordIdx || i === lastWordIdx
+      if (!isEdge && LOWERCASE_TITLE_WORDS.has(lower)) return lower
+      return lower.charAt(0).toUpperCase() + lower.slice(1)
+    })
+    .join('')
+}

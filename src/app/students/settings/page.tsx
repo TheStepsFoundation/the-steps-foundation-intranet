@@ -839,9 +839,9 @@ function recipientPreview(tag: string, opts: { dateFmt: string; timeFmt: string;
     case 'event_date': return formatMergeDate(SAMPLE_DATE_ISO, opts.dateFmt as DateFormatKey)
     case 'event_time': return formatMergeTime('16:00', '17:30', opts.timeFmt as TimeFormatKey)
     case 'event_location': return 'Central London'
-    case 'event_format': return 'in person'
+    case 'event_format': return 'In Person'
     case 'event_dress_code':
-    case 'dress_code': return 'Smart casual'
+    case 'dress_code': return 'Smart Casual'
     case 'open_to': return formatMergeOpenTo([12, 13], false, opts.openToFmt as OpenToFormatKey)
     case 'application_deadline': return `${formatMergeDate(SAMPLE_DATE_ISO, opts.dateFmt as DateFormatKey)} at ${formatMergeTime('23:59', null, opts.timeFmt as TimeFormatKey)}`
     case 'apply_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.applyAnchor || 'Application Link')}</a>`
