@@ -573,6 +573,8 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
           onChanged={(next) => setEnriched(s => s ? { ...s, subscribed_to_mailing: next } as any : s)}
         />
       </div>
+
+      <EventOptoutsCard studentId={student.id} apps={apps} eventNames={Object.fromEntries(EVENTS.map(e => [e.id, e.name]))} />
     {showEmailModal && (
       <EmailStudentModal
         studentId={student.id}
@@ -720,6 +722,105 @@ function MailingToggle({ studentId, subscribed, onChanged }: { studentId: string
       </button>
       {error && <span className="text-xs text-red-600">{error}</span>}
     </span>
+  )
+}
+
+function EventOptoutsCard({ studentId, apps, eventNames }: {
+  studentId: string
+  apps: { event_id: string }[]
+  eventNames: Record<string, string>
+}) {
+  const [optouts, setOptouts] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState(true)
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('event_email_optouts')
+      .select('event_id')
+      .eq('student_id', studentId)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) setError(error.message)
+        else setOptouts(new Set((data ?? []).map(r => r.event_id as string)))
+        setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [studentId])
+
+  // Dedup events the student has applied to (one row per event).
+  const seen = new Set<string>()
+  const eventIds = apps
+    .map(a => a.event_id)
+    .filter(id => id && !seen.has(id) && (seen.add(id), true))
+
+  if (eventIds.length === 0) return null
+
+  const toggle = async (eventId: string) => {
+    const optedOut = optouts.has(eventId)
+    setSavingId(eventId)
+    setError(null)
+    try {
+      if (optedOut) {
+        const { error } = await supabase
+          .from('event_email_optouts')
+          .delete()
+          .eq('student_id', studentId)
+          .eq('event_id', eventId)
+        if (error) throw error
+        const next = new Set(optouts); next.delete(eventId); setOptouts(next)
+      } else {
+        const { error } = await supabase
+          .from('event_email_optouts')
+          .upsert({ student_id: studentId, event_id: eventId, source: 'admin' }, { onConflict: 'student_id,event_id' })
+        if (error) throw error
+        const next = new Set(optouts); next.add(eventId); setOptouts(next)
+      }
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to update')
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Per-event email preferences</p>
+      <p className="text-xs text-gray-500 mt-0.5 mb-3">Whether this student receives emails about each event they\'ve applied to. Separate from the general mailing list above.</p>
+      {error && <p role="alert" className="mb-2 text-xs text-red-700 bg-red-50 rounded px-2 py-1">{error}</p>}
+      {loading ? (
+        <p className="text-xs text-gray-500">Loading…</p>
+      ) : (
+        <ul className="divide-y divide-gray-200 dark:divide-gray-800 border border-gray-200 dark:border-gray-800 rounded-lg">
+          {eventIds.map(eid => {
+            const optedOut = optouts.has(eid)
+            const saving = savingId === eid
+            return (
+              <li key={eid} className="flex items-center justify-between gap-3 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{eventNames[eid] || eid}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{optedOut ? 'Opted out — won\'t receive emails about this event' : 'Receiving emails about this event'}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggle(eid)}
+                  disabled={saving}
+                  className={
+                    optedOut
+                      ? 'text-xs px-2.5 py-1 rounded-md border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50'
+                      : 'text-xs px-2.5 py-1 rounded-md border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50'
+                  }
+                >
+                  {saving ? 'Saving…' : optedOut ? 'Re-subscribe' : 'Unsubscribe'}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }
 

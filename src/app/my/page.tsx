@@ -9,7 +9,7 @@ import { PressableButton } from '@/components/PressableButton'
 import Link from 'next/link'
 import {
   fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents,
-  signOut, getAuthEmail, withdrawApplication, setMailingSubscription,
+  signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, setEventOptout,
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
 import { getDisplayLocation } from '@/lib/event-display'
@@ -405,6 +405,30 @@ function StudentHubInner() {
   // unsubscribe_source='hub' on opt-out, clears them on re-subscribe.
   const [mailingSaving, setMailingSaving] = useState(false)
   const [mailingError, setMailingError] = useState<string | null>(null)
+  // Per-event email opt-outs — listed below the mailing-list toggle. We
+  // surface only events the student has actually engaged with (existing
+  // applications), since opting out of an event you've never heard of is
+  // noise.
+  const [eventOptouts, setEventOptouts] = useState<Set<string>>(new Set())
+  const [eventOptoutSavingId, setEventOptoutSavingId] = useState<string | null>(null)
+  useEffect(() => {
+    if (adminPreviewMode) return
+    fetchMyEventOptouts().then(setEventOptouts)
+  }, [adminPreviewMode])
+  const handleToggleEventOptout = async (eventId: string) => {
+    if (!profile) return
+    const currentlyOpted = eventOptouts.has(eventId)
+    setEventOptoutSavingId(eventId)
+    const { error } = await setEventOptout(profile.id, eventId, !currentlyOpted)
+    if (!error) {
+      const next = new Set(eventOptouts)
+      if (currentlyOpted) next.delete(eventId); else next.add(eventId)
+      setEventOptouts(next)
+    } else {
+      setMailingError(error)
+    }
+    setEventOptoutSavingId(null)
+  }
   const handleToggleMailing = async () => {
     if (!profile || mailingSaving) return
     const target = !(profile.subscribed_to_mailing === true)
@@ -999,6 +1023,49 @@ function StudentHubInner() {
                     : profile.subscribed_to_mailing === true ? 'Unsubscribe' : 'Re-subscribe'}
                 </button>
               </div>
+
+              {(() => {
+                // Build the per-event preference list: every event the
+                // student has applied to (the only ones they're getting
+                // event-specific emails about). Deduped by event_id.
+                const seen = new Set<string>()
+                const eventRows = applications
+                  .filter(app => app.event && !seen.has(app.event.id) && (seen.add(app.event.id), true))
+                  .map(app => app.event!)
+                if (eventRows.length === 0) return null
+                return (
+                  <div className="mt-5 pt-5 border-t border-slate-200">
+                    <h3 className="text-sm font-semibold text-steps-dark mb-1">Event-specific emails</h3>
+                    <p className="text-xs text-slate-500 mb-3">Opt out of emails about a specific event (invites, reminders, decisions for some). You'll stay subscribed to the general mailing list and to other events.</p>
+                    <ul className="divide-y divide-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+                      {eventRows.map(ev => {
+                        const optedOut = eventOptouts.has(ev.id)
+                        const saving = eventOptoutSavingId === ev.id
+                        return (
+                          <li key={ev.id} className="flex items-center justify-between gap-3 px-4 py-3 bg-white">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-steps-dark truncate">{ev.name}</p>
+                              <p className="text-xs text-slate-500">{optedOut ? 'Opted out of further emails' : 'Receiving emails for this event'}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleEventOptout(ev.id)}
+                              disabled={saving}
+                              className={
+                                optedOut
+                                  ? 'px-3 py-1.5 text-xs font-semibold text-white bg-steps-blue-600 rounded-lg hover:bg-steps-blue-700 transition disabled:opacity-60 flex-shrink-0'
+                                  : 'px-3 py-1.5 text-xs font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition disabled:opacity-50 flex-shrink-0'
+                              }
+                            >
+                              {saving ? 'Saving…' : optedOut ? 'Re-subscribe' : 'Unsubscribe'}
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                )
+              })()}
             </div>
           </section>
         )}

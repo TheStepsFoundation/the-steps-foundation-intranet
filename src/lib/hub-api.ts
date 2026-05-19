@@ -269,6 +269,54 @@ export async function setMailingSubscription(
 }
 
 // ---------------------------------------------------------------------------
+// Per-event email opt-outs (student-initiated from /my preferences)
+// ---------------------------------------------------------------------------
+
+/** IDs of every event the calling student has opted out of. */
+export async function fetchMyEventOptouts(): Promise<Set<string>> {
+  const email = await currentUserEmail()
+  if (!email) return new Set()
+  const { data: student } = await supabase
+    .from('students')
+    .select('id')
+    .eq('personal_email', email)
+    .maybeSingle()
+  if (!student) return new Set()
+  const { data, error } = await supabase
+    .from('event_email_optouts')
+    .select('event_id')
+    .eq('student_id', student.id)
+  if (error) {
+    console.warn('[hub] fetchMyEventOptouts:', error.message)
+    return new Set()
+  }
+  return new Set((data ?? []).map(r => r.event_id as string))
+}
+
+/**
+ * Subscribe / unsubscribe the calling student from a specific event's emails.
+ * Inserts an event_email_optouts row when `optedOut` is true (source='hub')
+ * and deletes the row when false. Idempotent: re-calling with the same
+ * value is a no-op.
+ */
+export async function setEventOptout(studentId: string, eventId: string, optedOut: boolean): Promise<{ error: string | null }> {
+  if (optedOut) {
+    const { error } = await supabase
+      .from('event_email_optouts')
+      .upsert({ student_id: studentId, event_id: eventId, source: 'hub' }, { onConflict: 'student_id,event_id' })
+    if (error) return { error: error.message }
+    return { error: null }
+  }
+  const { error } = await supabase
+    .from('event_email_optouts')
+    .delete()
+    .eq('student_id', studentId)
+    .eq('event_id', eventId)
+  if (error) return { error: error.message }
+  return { error: null }
+}
+
+// ---------------------------------------------------------------------------
 // Fetch event overview (event + my application if any, with raw response)
 // ---------------------------------------------------------------------------
 
