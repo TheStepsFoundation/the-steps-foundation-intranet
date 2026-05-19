@@ -600,10 +600,36 @@ function CopyField({ label, hint, tags, value, onChange, defaultValue }: {
   )
 }
 
+
+// Tags whose picker / inserted-chip label admins can override. Order is the
+// order they show in the Settings UI. Keep in sync with the mergeTags arrays
+// in /students/events/[id]/page.tsx and /components/InviteStudentsModal.tsx.
+const MERGE_TAG_LABEL_DEFAULTS: { tag: string; defaultLabel: string; group: 'Student' | 'Event' | 'Links' | 'Server' }[] = [
+  { tag: 'first_name',          defaultLabel: 'First Name',         group: 'Student' },
+  { tag: 'last_name',           defaultLabel: 'Last Name',          group: 'Student' },
+  { tag: 'full_name',           defaultLabel: 'Full Name',          group: 'Student' },
+  { tag: 'last_attended_event', defaultLabel: 'Last Event',         group: 'Student' },
+  { tag: 'event_name',          defaultLabel: 'Event Name',         group: 'Event' },
+  { tag: 'event_date',          defaultLabel: 'Event Date',         group: 'Event' },
+  { tag: 'event_time',          defaultLabel: 'Event Time',         group: 'Event' },
+  { tag: 'event_location',      defaultLabel: 'Location',           group: 'Event' },
+  { tag: 'event_format',        defaultLabel: 'Format',             group: 'Event' },
+  { tag: 'event_dress_code',    defaultLabel: 'Dress Code',         group: 'Event' },
+  { tag: 'dress_code',          defaultLabel: 'Dress Code (alias)', group: 'Event' },
+  { tag: 'open_to',             defaultLabel: 'Open To',            group: 'Event' },
+  { tag: 'application_deadline', defaultLabel: 'Application Deadline', group: 'Event' },
+  { tag: 'apply_link',          defaultLabel: 'Apply Link',         group: 'Links' },
+  { tag: 'portal_link',         defaultLabel: 'Portal Link',        group: 'Links' },
+  { tag: 'rsvp_link',           defaultLabel: 'RSVP Link',          group: 'Links' },
+  { tag: 'withdraw_link',       defaultLabel: 'Withdraw link',      group: 'Server' },
+  { tag: 'event_optout_link',   defaultLabel: 'Opt-out link (this event only)', group: 'Server' },
+]
+
 function FormatsTab() {
   const [dateFmt, setDateFmt] = useState<DateFormatKey>(DEFAULT_DATE_FORMAT)
   const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
   const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
+  const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -617,16 +643,25 @@ function FormatsTab() {
       if (typeof t === 'string') setTimeFmt(t as TimeFormatKey)
       const o = s[SETTINGS_KEYS.mergeOpenToFormat]
       if (typeof o === 'string') setOpenToFmt(o as OpenToFormatKey)
+      const ml = s[SETTINGS_KEYS.mergeTagLabels]
+      if (ml && typeof ml === 'object' && !Array.isArray(ml)) setLabelOverrides(ml as Record<string, string>)
       setLoading(false)
     })
   }, [])
 
   const save = async () => {
     setSaving(true); setError(null); setSaved(null)
+    // Strip empty / whitespace-only overrides so the picker falls back to
+    // the hardcoded default rather than rendering a blank chip.
+    const cleanedOverrides: Record<string, string> = {}
+    for (const [k, v] of Object.entries(labelOverrides)) {
+      if (typeof v === 'string' && v.trim().length > 0) cleanedOverrides[k] = v.trim()
+    }
     const writes = await Promise.all([
       setSetting(SETTINGS_KEYS.mergeDateFormat, dateFmt),
       setSetting(SETTINGS_KEYS.mergeTimeFormat, timeFmt),
       setSetting(SETTINGS_KEYS.mergeOpenToFormat, openToFmt),
+      setSetting(SETTINGS_KEYS.mergeTagLabels, cleanedOverrides),
     ])
     const firstErr = writes.find(w => w.error)
     if (firstErr) setError(firstErr.error)
@@ -659,6 +694,39 @@ function FormatsTab() {
         value={openToFmt}
         onChange={(v) => setOpenToFmt(v as OpenToFormatKey)}
       />
+
+      <div className="mb-6">
+        <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">Pill labels</label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">How each merge tag appears in the picker chip and the inserted chip in the email body. Leave blank to use the default. The actual {`{{tag}}`} token in the body is unchanged — only the visible label moves.</p>
+        {(['Student', 'Event', 'Links', 'Server'] as const).map(group => (
+          <div key={group} className="mb-4">
+            <p className="text-[11px] uppercase tracking-[0.15em] font-semibold text-gray-400 mb-2">{group}</p>
+            <div className="space-y-1.5">
+              {MERGE_TAG_LABEL_DEFAULTS.filter(t => t.group === group).map(t => (
+                <div key={t.tag} className="flex items-center gap-2">
+                  <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 truncate">{`{{${t.tag}}}`}</code>
+                  <input
+                    type="text"
+                    value={labelOverrides[t.tag] ?? ''}
+                    onChange={e => setLabelOverrides(prev => ({ ...prev, [t.tag]: e.target.value }))}
+                    placeholder={t.defaultLabel}
+                    className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+                  />
+                  {labelOverrides[t.tag] && (
+                    <button
+                      type="button"
+                      onClick={() => setLabelOverrides(prev => { const n = { ...prev }; delete n[t.tag]; return n })}
+                      className="text-[11px] text-gray-500 hover:text-gray-900 underline shrink-0"
+                      title="Reset to default"
+                    >reset</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
       <SaveBar saving={saving} onSave={save} saved={saved} error={error} />
     </Card>
   )

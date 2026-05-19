@@ -36,6 +36,7 @@ export const SETTINGS_KEYS = {
   mergeDateFormat: 'merge.date_format',
   mergeTimeFormat: 'merge.time_format',
   mergeOpenToFormat: 'merge.opento_format',
+  mergeTagLabels: 'merge.tag_labels',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -84,6 +85,7 @@ export const SETTINGS_DEFAULTS = {
   mergeDateFormat: 'weekday_long' as const,
   mergeTimeFormat: 'h24' as const,
   mergeOpenToFormat: 'short' as const,
+  mergeTagLabels: {} as Record<string, string>,
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------

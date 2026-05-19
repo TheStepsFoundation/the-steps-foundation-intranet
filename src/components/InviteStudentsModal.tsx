@@ -21,7 +21,7 @@ import {
   EMAIL_SIGNATURE_HTML,
 } from './EmailComposePanels'
 import { fetchAllSettings, SETTINGS_KEYS } from '@/lib/settings-api'
-import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT } from '@/lib/merge-tag-format'
+import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, resolveMergeTagLabel } from '@/lib/merge-tag-format'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -205,6 +205,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const [dateFmt, setDateFmt] = useState<DateFormatKey>(DEFAULT_DATE_FORMAT)
   const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
   const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
+  const [mergeTagLabels, setMergeTagLabels] = useState<Record<string, string>>({})
   useEffect(() => {
     fetchAllSettings().then(set => {
       const v = set[SETTINGS_KEYS.signatureHtml]
@@ -215,6 +216,10 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       if (typeof tf === 'string') setTimeFmt(tf as TimeFormatKey)
       const of = set[SETTINGS_KEYS.mergeOpenToFormat]
       if (typeof of === 'string') setOpenToFmt(of as OpenToFormatKey)
+      const ml = set[SETTINGS_KEYS.mergeTagLabels]
+      if (ml && typeof ml === 'object' && !Array.isArray(ml)) {
+        setMergeTagLabels(ml as Record<string, string>)
+      }
     })
   }, [])
 
@@ -1329,19 +1334,20 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
 
           {/* ======= STEP: COMPOSE ======= */}
           {step === 'compose' && (() => {
+            const lbl = (tag: string, fallback: string) => resolveMergeTagLabel(tag, fallback, mergeTagLabels)
             const mergeTags: MergeTag[] = [
-              { tag: 'first_name', label: 'First Name' },
-              { tag: 'event_name', label: 'Event Name' },
-              { tag: 'apply_link', label: 'Apply Link' },
-              { tag: 'last_attended_event', label: 'Last Event' },
-              ...(eventData?.event_date ? [{ tag: 'event_date', label: 'Event Date' }] : []),
-              ...(eventData?.time_start ? [{ tag: 'event_time', label: 'Event Time' }] : []),
-              ...(eventData?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
-              ...(eventData?.format ? [{ tag: 'event_format', label: 'Format' }] : []),
-              ...(eventData?.dress_code ? [{ tag: 'event_dress_code', label: 'Dress Code' }] : []),
-              { tag: 'open_to', label: 'Open To' },
-              ...(eventData?.applications_close_at ? [{ tag: 'application_deadline', label: 'Application Deadline' }] : []),
-              { tag: 'event_optout_link', label: 'Opt-out link (this event only)' },
+              { tag: 'first_name', label: lbl('first_name', 'First Name') },
+              { tag: 'event_name', label: lbl('event_name', 'Event Name') },
+              { tag: 'apply_link', label: lbl('apply_link', 'Apply Link') },
+              { tag: 'last_attended_event', label: lbl('last_attended_event', 'Last Event') },
+              ...(eventData?.event_date ? [{ tag: 'event_date', label: lbl('event_date', 'Event Date') }] : []),
+              ...(eventData?.time_start ? [{ tag: 'event_time', label: lbl('event_time', 'Event Time') }] : []),
+              ...(eventData?.location ? [{ tag: 'event_location', label: lbl('event_location', 'Location') }] : []),
+              ...(eventData?.format ? [{ tag: 'event_format', label: lbl('event_format', 'Format') }] : []),
+              ...(eventData?.dress_code ? [{ tag: 'event_dress_code', label: lbl('event_dress_code', 'Dress Code') }] : []),
+              { tag: 'open_to', label: lbl('open_to', 'Open To') },
+              ...(eventData?.applications_close_at ? [{ tag: 'application_deadline', label: lbl('application_deadline', 'Application Deadline') }] : []),
+              { tag: 'event_optout_link', label: lbl('event_optout_link', 'Opt-out link (this event only)') },
               ...getAvailableDynamicTags(recipients),
             ]
             const subjectTags = mergeTags.filter(t =>

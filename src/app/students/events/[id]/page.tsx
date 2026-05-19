@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
-import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT } from '@/lib/merge-tag-format'
+import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, resolveMergeTagLabel } from '@/lib/merge-tag-format'
 import FeedbackConfigEditor from "@/components/FeedbackConfigEditor"
 import type { FormFieldConfig, FormPage, StandardOverrides, EventFeedbackConfig } from "@/lib/events-api"
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
@@ -935,6 +935,7 @@ export default function EventDetailPage() {
   const [dateFmt, setDateFmt] = useState<DateFormatKey>(DEFAULT_DATE_FORMAT)
   const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
   const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
+  const [mergeTagLabels, setMergeTagLabels] = useState<Record<string, string>>({})
   const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
   useEffect(() => {
     fetchAllSettings().then(set => {
@@ -960,6 +961,10 @@ export default function EventDetailPage() {
       if (typeof tf === 'string') setTimeFmt(tf as TimeFormatKey)
       const of = set[SETTINGS_KEYS.mergeOpenToFormat]
       if (typeof of === 'string') setOpenToFmt(of as OpenToFormatKey)
+      const ml = set[SETTINGS_KEYS.mergeTagLabels]
+      if (ml && typeof ml === 'object' && !Array.isArray(ml)) {
+        setMergeTagLabels(ml as Record<string, string>)
+      }
     })
   }, [])
   void publishErrors
@@ -4237,24 +4242,25 @@ export default function EventDetailPage() {
             {/* Modal body */}
             <div className="p-5 overflow-y-auto flex-1 space-y-4">
               {emailStep === 'pick' && (() => {
+                const lbl = (tag: string, fallback: string) => resolveMergeTagLabel(tag, fallback, mergeTagLabels)
                 const bodyMergeTags: MergeTag[] = [
-                  { tag: 'first_name', label: 'First Name' },
-                  { tag: 'last_name', label: 'Last Name' },
-                  { tag: 'full_name', label: 'Full Name' },
-                  { tag: 'event_name', label: 'Event Name' },
-                  ...(event?.event_date ? [{ tag: 'event_date', label: 'Event Date' }] : []),
-                  ...(event?.time_start ? [{ tag: 'event_time', label: 'Event Time' }] : []),
-                  ...(event?.location ? [{ tag: 'event_location', label: 'Location' }] : []),
-                  ...(event?.dress_code ? [{ tag: 'dress_code', label: 'Dress Code' }] : []),
-                  { tag: 'open_to', label: 'Open To' },
-                  ...(event?.applications_close_at ? [{ tag: 'application_deadline', label: 'Application Deadline' }] : []),
-                  { tag: 'rsvp_link', label: 'RSVP Link' },
-                  { tag: 'portal_link', label: 'Portal Link' },
-                  { tag: 'withdraw_link', label: 'Withdraw link' },
+                  { tag: 'first_name', label: lbl('first_name', 'First Name') },
+                  { tag: 'last_name', label: lbl('last_name', 'Last Name') },
+                  { tag: 'full_name', label: lbl('full_name', 'Full Name') },
+                  { tag: 'event_name', label: lbl('event_name', 'Event Name') },
+                  ...(event?.event_date ? [{ tag: 'event_date', label: lbl('event_date', 'Event Date') }] : []),
+                  ...(event?.time_start ? [{ tag: 'event_time', label: lbl('event_time', 'Event Time') }] : []),
+                  ...(event?.location ? [{ tag: 'event_location', label: lbl('event_location', 'Location') }] : []),
+                  ...(event?.dress_code ? [{ tag: 'dress_code', label: lbl('dress_code', 'Dress Code') }] : []),
+                  { tag: 'open_to', label: lbl('open_to', 'Open To') },
+                  ...(event?.applications_close_at ? [{ tag: 'application_deadline', label: lbl('application_deadline', 'Application Deadline') }] : []),
+                  { tag: 'rsvp_link', label: lbl('rsvp_link', 'RSVP Link') },
+                  { tag: 'portal_link', label: lbl('portal_link', 'Portal Link') },
+                  { tag: 'withdraw_link', label: lbl('withdraw_link', 'Withdraw link') },
                 ]
                 const subjectMergeTags: MergeTag[] = [
-                  { tag: 'first_name', label: 'First Name' },
-                  { tag: 'event_name', label: 'Event Name' },
+                  { tag: 'first_name', label: lbl('first_name', 'First Name') },
+                  { tag: 'event_name', label: lbl('event_name', 'Event Name') },
                 ]
                 return (
                   <EmailComposePanel

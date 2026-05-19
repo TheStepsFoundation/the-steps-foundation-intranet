@@ -143,3 +143,17 @@ export function formatMergeOpenTo(yearGroups: number[] | null | undefined, openT
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
   return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
 }
+
+
+/**
+ * Resolve a merge-tag label against admin overrides. Returns the override if
+ * one is set in app_settings.mergeTagLabels (and not empty); otherwise the
+ * caller's default. Used by both composer picker chips and the inserted
+ * contenteditable chips so the two stay in sync.
+ */
+export function resolveMergeTagLabel(tag: string, fallback: string, overrides: Record<string, string> | null | undefined): string {
+  if (!overrides) return fallback
+  const v = overrides[tag]
+  if (typeof v === 'string' && v.trim().length > 0) return v
+  return fallback
+}
