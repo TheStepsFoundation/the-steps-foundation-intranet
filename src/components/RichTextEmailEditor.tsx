@@ -103,17 +103,24 @@ export const DEFAULT_MERGE_TAGS: MergeTag[] = [
 // Chip serialisation helpers
 // ---------------------------------------------------------------------------
 
-export function makeChipHtml(tag: string, label?: string): string {
+export function makeChipHtml(tag: string, label?: string, bold?: boolean): string {
   const safeTag = tag.replace(/[^a-zA-Z0-9_]/g, '')
   const text = (label ?? MERGE_TAG_LABEL_OVERRIDES[safeTag] ?? MERGE_TAG_LABELS[safeTag] ?? safeTag)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-  return `<span class="merge-tag-chip" contenteditable="false" data-tag="${safeTag}" style="display:inline-block;padding:1px 8px;margin:0 2px;border-radius:9999px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:500;line-height:18px;vertical-align:baseline;user-select:all;white-space:nowrap;">${text}</span>`
+  const weight = bold ? 700 : 500
+  const boldAttr = bold ? ' data-bold="true"' : ''
+  return `<span class="merge-tag-chip" contenteditable="false" data-tag="${safeTag}"${boldAttr} style="display:inline-block;padding:1px 8px;margin:0 2px;border-radius:9999px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:${weight};line-height:18px;vertical-align:baseline;user-select:all;white-space:nowrap;">${text}</span>`
 }
 
 export function tokensToChips(html: string): string {
-  return html.replace(/\{\{(\w+)\}\}/g, (_m, tag) => makeChipHtml(tag))
+  // Bold-wrapped tokens come first so the surrounding <strong>/<b> gets
+  // consumed and we emit a chip with data-bold='true' (which survives
+  // chipsToTokens on the next round-trip).
+  return html
+    .replace(/<(strong|b)\b[^>]*>\s*\{\{(\w+)\}\}\s*<\/\1>/g, (_m, _tag, tag) => makeChipHtml(tag, undefined, true))
+    .replace(/\{\{(\w+)\}\}/g, (_m, tag) => makeChipHtml(tag))
 }
 
 export function chipsToTokens(html: string): string {
@@ -122,7 +129,14 @@ export function chipsToTokens(html: string): string {
   tpl.innerHTML = html
   tpl.content.querySelectorAll('span.merge-tag-chip').forEach(span => {
     const tag = span.getAttribute('data-tag') || ''
-    span.replaceWith(document.createTextNode(`{{${tag}}}`))
+    const bold = span.getAttribute('data-bold') === 'true'
+    if (bold) {
+      const strong = document.createElement('strong')
+      strong.appendChild(document.createTextNode(`{{${tag}}}`))
+      span.replaceWith(strong)
+    } else {
+      span.replaceWith(document.createTextNode(`{{${tag}}}`))
+    }
   })
   return tpl.innerHTML
 }
@@ -445,6 +459,43 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
     emitChange()
   }
 
+  // Toggle bold on chips inside the current selection BEFORE falling
+  // through to execCommand('bold') for surrounding text. execCommand
+  // can't wrap contenteditable=false elements (the chips), so the CSS
+  // approach alone never worked — this is the workaround that does.
+  const handleBold = () => {
+    saveSelection()
+    const sel = window.getSelection()
+    const chips: HTMLElement[] = []
+    if (sel && sel.rangeCount > 0 && divRef.current) {
+      const range = sel.getRangeAt(0)
+      const allChips = Array.from(divRef.current.querySelectorAll<HTMLElement>('span.merge-tag-chip'))
+      for (const chip of allChips) {
+        // intersectsNode is widely supported; fall back to a bounding-rect
+        // check if not available.
+        const intersects = typeof range.intersectsNode === 'function'
+          ? range.intersectsNode(chip)
+          : range.comparePoint(chip, 0) === 0
+        if (intersects) chips.push(chip)
+      }
+    }
+    if (chips.length > 0) {
+      const allBold = chips.every(c => c.getAttribute('data-bold') === 'true')
+      for (const chip of chips) {
+        if (allBold) {
+          chip.removeAttribute('data-bold')
+          chip.style.fontWeight = '500'
+        } else {
+          chip.setAttribute('data-bold', 'true')
+          chip.style.fontWeight = '700'
+        }
+      }
+      emitChange()
+    }
+    // Still call execCommand so non-chip selected text bolds too.
+    exec('bold')
+  }
+
   // Insert arbitrary HTML at the caret — used for chips and inline images.
   const insertHtmlAtCaret = (html: string) => {
     restoreSelection()
@@ -564,7 +615,7 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
     <div className="rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex-wrap">
-        <ToolbarBtn title="Bold (Ctrl+B)" onClick={() => exec('bold')}>
+        <ToolbarBtn title="Bold (Ctrl+B)" onClick={() => handleBold()}>
           <span className="font-bold">B</span>
         </ToolbarBtn>
         <ToolbarBtn title="Italic (Ctrl+I)" onClick={() => exec('italic')}>
