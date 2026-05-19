@@ -164,10 +164,17 @@ type SortDir = 'asc' | 'desc'
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'engagement' | 'past_events' | 'rsvp' | 'attended'
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
 // `internal_review` sits right after `status` so admins read "where are we
 // actually planning to land" next to "what the student can see".
 const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
+// Every built-in column the picker should expose. The ones not in
+// DEFAULT_BUILTIN_COLS are off by default; admins opt-in via ColumnPicker.
+const ALL_BUILTIN_COLS: BuiltInColId[] = [
+  'name', 'school_type', 'status', 'internal_review', 'grades', 'engagement',
+  'past_events', 'rsvp', 'attended', 'submitted_at', 'school', 'email',
+  'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at',
+]
 const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   name: 'Name',
   school_type: 'School Type',
@@ -178,6 +185,14 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   past_events: 'Past Events',
   rsvp: 'RSVP',
   attended: 'Attended',
+  submitted_at: 'Time applied',
+  school: 'School',
+  email: 'Email',
+  year_group: 'Year group',
+  parental_income: 'Household income',
+  fsm: 'FSM',
+  attribution: 'Source',
+  reviewed_at: 'Last reviewed',
 }
 
 type StatusFilter = 'all' | string
@@ -776,7 +791,7 @@ export default function EventDetailPage() {
   const [showFilters, setShowFilters] = useState(false)
 
   // Column visibility & ordering
-  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set())
+  const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(['submitted_at', 'school', 'email', 'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at']))
   const [colOrder, setColOrder] = useState<string[]>([])  // empty = default order
 
   // View state persistence — filters & sort live in localStorage (per-admin),
@@ -2505,7 +2520,7 @@ export default function EventDetailPage() {
   // Compute the effective ordered list of all visible columns (built-in + standard + custom)
   const allColumns = useMemo(() => {
     const builtIn: { id: string; label: string; kind: 'builtin' }[] =
-      DEFAULT_BUILTIN_COLS.map(id => ({ id, label: BUILTIN_COL_LABELS[id], kind: 'builtin' as const }))
+      ALL_BUILTIN_COLS.map(id => ({ id, label: BUILTIN_COL_LABELS[id], kind: 'builtin' as const }))
     const standard: { id: string; label: string; kind: 'standard' }[] =
       standardCols.map(c => ({ id: c.id, label: c.label, kind: 'standard' as const }))
     const custom: { id: string; label: string; kind: 'custom' }[] =
@@ -2536,6 +2551,8 @@ export default function EventDetailPage() {
     past_events: 'past_events',
     rsvp: 'rsvp',
     attended: 'attended',
+    submitted_at: 'submitted_at',
+    year_group: 'year_group',
   }
   // First-click direction for each sortable key. Numeric signals default to
   // "highest first" (desc) since that's what admins almost always want when
@@ -2780,28 +2797,29 @@ export default function EventDetailPage() {
 
             {/* Section: Basics (Name, slug, status, date, times, location, capacity) */}
             <Section id="basics" title="Basics" subtitle="Name, status, date, times, location, capacity, application window, description" defaultOpen>
-            {/* Row 1: Name + Slug + Status + Lead organiser */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div>
+            {/* Row 1: Name + Slug + Display initials + Status + Lead organiser
+                (12-col grid with custom spans so the long fields breathe). */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+              <div className="lg:col-span-3">
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Event name *</label>
                 <input value={editDraft.name ?? ''} onChange={e => setEditDraft(d => ({ ...d, name: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
-              <div>
+              <div className="lg:col-span-3">
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Slug *</label>
                 <input value={editDraft.slug ?? ''} onChange={e => setEditDraft(d => ({ ...d, slug: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Display initials <span className="text-gray-400 font-normal">(optional)</span></label>
+              <div className="lg:col-span-2">
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Initials <span className="text-gray-400 font-normal">(opt.)</span></label>
                 <input
                   value={editDraft.display_initials ?? ''}
                   onChange={e => setEditDraft(d => ({ ...d, display_initials: e.target.value || null }))}
                   placeholder="e.g. SIMG"
                   maxLength={5}
+                  title="Short tag used in column headers + compact UIs. Falls back to auto-derived from name if blank."
                   className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono uppercase tracking-wider"
                 />
-                <p className="mt-1 text-[11px] text-gray-500">Short tag used in column headers + compact UIs. Falls back to auto-derived from name if blank — disambiguates events like 'Step Inside: Man Group' vs 'Step Inside: Microsoft' (both auto to SIM).</p>
               </div>
-              <div>
+              <div className="lg:col-span-2">
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Status</label>
                 <select value={editDraft.status ?? event.status} onChange={e => {
                   const next = e.target.value as EventRow['status']
@@ -2828,7 +2846,7 @@ export default function EventDetailPage() {
                   <option value="completed">Completed</option>
                 </select>
               </div>
-              <div>
+              <div className="lg:col-span-2">
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Lead organiser</label>
                 <select
                   value={editDraft.lead_team_member_id ?? event.lead_team_member_id ?? ''}
@@ -2934,7 +2952,7 @@ export default function EventDetailPage() {
               </div>
             </div>
 
-            <label className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none">
+            <label className="flex items-start gap-3 text-xs text-gray-600 dark:text-gray-400 cursor-pointer select-none my-2 p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-900/30">
               <input
                 type="checkbox"
                 checked={!!editDraft.is_private}
@@ -3894,7 +3912,56 @@ export default function EventDetailPage() {
                             </td>
                           )
                         }
-                        // Built-in: attended
+                        // Built-in: time applied
+                        if (col.id === 'submitted_at') return (
+                          <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                            {app.submitted_at ? new Date(app.submitted_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                          </td>
+                        )
+                        // Built-in: school (full name)
+                        if (col.id === 'school') return (
+                          <td key={col.id} className="p-3 text-gray-700 dark:text-gray-300 whitespace-nowrap max-w-[220px] truncate" title={app.school_name ?? undefined}>
+                            {app.school_name ?? '—'}
+                          </td>
+                        )
+                        // Built-in: email
+                        if (col.id === 'email') return (
+                          <td key={col.id} className="p-3 text-gray-700 dark:text-gray-300 whitespace-nowrap font-mono text-xs">
+                            {app.personal_email ?? '—'}
+                          </td>
+                        )
+                        // Built-in: year group
+                        if (col.id === 'year_group') return (
+                          <td key={col.id} className="p-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                            {app.year_group != null ? (app.year_group === 14 ? 'Gap' : `Y${app.year_group}`) : '—'}
+                          </td>
+                        )
+                        // Built-in: parental income band
+                        if (col.id === 'parental_income') return (
+                          <td key={col.id} className="p-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                            {app.parental_income_band ? (app.parental_income_band === 'under_25k' ? 'Under £25k' : app.parental_income_band === 'under_40k' ? 'Under £40k' : app.parental_income_band === 'under_60k' ? 'Under £60k' : app.parental_income_band === 'over_60k' ? 'Over £60k' : app.parental_income_band) : '—'}
+                          </td>
+                        )
+                        // Built-in: FSM
+                        if (col.id === 'fsm') return (
+                          <td key={col.id} className="p-3 text-center text-gray-700 dark:text-gray-300">
+                            {app.free_school_meals === true ? 'Yes' : app.free_school_meals === false ? 'No' : '—'}
+                          </td>
+                        )
+                        // Built-in: attribution source
+                        if (col.id === 'attribution') return (
+                          <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs capitalize">
+                            {(app.attributionSource ?? app.attributionChannel ?? '—').replace(/_/g, ' ')}
+                          </td>
+                        )
+                        // Built-in: last reviewed
+                        if (col.id === 'reviewed_at') return (
+                          <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 whitespace-nowrap text-xs">
+                            {app.reviewed_at ? new Date(app.reviewed_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                            {app.reviewer_name && <span className="block text-[10px] text-gray-400">{app.reviewer_name}</span>}
+                          </td>
+                        )
+                                                // Built-in: attended
                         if (col.id === 'attended') return (
                           <td key={col.id} className="p-3 text-center">
                             <button

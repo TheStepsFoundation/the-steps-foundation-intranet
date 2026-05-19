@@ -402,11 +402,12 @@ export function validateForPublish(e: Partial<EventRow>, opts?: { minCustomField
     ...((fc.pages ?? []).flatMap(p => Array.isArray(p?.fields) ? p.fields : [])),
   ]
   const customFields = allFields.filter(f => f && typeof f.id === 'string' && !STD_FIELD_IDS.has(f.id))
-  if (customFields.length < 3) {
-    const remaining = 3 - customFields.length
+  const minCustomFields = opts?.minCustomFields ?? 3
+  if (customFields.length < minCustomFields) {
+    const remaining = minCustomFields - customFields.length
     errs.push({
       field: 'form_config',
-      label: 'At least three custom questions',
+      label: `At least ${minCustomFields} custom question${minCustomFields === 1 ? '' : 's'}`,
       reason: `Add ${remaining} more application question${remaining === 1 ? '' : 's'} beyond the standard identity fields.`,
     })
   }
