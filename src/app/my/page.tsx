@@ -1032,8 +1032,16 @@ function StudentHubInner() {
                 // Union with any events they've already opted out of
                 // (even if those events are no longer 'live') so the
                 // re-subscribe path stays reachable.
+                // Filter live events to those the student is eligible for
+                // (year-group rules). Already-opted-out events bypass the
+                // eligibility filter so the re-subscribe button stays
+                // reachable even if eligibility has since changed.
                 const byId = new Map<string, { id: string; name: string }>()
-                for (const ev of liveEvents) byId.set(ev.id, { id: ev.id, name: ev.name })
+                for (const ev of liveEvents) {
+                  if (isEligibleForYearGroup(ev) || eventOptouts.has(ev.id)) {
+                    byId.set(ev.id, { id: ev.id, name: ev.name })
+                  }
+                }
                 for (const id of eventOptouts) {
                   if (byId.has(id)) continue
                   const fromApp = applications.find(a => a.event?.id === id)?.event
