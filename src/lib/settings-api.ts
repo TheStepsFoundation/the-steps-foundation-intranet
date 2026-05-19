@@ -37,6 +37,8 @@ export const SETTINGS_KEYS = {
   mergeTimeFormat: 'merge.time_format',
   mergeOpenToFormat: 'merge.opento_format',
   mergeTagLabels: 'merge.tag_labels',
+  withdrawLinkAnchor: 'merge.withdraw_link_anchor',
+  eventOptoutLinkAnchor: 'merge.event_optout_link_anchor',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -86,6 +88,8 @@ export const SETTINGS_DEFAULTS = {
   mergeTimeFormat: 'h24' as const,
   mergeOpenToFormat: 'short' as const,
   mergeTagLabels: {} as Record<string, string>,
+  withdrawLinkAnchor: 'Withdraw link',
+  eventOptoutLinkAnchor: 'Opt out of further emails about this event',
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------

@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
     const fromName = getString(settings, SETTINGS_KEYS.fromName, SETTINGS_DEFAULTS.fromName)
     const replyToEmail = getString(settings, SETTINGS_KEYS.replyToEmail, SETTINGS_DEFAULTS.replyToEmail)
     const optoutScope = getStringEnum(settings, SETTINGS_KEYS.eventOptoutScope, ['all', 'marketing_only'] as const, SETTINGS_DEFAULTS.eventOptoutScope)
+    const eventOptoutLinkAnchor = getString(settings, SETTINGS_KEYS.eventOptoutLinkAnchor, SETTINGS_DEFAULTS.eventOptoutLinkAnchor)
 
         const { to, subject, html, attachments, studentId, eventId, kind } = body as {
       to?: string
@@ -152,7 +153,7 @@ export async function POST(req: NextRequest) {
       if (!s) return s
       if (!optoutUrl) return s.replace(EVENT_OPTOUT_LINK_TAG_REGEX, '#')
       let out = s.replace(/href=("|&quot;|')\{\{event_optout_link\}\}\1/g, (_m, q) => `href=${q}${optoutUrl}${q}`)
-      out = out.replace(EVENT_OPTOUT_LINK_TAG_REGEX, `<a href="${optoutUrl}" style="${OPTOUT_STYLE}">Opt out of further emails about this event</a>`)
+      out = out.replace(EVENT_OPTOUT_LINK_TAG_REGEX, `<a href="${optoutUrl}" style="${OPTOUT_STYLE}">${eventOptoutLinkAnchor}</a>`)
       return out
     }
     const resolvedSubject = resolveOptout(subject!)

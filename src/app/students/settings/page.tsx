@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { EMAIL_AUTOMATION_TYPE_META, type EmailAutomationType, PUBLISH_REQUIRED_FIELD_OPTIONS } from '@/lib/events-api'
-import { DATE_FORMAT_OPTIONS, TIME_FORMAT_OPTIONS, OPENTO_FORMAT_OPTIONS, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT } from '@/lib/merge-tag-format'
+import { DATE_FORMAT_OPTIONS, TIME_FORMAT_OPTIONS, OPENTO_FORMAT_OPTIONS, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, formatMergeDate, formatMergeTime, formatMergeOpenTo } from '@/lib/merge-tag-format'
 import { SETTINGS_KEYS, SETTINGS_DEFAULTS, fetchAllSettings, setSetting } from '@/lib/settings-api'
 
 // ---------------------------------------------------------------------------
@@ -630,6 +630,8 @@ function FormatsTab() {
   const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
   const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
   const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({})
+  const [withdrawAnchor, setWithdrawAnchor] = useState<string>(SETTINGS_DEFAULTS.withdrawLinkAnchor)
+  const [optoutAnchor, setOptoutAnchor] = useState<string>(SETTINGS_DEFAULTS.eventOptoutLinkAnchor)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -645,6 +647,10 @@ function FormatsTab() {
       if (typeof o === 'string') setOpenToFmt(o as OpenToFormatKey)
       const ml = s[SETTINGS_KEYS.mergeTagLabels]
       if (ml && typeof ml === 'object' && !Array.isArray(ml)) setLabelOverrides(ml as Record<string, string>)
+      const wa = s[SETTINGS_KEYS.withdrawLinkAnchor]
+      if (typeof wa === 'string' && wa.length > 0) setWithdrawAnchor(wa)
+      const oa = s[SETTINGS_KEYS.eventOptoutLinkAnchor]
+      if (typeof oa === 'string' && oa.length > 0) setOptoutAnchor(oa)
       setLoading(false)
     })
   }, [])
@@ -662,6 +668,8 @@ function FormatsTab() {
       setSetting(SETTINGS_KEYS.mergeTimeFormat, timeFmt),
       setSetting(SETTINGS_KEYS.mergeOpenToFormat, openToFmt),
       setSetting(SETTINGS_KEYS.mergeTagLabels, cleanedOverrides),
+      setSetting(SETTINGS_KEYS.withdrawLinkAnchor, withdrawAnchor.trim() || SETTINGS_DEFAULTS.withdrawLinkAnchor),
+      setSetting(SETTINGS_KEYS.eventOptoutLinkAnchor, optoutAnchor.trim() || SETTINGS_DEFAULTS.eventOptoutLinkAnchor),
     ])
     const firstErr = writes.find(w => w.error)
     if (firstErr) setError(firstErr.error)
@@ -696,40 +704,116 @@ function FormatsTab() {
       />
 
       <div className="mb-6">
-        <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">Pill labels</label>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">How each merge tag appears in the picker chip and the inserted chip in the email body. Leave blank to use the default. The actual {`{{tag}}`} token in the body is unchanged — only the visible label moves.</p>
+        <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">Pill labels &amp; recipient text</label>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Per tag: the <strong>label</strong> column controls how the chip appears to you in the composer. The <strong>recipient sees</strong> column shows what students actually see in the email body when the tag is resolved. Leave label blank to use the default. The {`{{tag}}`} token in the body is unchanged.</p>
         {(['Student', 'Event', 'Links', 'Server'] as const).map(group => (
           <div key={group} className="mb-4">
             <p className="text-[11px] uppercase tracking-[0.15em] font-semibold text-gray-400 mb-2">{group}</p>
             <div className="space-y-1.5">
-              {MERGE_TAG_LABEL_DEFAULTS.filter(t => t.group === group).map(t => (
-                <div key={t.tag} className="flex items-center gap-2">
-                  <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 truncate">{`{{${t.tag}}}`}</code>
-                  <input
-                    type="text"
-                    value={labelOverrides[t.tag] ?? ''}
-                    onChange={e => setLabelOverrides(prev => ({ ...prev, [t.tag]: e.target.value }))}
-                    placeholder={t.defaultLabel}
-                    className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
-                  />
-                  {labelOverrides[t.tag] && (
-                    <button
-                      type="button"
-                      onClick={() => setLabelOverrides(prev => { const n = { ...prev }; delete n[t.tag]; return n })}
-                      className="text-[11px] text-gray-500 hover:text-gray-900 underline shrink-0"
-                      title="Reset to default"
-                    >reset</button>
-                  )}
-                </div>
-              ))}
+              {MERGE_TAG_LABEL_DEFAULTS.filter(t => t.group === group).map(t => {
+                const samplePreview = recipientPreview(t.tag, { dateFmt, timeFmt, openToFmt, withdrawAnchor, optoutAnchor })
+                const isServer = t.tag === 'withdraw_link' || t.tag === 'event_optout_link'
+                return (
+                  <div key={t.tag} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 truncate shrink-0">{`{{${t.tag}}}`}</code>
+                    <input
+                      type="text"
+                      value={labelOverrides[t.tag] ?? ''}
+                      onChange={e => setLabelOverrides(prev => ({ ...prev, [t.tag]: e.target.value }))}
+                      placeholder={t.defaultLabel}
+                      className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+                      title={`Label shown in the composer picker chip. Defaults to '${t.defaultLabel}'.`}
+                    />
+                    {labelOverrides[t.tag] && (
+                      <button
+                        type="button"
+                        onClick={() => setLabelOverrides(prev => { const n = { ...prev }; delete n[t.tag]; return n })}
+                        className="text-[11px] text-gray-500 hover:text-gray-900 underline shrink-0"
+                        title="Reset label to default"
+                      >reset</button>
+                    )}
+                    <div className="flex-1 text-xs min-w-0">
+                      <span className="text-slate-400 mr-1">→</span>
+                      <span className="inline-block max-w-full truncate align-middle" title={typeof samplePreview === 'string' ? samplePreview : undefined}>
+                        {isServer
+                          ? <span dangerouslySetInnerHTML={{ __html: samplePreview }} />
+                          : <span className="text-slate-700 dark:text-gray-300">{samplePreview}</span>}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           </div>
         ))}
+
+        <div className="mt-4 p-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50/40 dark:bg-gray-900/30">
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Server link anchor text</p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">The clickable text recipients see when a server-resolved link is rendered into the email body.</p>
+          <div className="space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 shrink-0">{`{{withdraw_link}}`}</code>
+              <input
+                type="text"
+                value={withdrawAnchor}
+                onChange={e => setWithdrawAnchor(e.target.value)}
+                placeholder={SETTINGS_DEFAULTS.withdrawLinkAnchor}
+                className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 shrink-0">{`{{event_optout_link}}`}</code>
+              <input
+                type="text"
+                value={optoutAnchor}
+                onChange={e => setOptoutAnchor(e.target.value)}
+                placeholder={SETTINGS_DEFAULTS.eventOptoutLinkAnchor}
+                className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       <SaveBar saving={saving} onSave={save} saved={saved} error={error} />
     </Card>
   )
+}
+
+// Resolve a sample recipient-side preview for each tag, using the current
+// format + anchor settings. Returns string for plain tags, HTML string for
+// server-resolved anchors (rendered via dangerouslySetInnerHTML by caller).
+function recipientPreview(tag: string, opts: { dateFmt: string; timeFmt: string; openToFmt: string; withdrawAnchor: string; optoutAnchor: string }): string {
+  const SAMPLE_NAME = 'Tenzin'
+  const SAMPLE_LAST = 'Pham'
+  const SAMPLE_EVENT = 'Step Inside: Man Group'
+  const SAMPLE_DATE_ISO = '2026-07-27'
+  const ANCHOR_STYLE = 'color:#1d4ed8;text-decoration:underline;font-weight:600'
+  switch (tag) {
+    case 'first_name': return SAMPLE_NAME
+    case 'last_name': return SAMPLE_LAST
+    case 'full_name': return `${SAMPLE_NAME} ${SAMPLE_LAST}`
+    case 'last_attended_event': return 'Step Inside: Microsoft'
+    case 'event_name': return SAMPLE_EVENT
+    case 'event_date': return formatMergeDate(SAMPLE_DATE_ISO, opts.dateFmt as DateFormatKey)
+    case 'event_time': return formatMergeTime('16:00', '17:30', opts.timeFmt as TimeFormatKey)
+    case 'event_location': return 'Central London'
+    case 'event_format': return 'in person'
+    case 'event_dress_code':
+    case 'dress_code': return 'Smart casual'
+    case 'open_to': return formatMergeOpenTo([12, 13], false, opts.openToFmt as OpenToFormatKey)
+    case 'application_deadline': return `${formatMergeDate(SAMPLE_DATE_ISO, opts.dateFmt as DateFormatKey)} at ${formatMergeTime('23:59', null, opts.timeFmt as TimeFormatKey)}`
+    case 'apply_link': return 'https://the-steps-foundation-intranet.vercel.app/apply/man-group-office-visit'
+    case 'portal_link':
+    case 'rsvp_link': return 'https://the-steps-foundation-intranet.vercel.app/my'
+    case 'withdraw_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.withdrawAnchor || 'Withdraw link')}</a>`
+    case 'event_optout_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.optoutAnchor || 'Opt out of further emails about this event')}</a>`
+    default: return ''
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
 }
 
 function FormatSelector({ label, hint, options, value, onChange }: {
