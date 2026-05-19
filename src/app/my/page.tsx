@@ -293,16 +293,21 @@ function StudentHubInner() {
     const loadAll = async (email: string) => {
       if (cancelled) return
       setAuthEmail(email)
-      const [prof, apps, events] = await Promise.all([
+      const [prof, apps, events, scheduled] = await Promise.all([
         fetchProfile(),
         fetchMyApplications(),
         fetchOpenEvents(),
+        fetchScheduledEvents(),
       ])
       if (cancelled) return
       if (prof) { setProfile(prof); populateForm(prof) }
       setApplications(apps)
       const appliedEventIds = new Set(apps.map(a => a.event_id))
       setOpenEvents(events.filter(e => !appliedEventIds.has(e.id)))
+      // Scheduled events shouldn't appear under 'Coming Soon' if the
+      // student has already applied (rare — apps_open_at in the future
+      // means the form isn't normally reachable — but defensive).
+      setScheduledEvents(scheduled.filter(e => !appliedEventIds.has(e.id)))
       setLoading(false)
 
       try {
