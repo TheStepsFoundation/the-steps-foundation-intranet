@@ -936,6 +936,9 @@ export default function EventDetailPage() {
   const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
   const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
   const [mergeTagLabels, setMergeTagLabels] = useState<Record<string, string>>({})
+  const [applyLinkAnchor, setApplyLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.applyLinkAnchor)
+  const [portalLinkAnchor, setPortalLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.portalLinkAnchor)
+  const [rsvpLinkAnchor, setRsvpLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.rsvpLinkAnchor)
   const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
   useEffect(() => {
     fetchAllSettings().then(set => {
@@ -965,6 +968,12 @@ export default function EventDetailPage() {
       if (ml && typeof ml === 'object' && !Array.isArray(ml)) {
         setMergeTagLabels(ml as Record<string, string>)
       }
+      const al = set[SETTINGS_KEYS.applyLinkAnchor]
+      if (typeof al === 'string' && al.length > 0) setApplyLinkAnchor(al)
+      const pl = set[SETTINGS_KEYS.portalLinkAnchor]
+      if (typeof pl === 'string' && pl.length > 0) setPortalLinkAnchor(pl)
+      const rl = set[SETTINGS_KEYS.rsvpLinkAnchor]
+      if (typeof rl === 'string' && rl.length > 0) setRsvpLinkAnchor(rl)
     })
   }, [])
   void publishErrors
@@ -2367,9 +2376,15 @@ export default function EventDetailPage() {
       .replace(/\{\{event_time\}\}/g, formatMergeTime(event?.time_start, event?.time_end, timeFmt))
       .replace(/\{\{dress_code\}\}/g, event?.dress_code ?? '')
       .replace(/\{\{event_dress_code\}\}/g, event?.dress_code ?? '')
-      .replace(/\{\{apply_link\}\}/g, applyLinkUrl)
-      .replace(/\{\{portal_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
-      .replace(/\{\{rsvp_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
+      // Link tags: prefer href-attribute swap when the admin has wrapped
+      // {{tag}} in their own anchor, else expand to a clickable styled
+      // anchor with admin-editable text.
+      .replace(/href=("|&quot;|')\{\{apply_link\}\}\1/g, (_m, q) => `href=${q}${applyLinkUrl}${q}`)
+      .replace(/\{\{apply_link\}\}/g, `<a href="${applyLinkUrl}" style="color:#1d4ed8;text-decoration:underline;font-weight:600">${applyLinkAnchor}</a>`)
+      .replace(/href=("|&quot;|')\{\{portal_link\}\}\1/g, (_m, q) => `href=${q}https://the-steps-foundation-intranet.vercel.app/my${q}`)
+      .replace(/\{\{portal_link\}\}/g, `<a href="https://the-steps-foundation-intranet.vercel.app/my" style="color:#1d4ed8;text-decoration:underline;font-weight:600">${portalLinkAnchor}</a>`)
+      .replace(/href=("|&quot;|')\{\{rsvp_link\}\}\1/g, (_m, q) => `href=${q}https://the-steps-foundation-intranet.vercel.app/my${q}`)
+      .replace(/\{\{rsvp_link\}\}/g, `<a href="https://the-steps-foundation-intranet.vercel.app/my" style="color:#1d4ed8;text-decoration:underline;font-weight:600">${rsvpLinkAnchor}</a>`)
       .replace(/\{\{application_deadline\}\}/g, (() => {
         if (!event?.applications_close_at) return 'TBC'
         const d = new Date(event.applications_close_at)
@@ -4251,7 +4266,7 @@ export default function EventDetailPage() {
                   ...(event?.event_date ? [{ tag: 'event_date', label: lbl('event_date', 'Event Date') }] : []),
                   ...(event?.time_start ? [{ tag: 'event_time', label: lbl('event_time', 'Event Time') }] : []),
                   ...(event?.location ? [{ tag: 'event_location', label: lbl('event_location', 'Location') }] : []),
-                  ...(event?.dress_code ? [{ tag: 'dress_code', label: lbl('dress_code', 'Dress Code') }] : []),
+                  ...(event?.dress_code ? [{ tag: 'event_dress_code', label: lbl('event_dress_code', 'Dress Code') }] : []),
                   { tag: 'open_to', label: lbl('open_to', 'Open To') },
                   ...(event?.applications_close_at ? [{ tag: 'application_deadline', label: lbl('application_deadline', 'Application Deadline') }] : []),
                   { tag: 'rsvp_link', label: lbl('rsvp_link', 'RSVP Link') },

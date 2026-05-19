@@ -39,6 +39,9 @@ export const SETTINGS_KEYS = {
   mergeTagLabels: 'merge.tag_labels',
   withdrawLinkAnchor: 'merge.withdraw_link_anchor',
   eventOptoutLinkAnchor: 'merge.event_optout_link_anchor',
+  applyLinkAnchor: 'merge.apply_link_anchor',
+  portalLinkAnchor: 'merge.portal_link_anchor',
+  rsvpLinkAnchor: 'merge.rsvp_link_anchor',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -90,6 +93,9 @@ export const SETTINGS_DEFAULTS = {
   mergeTagLabels: {} as Record<string, string>,
   withdrawLinkAnchor: 'Withdraw link',
   eventOptoutLinkAnchor: 'Opt out of further emails about this event',
+  applyLinkAnchor: 'Application Link',
+  portalLinkAnchor: 'Student Hub',
+  rsvpLinkAnchor: 'RSVP',
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------

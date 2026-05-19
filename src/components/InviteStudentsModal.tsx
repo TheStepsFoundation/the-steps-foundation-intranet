@@ -20,7 +20,7 @@ import {
   TemplateEditDialog,
   EMAIL_SIGNATURE_HTML,
 } from './EmailComposePanels'
-import { fetchAllSettings, SETTINGS_KEYS } from '@/lib/settings-api'
+import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
 import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT, resolveMergeTagLabel } from '@/lib/merge-tag-format'
 
 // ---------------------------------------------------------------------------
@@ -206,6 +206,9 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
   const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
   const [mergeTagLabels, setMergeTagLabels] = useState<Record<string, string>>({})
+  const [applyLinkAnchor, setApplyLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.applyLinkAnchor)
+  const [portalLinkAnchor, setPortalLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.portalLinkAnchor)
+  const [rsvpLinkAnchor, setRsvpLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.rsvpLinkAnchor)
   useEffect(() => {
     fetchAllSettings().then(set => {
       const v = set[SETTINGS_KEYS.signatureHtml]
@@ -220,6 +223,12 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       if (ml && typeof ml === 'object' && !Array.isArray(ml)) {
         setMergeTagLabels(ml as Record<string, string>)
       }
+      const al = set[SETTINGS_KEYS.applyLinkAnchor]
+      if (typeof al === 'string' && al.length > 0) setApplyLinkAnchor(al)
+      const pl = set[SETTINGS_KEYS.portalLinkAnchor]
+      if (typeof pl === 'string' && pl.length > 0) setPortalLinkAnchor(pl)
+      const rl = set[SETTINGS_KEYS.rsvpLinkAnchor]
+      if (typeof rl === 'string' && rl.length > 0) setRsvpLinkAnchor(rl)
     })
   }, [])
 
@@ -569,7 +578,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       .replace(/\{\{full_name\}\}/g, `${s.first_name ?? ''} ${s.last_name ?? ''}`)
       .replace(/\{\{email\}\}/g, String(s.personal_email ?? ''))
       .replace(/\{\{event_name\}\}/g, eventName)
-      .replace(/\{\{apply_link\}\}/g, applyLink)
+      .replace(/href=("|&quot;|')\{\{apply_link\}\}\1/g, (_m, q) => `href=${q}${applyLink}${q}`).replace(/\{\{apply_link\}\}/g, `<a href="${applyLink}" style="color:#1d4ed8;text-decoration:underline;font-weight:600">${applyLinkAnchor}</a>`)
       .replace(/\{\{event_date\}\}/g, formatMergeDate(eventData?.event_date, dateFmt, ''))
       .replace(/\{\{event_time\}\}/g, formatMergeTime(eventData?.time_start, eventData?.time_end, timeFmt, ''))
       .replace(/\{\{event_location\}\}/g, eventData?.location ?? '')

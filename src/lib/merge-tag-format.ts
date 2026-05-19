@@ -43,7 +43,7 @@ export const TIME_FORMAT_OPTIONS: { value: TimeFormatKey; label: string; sample:
 
 export const OPENTO_FORMAT_OPTIONS: { value: OpenToFormatKey; label: string; sample: string }[] = [
   { value: 'short', label: 'Short (Y12, Y13)',           sample: 'Y12, Y13' },
-  { value: 'long',  label: 'Long (Year 12, Year 13 and Gap Year Students)', sample: 'Year 12, Year 13 and Gap Year Students' },
+  { value: 'long',  label: 'Long (Year 12, Year 13 and Gap Year students)', sample: 'Year 12, Year 13 and Gap Year students' },
 ]
 
 export const DEFAULT_DATE_FORMAT: DateFormatKey = 'weekday_long'
@@ -135,13 +135,18 @@ export function formatMergeOpenTo(yearGroups: number[] | null | undefined, openT
   const allYears = ygs.length === 0 ? [] : [...ygs]
   if (openToGapYear && !allYears.includes(14)) allYears.push(14)
   if (allYears.length === 0) return 'any year'
-  const labelFor = (yg: number) => yg === 14 ? (key === 'long' ? 'Gap Year Students' : 'Gap year') : (key === 'long' ? `Year ${yg}` : `Y${yg}`)
+  const labelFor = (yg: number) => yg === 14 ? 'Gap Year' : (key === 'long' ? `Year ${yg}` : `Y${yg}`)
   const labels = allYears.map(labelFor)
-  if (labels.length === 1) return labels[0]
+  // Short: chip-style, no trailing suffix.
   if (key === 'short') return labels.join(', ')
-  // long
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
-  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`
+  // Long: list with 'students' as a single trailing suffix so the prose reads
+  // naturally regardless of which year groups are picked.
+  //   ['Year 12']                                 -> 'Year 12 students'
+  //   ['Year 12', 'Year 13']                       -> 'Year 12 and Year 13 students'
+  //   ['Year 12', 'Year 13', 'Gap Year']           -> 'Year 12, Year 13 and Gap Year students'
+  if (labels.length === 1) return `${labels[0]} students`
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]} students`
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]} students`
 }
 
 

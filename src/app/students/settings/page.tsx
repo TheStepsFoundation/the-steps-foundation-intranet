@@ -615,7 +615,6 @@ const MERGE_TAG_LABEL_DEFAULTS: { tag: string; defaultLabel: string; group: 'Stu
   { tag: 'event_location',      defaultLabel: 'Location',           group: 'Event' },
   { tag: 'event_format',        defaultLabel: 'Format',             group: 'Event' },
   { tag: 'event_dress_code',    defaultLabel: 'Dress Code',         group: 'Event' },
-  { tag: 'dress_code',          defaultLabel: 'Dress Code (alias)', group: 'Event' },
   { tag: 'open_to',             defaultLabel: 'Open To',            group: 'Event' },
   { tag: 'application_deadline', defaultLabel: 'Application Deadline', group: 'Event' },
   { tag: 'apply_link',          defaultLabel: 'Apply Link',         group: 'Links' },
@@ -632,6 +631,9 @@ function FormatsTab() {
   const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({})
   const [withdrawAnchor, setWithdrawAnchor] = useState<string>(SETTINGS_DEFAULTS.withdrawLinkAnchor)
   const [optoutAnchor, setOptoutAnchor] = useState<string>(SETTINGS_DEFAULTS.eventOptoutLinkAnchor)
+  const [applyAnchor, setApplyAnchor] = useState<string>(SETTINGS_DEFAULTS.applyLinkAnchor)
+  const [portalAnchor, setPortalAnchor] = useState<string>(SETTINGS_DEFAULTS.portalLinkAnchor)
+  const [rsvpAnchor, setRsvpAnchor] = useState<string>(SETTINGS_DEFAULTS.rsvpLinkAnchor)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -651,6 +653,12 @@ function FormatsTab() {
       if (typeof wa === 'string' && wa.length > 0) setWithdrawAnchor(wa)
       const oa = s[SETTINGS_KEYS.eventOptoutLinkAnchor]
       if (typeof oa === 'string' && oa.length > 0) setOptoutAnchor(oa)
+      const aa = s[SETTINGS_KEYS.applyLinkAnchor]
+      if (typeof aa === 'string' && aa.length > 0) setApplyAnchor(aa)
+      const pa = s[SETTINGS_KEYS.portalLinkAnchor]
+      if (typeof pa === 'string' && pa.length > 0) setPortalAnchor(pa)
+      const ra = s[SETTINGS_KEYS.rsvpLinkAnchor]
+      if (typeof ra === 'string' && ra.length > 0) setRsvpAnchor(ra)
       setLoading(false)
     })
   }, [])
@@ -670,6 +678,9 @@ function FormatsTab() {
       setSetting(SETTINGS_KEYS.mergeTagLabels, cleanedOverrides),
       setSetting(SETTINGS_KEYS.withdrawLinkAnchor, withdrawAnchor.trim() || SETTINGS_DEFAULTS.withdrawLinkAnchor),
       setSetting(SETTINGS_KEYS.eventOptoutLinkAnchor, optoutAnchor.trim() || SETTINGS_DEFAULTS.eventOptoutLinkAnchor),
+      setSetting(SETTINGS_KEYS.applyLinkAnchor, applyAnchor.trim() || SETTINGS_DEFAULTS.applyLinkAnchor),
+      setSetting(SETTINGS_KEYS.portalLinkAnchor, portalAnchor.trim() || SETTINGS_DEFAULTS.portalLinkAnchor),
+      setSetting(SETTINGS_KEYS.rsvpLinkAnchor, rsvpAnchor.trim() || SETTINGS_DEFAULTS.rsvpLinkAnchor),
     ])
     const firstErr = writes.find(w => w.error)
     if (firstErr) setError(firstErr.error)
@@ -711,8 +722,8 @@ function FormatsTab() {
             <p className="text-[11px] uppercase tracking-[0.15em] font-semibold text-gray-400 mb-2">{group}</p>
             <div className="space-y-1.5">
               {MERGE_TAG_LABEL_DEFAULTS.filter(t => t.group === group).map(t => {
-                const samplePreview = recipientPreview(t.tag, { dateFmt, timeFmt, openToFmt, withdrawAnchor, optoutAnchor })
-                const isServer = t.tag === 'withdraw_link' || t.tag === 'event_optout_link'
+                const samplePreview = recipientPreview(t.tag, { dateFmt, timeFmt, openToFmt, withdrawAnchor, optoutAnchor, applyAnchor, portalAnchor, rsvpAnchor })
+                const isServer = t.tag === 'withdraw_link' || t.tag === 'event_optout_link' || t.tag === 'apply_link' || t.tag === 'portal_link' || t.tag === 'rsvp_link'
                 return (
                   <div key={t.tag} className="flex flex-col sm:flex-row sm:items-center gap-2">
                     <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 truncate shrink-0">{`{{${t.tag}}}`}</code>
@@ -771,6 +782,36 @@ function FormatsTab() {
                 className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
               />
             </div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 shrink-0">{`{{apply_link}}`}</code>
+              <input
+                type="text"
+                value={applyAnchor}
+                onChange={e => setApplyAnchor(e.target.value)}
+                placeholder={SETTINGS_DEFAULTS.applyLinkAnchor}
+                className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 shrink-0">{`{{portal_link}}`}</code>
+              <input
+                type="text"
+                value={portalAnchor}
+                onChange={e => setPortalAnchor(e.target.value)}
+                placeholder={SETTINGS_DEFAULTS.portalLinkAnchor}
+                className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+              />
+            </div>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <code className="text-[11px] font-mono text-slate-600 dark:text-gray-400 w-44 shrink-0">{`{{rsvp_link}}`}</code>
+              <input
+                type="text"
+                value={rsvpAnchor}
+                onChange={e => setRsvpAnchor(e.target.value)}
+                placeholder={SETTINGS_DEFAULTS.rsvpLinkAnchor}
+                className="flex-1 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -783,7 +824,7 @@ function FormatsTab() {
 // Resolve a sample recipient-side preview for each tag, using the current
 // format + anchor settings. Returns string for plain tags, HTML string for
 // server-resolved anchors (rendered via dangerouslySetInnerHTML by caller).
-function recipientPreview(tag: string, opts: { dateFmt: string; timeFmt: string; openToFmt: string; withdrawAnchor: string; optoutAnchor: string }): string {
+function recipientPreview(tag: string, opts: { dateFmt: string; timeFmt: string; openToFmt: string; withdrawAnchor: string; optoutAnchor: string; applyAnchor: string; portalAnchor: string; rsvpAnchor: string }): string {
   const SAMPLE_NAME = 'Tenzin'
   const SAMPLE_LAST = 'Pham'
   const SAMPLE_EVENT = 'Step Inside: Man Group'
@@ -803,9 +844,9 @@ function recipientPreview(tag: string, opts: { dateFmt: string; timeFmt: string;
     case 'dress_code': return 'Smart casual'
     case 'open_to': return formatMergeOpenTo([12, 13], false, opts.openToFmt as OpenToFormatKey)
     case 'application_deadline': return `${formatMergeDate(SAMPLE_DATE_ISO, opts.dateFmt as DateFormatKey)} at ${formatMergeTime('23:59', null, opts.timeFmt as TimeFormatKey)}`
-    case 'apply_link': return 'https://the-steps-foundation-intranet.vercel.app/apply/man-group-office-visit'
-    case 'portal_link':
-    case 'rsvp_link': return 'https://the-steps-foundation-intranet.vercel.app/my'
+    case 'apply_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.applyAnchor || 'Application Link')}</a>`
+    case 'portal_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.portalAnchor || 'Student Hub')}</a>`
+    case 'rsvp_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.rsvpAnchor || 'RSVP')}</a>`
     case 'withdraw_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.withdrawAnchor || 'Withdraw link')}</a>`
     case 'event_optout_link': return `<a href="#preview" style="${ANCHOR_STYLE}">${escapeHtml(opts.optoutAnchor || 'Opt out of further emails about this event')}</a>`
     default: return ''
