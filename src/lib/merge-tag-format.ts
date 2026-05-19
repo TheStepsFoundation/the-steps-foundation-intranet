@@ -182,19 +182,9 @@ const LOWERCASE_TITLE_WORDS = new Set([
 ])
 export function titleCase(value: string | null | undefined): string {
   if (!value) return ''
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  const tokens = trimmed.split(/(\s+)/) // keep whitespace tokens to preserve original spacing
-  const wordIdxs = tokens.map((t, i) => t.trim().length > 0 ? i : -1).filter(i => i >= 0)
-  const firstWordIdx = wordIdxs[0]
-  const lastWordIdx = wordIdxs[wordIdxs.length - 1]
-  return tokens
-    .map((tok, i) => {
-      if (tok.trim().length === 0) return tok
-      const lower = tok.toLowerCase()
-      const isEdge = i === firstWordIdx || i === lastWordIdx
-      if (!isEdge && LOWERCASE_TITLE_WORDS.has(lower)) return lower
-      return lower.charAt(0).toUpperCase() + lower.slice(1)
-    })
-    .join('')
+  return value.replace(/\b[\w']+\b/g, w => {
+    const lower = w.toLowerCase()
+    if (LOWERCASE_TITLE_WORDS.has(lower)) return lower
+    return lower.charAt(0).toUpperCase() + lower.slice(1)
+  })
 }
