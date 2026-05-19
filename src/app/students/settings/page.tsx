@@ -20,7 +20,7 @@ import { SETTINGS_KEYS, SETTINGS_DEFAULTS, fetchAllSettings, setSetting } from '
 // with no redeploy. Falls back to SETTINGS_DEFAULTS when a row is missing.
 // ---------------------------------------------------------------------------
 
-type Tab = 'brand' | 'send' | 'team' | 'defaults'
+type Tab = 'brand' | 'send' | 'team' | 'defaults' | 'copy'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('brand')
@@ -37,6 +37,7 @@ export default function SettingsPage() {
           { id: 'send' as const, label: 'Send behaviour' },
           { id: 'team' as const, label: 'Team management' },
           { id: 'defaults' as const, label: 'Form & event defaults' },
+          { id: 'copy' as const, label: 'Copy & messaging' },
         ].map(t => (
           <button
             key={t.id}
@@ -58,6 +59,7 @@ export default function SettingsPage() {
         {tab === 'send' && <SendTab />}
         {tab === 'team' && <TeamTab />}
         {tab === 'defaults' && <DefaultsTab />}
+        {tab === 'copy' && <CopyTab />}
       </div>
     </main>
   )
@@ -467,6 +469,133 @@ function DefaultsTab() {
 // ---------------------------------------------------------------------------
 // Reusable bits
 // ---------------------------------------------------------------------------
+
+function CopyTab() {
+  const [hubGreeting, setHubGreeting] = useState<string>(SETTINGS_DEFAULTS.copyHubGreeting)
+  const [withdrawConfirm, setWithdrawConfirm] = useState<string>(SETTINGS_DEFAULTS.copyWithdrawConfirm)
+  const [eventOptoutConfirm, setEventOptoutConfirm] = useState<string>(SETTINGS_DEFAULTS.copyEventOptoutConfirm)
+  const [unsubscribeConfirm, setUnsubscribeConfirm] = useState<string>(SETTINGS_DEFAULTS.copyUnsubscribeConfirm)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchAllSettings().then(s => {
+      const g = s[SETTINGS_KEYS.copyHubGreeting]
+      if (typeof g === 'string') setHubGreeting(g)
+      const w = s[SETTINGS_KEYS.copyWithdrawConfirm]
+      if (typeof w === 'string') setWithdrawConfirm(w)
+      const o = s[SETTINGS_KEYS.copyEventOptoutConfirm]
+      if (typeof o === 'string') setEventOptoutConfirm(o)
+      const u = s[SETTINGS_KEYS.copyUnsubscribeConfirm]
+      if (typeof u === 'string') setUnsubscribeConfirm(u)
+      setLoading(false)
+    })
+  }, [])
+
+  const save = async () => {
+    setSaving(true); setError(null); setSaved(null)
+    const writes = await Promise.all([
+      setSetting(SETTINGS_KEYS.copyHubGreeting, hubGreeting),
+      setSetting(SETTINGS_KEYS.copyWithdrawConfirm, withdrawConfirm),
+      setSetting(SETTINGS_KEYS.copyEventOptoutConfirm, eventOptoutConfirm),
+      setSetting(SETTINGS_KEYS.copyUnsubscribeConfirm, unsubscribeConfirm),
+    ])
+    const firstErr = writes.find(w => w.error)
+    if (firstErr) setError(firstErr.error)
+    else setSaved('Copy saved. Changes take effect on the next page load.')
+    setSaving(false)
+  }
+
+  if (loading) return <p className="text-sm text-gray-500">Loading…</p>
+
+  return (
+    <Card>
+      <CopyField
+        label="Hub greeting"
+        hint="The big welcome line at the top of /my. Available tags: {{first_name}}, {{last_name}}, {{full_name}}."
+        tags={['first_name', 'last_name', 'full_name']}
+        value={hubGreeting}
+        onChange={setHubGreeting}
+        defaultValue={SETTINGS_DEFAULTS.copyHubGreeting}
+      />
+      <CopyField
+        label="Withdraw confirmation page"
+        hint="Shown to students when they click a withdraw link from an event email. Available tags: {{first_name}}, {{event_name}}."
+        tags={['first_name', 'event_name']}
+        value={withdrawConfirm}
+        onChange={setWithdrawConfirm}
+        defaultValue={SETTINGS_DEFAULTS.copyWithdrawConfirm}
+      />
+      <CopyField
+        label="Event opt-out confirmation page"
+        hint="Shown when a student clicks the per-event opt-out link. Available tags: {{first_name}}, {{event_name}}."
+        tags={['first_name', 'event_name']}
+        value={eventOptoutConfirm}
+        onChange={setEventOptoutConfirm}
+        defaultValue={SETTINGS_DEFAULTS.copyEventOptoutConfirm}
+      />
+      <CopyField
+        label="Global unsubscribe confirmation"
+        hint="Shown when a student clicks the unsubscribe footer link. Available tags: {{email}}."
+        tags={['email']}
+        value={unsubscribeConfirm}
+        onChange={setUnsubscribeConfirm}
+        defaultValue={SETTINGS_DEFAULTS.copyUnsubscribeConfirm}
+      />
+      <SaveBar saving={saving} onSave={save} saved={saved} error={error} />
+    </Card>
+  )
+}
+
+function CopyField({ label, hint, tags, value, onChange, defaultValue }: {
+  label: string
+  hint: string
+  tags: string[]
+  value: string
+  onChange: (v: string) => void
+  defaultValue: string
+}) {
+  const renderPreview = () => {
+    // Render the merge-tag tokens as visible chips inside the preview so the
+    // admin can see exactly where each value lands without typing real data.
+    return value.replace(/\{\{([a-z_0-9]+)\}\}/g, (m, t) => `<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:9999px;font-size:11px;font-weight:500;border:1px solid #bfdbfe">{${t}}</span>`)
+  }
+  return (
+    <div className="mb-6 last:mb-0">
+      <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">{label}</label>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{hint}</p>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={2}
+        className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 font-sans"
+      />
+      <div className="mt-1 flex flex-wrap gap-1.5 items-center">
+        <span className="text-[11px] text-gray-500">Insert tag:</span>
+        {tags.map(t => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => onChange(value + `{{${t}}}`)}
+            className="text-[11px] px-2 py-0.5 rounded-full border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-800 text-slate-700 dark:text-gray-300 hover:bg-slate-100"
+          >
+            {`{{${t}}}`}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onChange(defaultValue)}
+          className="text-[11px] px-2 py-0.5 rounded text-gray-500 hover:text-gray-900 underline"
+        >
+          Reset to default
+        </button>
+      </div>
+      <div className="mt-2 p-2 rounded-md bg-slate-50 dark:bg-gray-800 text-sm text-slate-700 dark:text-gray-300" dangerouslySetInnerHTML={{ __html: renderPreview() }} />
+    </div>
+  )
+}
 
 function Card({ children }: { children: React.ReactNode }) {
   return <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6">{children}</div>

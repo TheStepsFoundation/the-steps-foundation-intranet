@@ -29,6 +29,10 @@ export const SETTINGS_KEYS = {
   studentDashboardPageSize: 'students.dashboard_page_size',
   enabledAutomationTypes: 'events.enabled_automation_types',
   publishRequiredFields: 'events.publish_required_fields',
+  copyHubGreeting: 'copy.hub_greeting',
+  copyWithdrawConfirm: 'copy.withdraw_confirm_prompt',
+  copyEventOptoutConfirm: 'copy.event_optout_confirm_prompt',
+  copyUnsubscribeConfirm: 'copy.unsubscribe_confirm_message',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -68,6 +72,12 @@ export const SETTINGS_DEFAULTS = {
     'banner_image_url',
     'hub_image_url',
   ] as string[],
+  // Editable copy. Merge-tag tokens are resolved at render time per
+  // consumer (different surfaces have different tags available).
+  copyHubGreeting: 'Hey, {{first_name}}.',
+  copyWithdrawConfirm: "You're about to withdraw your application to {{event_name}}.",
+  copyEventOptoutConfirm: "We won't send you any further emails about {{event_name}} — invites, reminders, or updates.",
+  copyUnsubscribeConfirm: "{{email}} has been removed from The Steps Foundation mailing list. You won't receive any further event invites or newsletters.",
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------

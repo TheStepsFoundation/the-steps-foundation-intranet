@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyWithdrawToken } from '@/lib/withdraw-token'
+import { fetchSettingsServer, SETTINGS_KEYS, SETTINGS_DEFAULTS, getString } from '@/lib/settings-api'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -168,14 +169,14 @@ function shellHtml(title: string, body: string): string {
 </body></html>`
 }
 
-function renderConfirmPage(token: string, lookup: AppLookup): string {
+function renderConfirmPage(token: string, lookup: AppLookup, promptCopy: string): string {
   const greeting = lookup.studentFirstName ? `Hi ${escapeHtml(lookup.studentFirstName)},` : 'Hi,'
   const eventName = lookup.eventName ? escapeHtml(lookup.eventName) : 'this event'
   const dateLine = lookup.eventDate ? `<p style="margin:0 0 16px 0;color:#555">Event date: <strong>${escapeHtml(eventDateLabel(lookup.eventDate))}</strong></p>` : ''
   const body = `
     <h1 style="margin:0 0 12px 0;font-size:24px;color:#111">Withdraw your application?</h1>
     <p style="margin:0 0 8px 0;color:#555">${greeting}</p>
-    <p style="margin:0 0 16px 0;color:#555">You're about to withdraw your application to <strong>${eventName}</strong>.</p>
+    <p style="margin:0 0 16px 0;color:#555">${escapeHtml(promptCopy)}</p>
     ${dateLine}
     <form method="POST" action="/api/withdraw?token=${encodeURIComponent(token)}" style="margin:24px 0 0 0">
       <button type="submit" style="background:#111;color:#fff;border:0;padding:12px 22px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">Yes, withdraw my application</button>
@@ -234,7 +235,12 @@ export async function GET(req: NextRequest) {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     })
   }
-  return new NextResponse(renderConfirmPage(token!, lookup.data), {
+  const settings = await fetchSettingsServer()
+  const tpl = getString(settings, SETTINGS_KEYS.copyWithdrawConfirm, SETTINGS_DEFAULTS.copyWithdrawConfirm)
+  const promptCopy = tpl
+    .replace(/\{\{event_name\}\}/g, lookup.data.eventName ?? 'this event')
+    .replace(/\{\{first_name\}\}/g, lookup.data.studentFirstName ?? '')
+  return new NextResponse(renderConfirmPage(token!, lookup.data, promptCopy), {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   })

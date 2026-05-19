@@ -12,6 +12,7 @@ import {
   signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, fetchMyEventOptoutsVisible, setEventOptout, fetchLiveEvents, fetchScheduledEvents,
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
+import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
 import { getDisplayLocation } from '@/lib/event-display'
 import { formatOpenTo } from '@/lib/events-api'
 import { isEligibleForYearGroup as isEligibleForYG } from '@/lib/eligibility'
@@ -410,7 +411,8 @@ function StudentHubInner() {
   // surface only events the student has actually engaged with (existing
   // applications), since opting out of an event you've never heard of is
   // noise.
-  const [eventOptouts, setEventOptouts] = useState<Set<string>>(new Set())
+  const [hubGreetingTpl, setHubGreetingTpl] = useState<string>(SETTINGS_DEFAULTS.copyHubGreeting)
+    const [eventOptouts, setEventOptouts] = useState<Set<string>>(new Set())
   const [eventOptoutSavingId, setEventOptoutSavingId] = useState<string | null>(null)
   const [liveEvents, setLiveEvents] = useState<HubEvent[]>([])
   // Map<event_id, name> of the opt-outs that pass the events RLS filter —
@@ -419,7 +421,11 @@ function StudentHubInner() {
   const [visibleOptouts, setVisibleOptouts] = useState<Map<string, string>>(new Map())
   useEffect(() => {
     if (adminPreviewMode) return
-    fetchMyEventOptouts().then(setEventOptouts)
+    fetchAllSettings().then(set => {
+      const g = set[SETTINGS_KEYS.copyHubGreeting]
+      if (typeof g === 'string' && g.trim().length > 0) setHubGreetingTpl(g)
+    })
+        fetchMyEventOptouts().then(setEventOptouts)
     fetchMyEventOptoutsVisible().then(setVisibleOptouts)
     fetchLiveEvents().then(setLiveEvents)
   }, [adminPreviewMode])
@@ -492,7 +498,12 @@ function StudentHubInner() {
             Student Hub
           </div>
           <h1 className="font-display-tight text-4xl sm:text-5xl font-black text-steps-dark">
-            {profile?.first_name ? `Hey, ${profile.first_name}.` : 'Welcome back.'}
+            {profile?.first_name
+              ? hubGreetingTpl
+                  .replace(/\{\{first_name\}\}/g, profile.first_name)
+                  .replace(/\{\{last_name\}\}/g, profile.last_name ?? '')
+                  .replace(/\{\{full_name\}\}/g, `${profile.first_name} ${profile.last_name ?? ''}`.trim())
+              : 'Welcome back.'}
           </h1>
           <p className="text-slate-500 text-sm mt-3 sm:hidden">{authEmail}</p>
         </header>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyEventOptoutToken } from '@/lib/event-optout-token'
+import { fetchSettingsServer, SETTINGS_KEYS, SETTINGS_DEFAULTS, getString } from '@/lib/settings-api'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -91,13 +92,13 @@ function shell(title: string, body: string): string {
 </body></html>`
 }
 
-function renderConfirmPage(token: string, lk: Lookup): string {
+function renderConfirmPage(token: string, lk: Lookup, promptCopy: string): string {
   const greeting = lk.studentFirstName ? `Hi ${escapeHtml(lk.studentFirstName)},` : 'Hi,'
   const eventName = lk.eventName ? escapeHtml(lk.eventName) : 'this event'
   const body = `
     <h1 style="margin:0 0 12px 0;font-size:24px;color:#111">Opt out of emails about ${eventName}?</h1>
     <p style="margin:0 0 8px 0;color:#555">${greeting}</p>
-    <p style="margin:0 0 16px 0;color:#555">We won't send you any further emails about <strong>${eventName}</strong> — invites, reminders, or updates.</p>
+    <p style="margin:0 0 16px 0;color:#555">${escapeHtml(promptCopy)}</p>
     <p style="margin:0 0 24px 0;color:#777;font-size:13px">You'll stay on the general Steps Foundation mailing list and continue to get invites to other events.</p>
     <form method="POST" action="/api/event-optout?token=${encodeURIComponent(token)}" style="margin:0">
       <button type="submit" style="background:#111;color:#fff;border:0;padding:12px 22px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">Yes, opt me out of ${eventName}</button>
@@ -150,7 +151,12 @@ export async function GET(req: NextRequest) {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
     })
   }
-  return new NextResponse(renderConfirmPage(token!, lk.data), {
+  const settings = await fetchSettingsServer()
+  const tpl = getString(settings, SETTINGS_KEYS.copyEventOptoutConfirm, SETTINGS_DEFAULTS.copyEventOptoutConfirm)
+  const promptCopy = tpl
+    .replace(/\{\{event_name\}\}/g, lk.data.eventName ?? 'this event')
+    .replace(/\{\{first_name\}\}/g, lk.data.studentFirstName ?? '')
+  return new NextResponse(renderConfirmPage(token!, lk.data, promptCopy), {
     status: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   })
