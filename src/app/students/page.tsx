@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StudentHubPreview, type PreviewProfile } from '@/components/StudentHubPreview'
 import type { HubApplication, HubEvent } from '@/lib/hub-api'
+import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
 import { fetchOpenEvents } from '@/lib/hub-api'
 import { fetchAllEvents as fetchAllEventsAdmin } from '@/lib/events-api'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched, useEvents } from '@/lib/students-api'
@@ -251,7 +252,13 @@ export default function StudentsDashboard() {
   // Auto-paginate the directory at 100 rows. The previous behaviour was
   // a silent slice(0,500) cap which dropped anything past the cut-off; this
   // keeps the rest of the dataset reachable while bounding initial render.
-  const STUDENTS_PAGE_SIZE = 100
+  const [STUDENTS_PAGE_SIZE, setStudentsPageSize] = useState<number>(SETTINGS_DEFAULTS.studentDashboardPageSize)
+  useEffect(() => {
+    fetchAllSettings().then(set => {
+      const v = set[SETTINGS_KEYS.studentDashboardPageSize]
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) setStudentsPageSize(Math.floor(v))
+    })
+  }, [])
   const [page, setPage] = useState(0)
   const totalPages = Math.max(1, Math.ceil(filtered.length / STUDENTS_PAGE_SIZE))
   // Reset to first page whenever filters / sort change the underlying list

@@ -319,6 +319,7 @@ function DefaultsTab() {
   const [yearGroups, setYearGroups] = useState<number[]>(SETTINGS_DEFAULTS.defaultEligibleYearGroups as number[])
   const [leadDays, setLeadDays] = useState<number>(SETTINGS_DEFAULTS.defaultApplicationsOpenLeadDays)
   const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
+  const [pageSize, setPageSize] = useState<number>(SETTINGS_DEFAULTS.studentDashboardPageSize)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -332,6 +333,8 @@ function DefaultsTab() {
       if (typeof ld === 'number' && Number.isFinite(ld)) setLeadDays(ld)
       const mcq = s[SETTINGS_KEYS.minCustomQuestions]
       if (typeof mcq === 'number' && Number.isFinite(mcq) && mcq >= 0) setMinCustomQuestions(mcq)
+      const ps = s[SETTINGS_KEYS.studentDashboardPageSize]
+      if (typeof ps === 'number' && Number.isFinite(ps) && ps > 0) setPageSize(Math.floor(ps))
       setLoading(false)
     })
   }, [])
@@ -347,6 +350,7 @@ function DefaultsTab() {
       setSetting(SETTINGS_KEYS.defaultEligibleYearGroups, yearGroups),
       setSetting(SETTINGS_KEYS.defaultApplicationsOpenLeadDays, Math.max(0, Math.floor(leadDays))),
       setSetting(SETTINGS_KEYS.minCustomQuestions, Math.max(0, Math.floor(minCustomQuestions))),
+      setSetting(SETTINGS_KEYS.studentDashboardPageSize, Math.max(10, Math.floor(pageSize))),
     ])
     const firstErr = writes.find(w => w.error)
     if (firstErr) setError(firstErr.error)
@@ -383,7 +387,18 @@ function DefaultsTab() {
         />
         <span className="ml-2 text-xs text-gray-500">days</span>
       </Section>
-      <Section title="Minimum custom questions to publish" hint="How many event-specific custom questions a form must have before publish is allowed. Standard auto-included questions (school type, FSM, GCSEs, etc.) don't count. Set to 0 to allow publishing with no custom questions — useful for lightweight events like office hours.">
+      <Section title="Student dashboard — rows per page" hint="How many students to show per page on /students. Lower numbers are faster to load and easier to scan; higher numbers mean fewer clicks. Minimum 10.">
+        <input
+          type="number"
+          min={10}
+          value={pageSize}
+          onChange={e => setPageSize(parseInt(e.target.value) || SETTINGS_DEFAULTS.studentDashboardPageSize)}
+          className="w-32 px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+        />
+        <span className="ml-2 text-xs text-gray-500">Default: {SETTINGS_DEFAULTS.studentDashboardPageSize}</span>
+      </Section>
+
+            <Section title="Minimum custom questions to publish" hint="How many event-specific custom questions a form must have before publish is allowed. Standard auto-included questions (school type, FSM, GCSEs, etc.) don't count. Set to 0 to allow publishing with no custom questions — useful for lightweight events like office hours.">
         <input
           type="number"
           min={0}

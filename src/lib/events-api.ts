@@ -179,6 +179,7 @@ export type EventRow = {
   open_to_gap_year: boolean
   feedback_config: EventFeedbackConfig | null
   is_private: boolean
+  display_initials: string | null
   archived_at: string | null
   lead_team_member_id: string | null
   collaborator_ids: string[]
@@ -215,7 +216,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,is_private,archived_at,lead_team_member_id,collaborator_ids,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,is_private,display_initials,archived_at,lead_team_member_id,collaborator_ids,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.

@@ -26,6 +26,7 @@ export const SETTINGS_KEYS = {
   defaultEligibleYearGroups: 'events.default_eligible_year_groups',
   defaultApplicationsOpenLeadDays: 'events.default_applications_open_lead_days',
   minCustomQuestions: 'events.min_custom_questions',
+  studentDashboardPageSize: 'students.dashboard_page_size',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -41,6 +42,7 @@ export const SETTINGS_DEFAULTS = {
   defaultEligibleYearGroups: [12, 13] as number[],
   defaultApplicationsOpenLeadDays: 14,
   minCustomQuestions: 3,
+  studentDashboardPageSize: 100,
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------

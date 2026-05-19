@@ -2781,6 +2781,17 @@ export default function EventDetailPage() {
                 <input value={editDraft.slug ?? ''} onChange={e => setEditDraft(d => ({ ...d, slug: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
               <div>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Display initials <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input
+                  value={editDraft.display_initials ?? ''}
+                  onChange={e => setEditDraft(d => ({ ...d, display_initials: e.target.value || null }))}
+                  placeholder="e.g. SIMG"
+                  maxLength={5}
+                  className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono uppercase tracking-wider"
+                />
+                <p className="mt-1 text-[11px] text-gray-500">Short tag used in column headers + compact UIs. Falls back to auto-derived from name if blank — disambiguates events like 'Step Inside: Man Group' vs 'Step Inside: Microsoft' (both auto to SIM).</p>
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Status</label>
                 <select value={editDraft.status ?? event.status} onChange={e => {
                   const next = e.target.value as EventRow['status']

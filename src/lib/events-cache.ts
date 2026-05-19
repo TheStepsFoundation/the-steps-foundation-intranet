@@ -68,14 +68,21 @@ const notify = () => {
  * the name uppercased. "Starting Point" -> "SP". "The Great Lock-In" -> "TGL".
  * Events with no useful caps get e.g. "Workshop" -> "WOR".
  */
-export const shortFor = (name: string): string => {
+export const shortFor = (name: string, override?: string | null): string => {
+  // Admin can override the auto-derived initials per-event (see events.display_initials)
+  // to disambiguate clashes — e.g. 'Step Inside: Man Group' and 'Step Inside: Microsoft'
+  // both auto to SIM. Override is trusted as-is, just trimmed.
+  if (typeof override === 'string') {
+    const trimmed = override.trim()
+    if (trimmed.length > 0) return trimmed.slice(0, 5)
+  }
   const caps = name.match(/[A-Z]/g) ?? []
   if (caps.length >= 2) return caps.slice(0, 3).join('')
   const cleaned = name.replace(/[^A-Za-z0-9]/g, '')
   return cleaned.slice(0, 3).toUpperCase() || '???'
 }
 
-const applyRows = (rows: { id: string; name: string; event_date: string | null }[]) => {
+const applyRows = (rows: { id: string; name: string; event_date: string | null; display_initials?: string | null }[]) => {
   const sorted = [...rows].sort((a, b) => {
     const ad = a.event_date ?? ''
     const bd = b.event_date ?? ''
@@ -89,7 +96,7 @@ const applyRows = (rows: { id: string; name: string; event_date: string | null }
     EVENTS.push({
       id: r.id,
       name: r.name,
-      short: shortFor(r.name),
+      short: shortFor(r.name, r.display_initials),
       date: r.event_date ?? '',
     })
   }
@@ -103,11 +110,11 @@ const applyRows = (rows: { id: string; name: string; event_date: string | null }
 const fetchEventsRaw = async () => {
   const { data, error } = await supabase
     .from('events')
-    .select('id,name,event_date')
+    .select('id,name,event_date,display_initials')
     .is('deleted_at', null)
     .order('event_date', { ascending: true, nullsFirst: false })
   if (error) throw error
-  applyRows(data as { id: string; name: string; event_date: string | null }[])
+  applyRows(data as { id: string; name: string; event_date: string | null; display_initials: string | null }[])
 }
 
 /**
