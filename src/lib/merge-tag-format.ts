@@ -28,9 +28,9 @@ export type OpenToFormatKey =
 
 export const DATE_FORMAT_OPTIONS: { value: DateFormatKey; label: string; sample: string }[] = [
   { value: 'weekday_long',          label: 'Wednesday, 27 May 2026',  sample: 'Wednesday, 27 May 2026' },
-  { value: 'weekday_ordinal',       label: 'Wednesday 27th May 2026', sample: 'Wednesday 27th May 2026' },
-  { value: 'weekday_ordinal_no_year', label: 'Wednesday 27th May',    sample: 'Wednesday 27th May' },
-  { value: 'short',                 label: 'Wed 27 May',              sample: 'Wed 27 May' },
+  { value: 'weekday_ordinal',       label: 'Wednesday, 27th May 2026', sample: 'Wednesday, 27th May 2026' },
+  { value: 'weekday_ordinal_no_year', label: 'Wednesday, 27th May',    sample: 'Wednesday, 27th May' },
+  { value: 'short',                 label: 'Wed, 27 May',              sample: 'Wed, 27 May' },
   { value: 'numeric',               label: '27/05/2026',              sample: '27/05/2026' },
   { value: 'ordinal_no_year',       label: '27th May',                sample: '27th May' },
 ]
@@ -83,11 +83,11 @@ export function formatMergeDate(value: string | null | undefined, key: DateForma
     case 'weekday_long':
       return `${WEEKDAY_LONG[weekday]}, ${day} ${MONTH_NAMES[month]} ${year}`
     case 'weekday_ordinal':
-      return `${WEEKDAY_LONG[weekday]} ${day}${ordinalSuffix(day)} ${MONTH_NAMES[month]} ${year}`
+      return `${WEEKDAY_LONG[weekday]}, ${day}${ordinalSuffix(day)} ${MONTH_NAMES[month]} ${year}`
     case 'weekday_ordinal_no_year':
-      return `${WEEKDAY_LONG[weekday]} ${day}${ordinalSuffix(day)} ${MONTH_NAMES[month]}`
+      return `${WEEKDAY_LONG[weekday]}, ${day}${ordinalSuffix(day)} ${MONTH_NAMES[month]}`
     case 'short':
-      return `${WEEKDAY_SHORT[weekday]} ${day} ${MONTH_SHORT[month]}`
+      return `${WEEKDAY_SHORT[weekday]}, ${day} ${MONTH_SHORT[month]}`
     case 'numeric':
       return `${String(day).padStart(2, '0')}/${String(month + 1).padStart(2, '0')}/${year}`
     case 'ordinal_no_year':
