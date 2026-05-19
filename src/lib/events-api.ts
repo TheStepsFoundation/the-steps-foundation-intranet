@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { validateFormConfig } from './form-config-validator'
+import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from './settings-api'
 
 // =============================================================================
 // Types
@@ -455,8 +456,27 @@ export async function updateEvent(
   //      already set.
   const current = await fetchEvent(id)
   const projected: Partial<EventRow> = { ...(current ?? {}), ...patch } as Partial<EventRow>
+
+  // Resolve the admin-configured publish requirements + min-custom-questions
+  // threshold so the validation here matches the live checklist in the
+  // editor. Without this, an admin could see a clean checklist (which
+  // threads the settings through) but updateEvent would still reject the
+  // publish because validateForPublish() with no opts uses the hardcoded
+  // defaults (minCustomFields=3 and the full required-fields list).
+  const settings = await fetchAllSettings().catch(() => ({} as Record<string, unknown>))
+  const settingsMinCustom = settings[SETTINGS_KEYS.minCustomQuestions]
+  const settingsRequired = settings[SETTINGS_KEYS.publishRequiredFields]
+  const publishOpts: { minCustomFields?: number; requiredFields?: ReadonlyArray<string> } = {
+    minCustomFields: typeof settingsMinCustom === 'number' && Number.isFinite(settingsMinCustom) && settingsMinCustom >= 0
+      ? settingsMinCustom
+      : SETTINGS_DEFAULTS.minCustomQuestions,
+    requiredFields: Array.isArray(settingsRequired) && settingsRequired.every(x => typeof x === 'string')
+      ? (settingsRequired as string[])
+      : (SETTINGS_DEFAULTS.publishRequiredFields as string[]),
+  }
+
   if (patch.status && patch.status !== 'draft' && patch.status !== 'cancelled') {
-    const errs = validateForPublish(projected)
+    const errs = validateForPublish(projected, publishOpts)
     if (errs.length > 0) throw new EventPublishValidationError(errs)
     // First publish ever — set first_published_at if not already.
     if (current && !current.first_published_at) {
@@ -468,14 +488,14 @@ export async function updateEvent(
     }
   } else if (current && current.status === 'open' && !patch.status) {
     // Auto-demote: published event, editing fields, validation now broken.
-    const errs = validateForPublish(projected)
+    const errs = validateForPublish(projected, publishOpts)
     if (errs.length > 0) {
       (patch as Record<string, unknown>).status = 'draft'
       ;(patch as Record<string, unknown>).auto_demoted_at = new Date().toISOString()
     }
   } else if (current && current.status === 'draft' && current.auto_demoted_at && !patch.status) {
     // Auto-restore: auto-demoted draft, edit fixes the missing field, validation passes.
-    const errs = validateForPublish(projected)
+    const errs = validateForPublish(projected, publishOpts)
     if (errs.length === 0) {
       (patch as Record<string, unknown>).status = 'open'
       ;(patch as Record<string, unknown>).auto_demoted_at = null
