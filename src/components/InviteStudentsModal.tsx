@@ -211,6 +211,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const [applyLinkAnchor, setApplyLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.applyLinkAnchor)
   const [portalLinkAnchor, setPortalLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.portalLinkAnchor)
   const [rsvpLinkAnchor, setRsvpLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.rsvpLinkAnchor)
+  const [eventOptoutLinkAnchor, setEventOptoutLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.eventOptoutLinkAnchor)
   useEffect(() => {
     fetchAllSettings().then(set => {
       const v = set[SETTINGS_KEYS.signatureHtml]
@@ -231,6 +232,8 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       if (typeof pl === 'string' && pl.length > 0) setPortalLinkAnchor(pl)
       const rl = set[SETTINGS_KEYS.rsvpLinkAnchor]
       if (typeof rl === 'string' && rl.length > 0) setRsvpLinkAnchor(rl)
+      const oa = set[SETTINGS_KEYS.eventOptoutLinkAnchor]
+      if (typeof oa === 'string' && oa.length > 0) setEventOptoutLinkAnchor(oa)
     })
   }, [])
 
@@ -1413,7 +1416,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                   .join('')
                 // Server-resolved tag — show as a clearly non-clickable
                 // pill in the preview so the admin can't paste it.
-                return html.replace(/\{\{event_optout_link\}\}/g, '<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">Opt out of further emails about this event</a>')
+                return html.replace(/\{\{event_optout_link\}\}/g, `<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">${eventOptoutLinkAnchor}</a>`)
               })()}
               footerBanner={
                 <>

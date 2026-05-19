@@ -941,6 +941,8 @@ export default function EventDetailPage() {
   const [applyLinkAnchor, setApplyLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.applyLinkAnchor)
   const [portalLinkAnchor, setPortalLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.portalLinkAnchor)
   const [rsvpLinkAnchor, setRsvpLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.rsvpLinkAnchor)
+  const [withdrawLinkAnchor, setWithdrawLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.withdrawLinkAnchor)
+  const [eventOptoutLinkAnchor, setEventOptoutLinkAnchor] = useState<string>(SETTINGS_DEFAULTS.eventOptoutLinkAnchor)
   const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
   useEffect(() => {
     fetchAllSettings().then(set => {
@@ -976,6 +978,10 @@ export default function EventDetailPage() {
       if (typeof pl === 'string' && pl.length > 0) setPortalLinkAnchor(pl)
       const rl = set[SETTINGS_KEYS.rsvpLinkAnchor]
       if (typeof rl === 'string' && rl.length > 0) setRsvpLinkAnchor(rl)
+      const wa = set[SETTINGS_KEYS.withdrawLinkAnchor]
+      if (typeof wa === 'string' && wa.length > 0) setWithdrawLinkAnchor(wa)
+      const oa = set[SETTINGS_KEYS.eventOptoutLinkAnchor]
+      if (typeof oa === 'string' && oa.length > 0) setEventOptoutLinkAnchor(oa)
     })
   }, [])
   void publishErrors
@@ -4320,7 +4326,7 @@ export default function EventDetailPage() {
                   filledBodyHtml={(() => {
                     const raw = getRecipients()[0] ? fillMergeFields(emailBody, getRecipients()[0]) : emailBody
                     const html = looksLikeHtml(raw) ? raw : plainTextToHtml(raw)
-                    return html.replace(/\{\{withdraw_link\}\}/g, '<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">Withdraw link</a>').replace(/\{\{event_optout_link\}\}/g, '<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">Opt out of further emails about this event</a>')
+                    return html.replace(/\{\{withdraw_link\}\}/g, `<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">${withdrawLinkAnchor}</a>`).replace(/\{\{event_optout_link\}\}/g, `<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">${eventOptoutLinkAnchor}</a>`)
                   })()}
                   footerBanner={notifyAction ? (
                     <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">
