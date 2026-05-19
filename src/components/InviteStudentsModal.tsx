@@ -1353,6 +1353,7 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
               { tag: 'first_name', label: lbl('first_name', 'First Name') },
               { tag: 'event_name', label: lbl('event_name', 'Event Name') },
               { tag: 'apply_link', label: lbl('apply_link', 'Apply Link') },
+              { tag: 'portal_link', label: lbl('portal_link', 'Student Hub') },
               { tag: 'last_attended_event', label: lbl('last_attended_event', 'Last Event') },
               ...(eventData?.event_date ? [{ tag: 'event_date', label: lbl('event_date', 'Event Date') }] : []),
               ...(eventData?.time_start ? [{ tag: 'event_time', label: lbl('event_time', 'Event Time') }] : []),

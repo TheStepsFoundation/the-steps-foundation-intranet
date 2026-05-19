@@ -182,3 +182,16 @@ html {
     linear-gradient(90deg, rgba(176, 191, 224, 0.15) 1px, transparent 1px);
   background-size: 32px 32px;
 }
+
+
+/* Bold-toggling on merge-tag chips. The chip's hardcoded inline
+   font-weight:500 wins over any cascading bold from a wrapping <b> /
+   <strong>, so the chip never looked bold even when the user pressed
+   Ctrl+B around it. These rules force bold when an ancestor is bold —
+   serialisation (chipsToTokens) preserves the <b> wrap, so the recipient
+   sees a bold value in the sent email too. */
+b .merge-tag-chip,
+strong .merge-tag-chip,
+.merge-tag-chip[data-bold='true'] {
+  font-weight: 700 !important;
+}
