@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth-provider'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
+import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT } from '@/lib/merge-tag-format'
 import FeedbackConfigEditor from "@/components/FeedbackConfigEditor"
 import type { FormFieldConfig, FormPage, StandardOverrides, EventFeedbackConfig } from "@/lib/events-api"
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
@@ -931,6 +932,9 @@ export default function EventDetailPage() {
   const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
   const [enabledAutomationTypes, setEnabledAutomationTypes] = useState<EmailAutomationType[]>(SETTINGS_DEFAULTS.enabledAutomationTypes as EmailAutomationType[])
   const [publishRequiredFields, setPublishRequiredFields] = useState<string[]>(SETTINGS_DEFAULTS.publishRequiredFields as string[])
+  const [dateFmt, setDateFmt] = useState<DateFormatKey>(DEFAULT_DATE_FORMAT)
+  const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
+  const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
   const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
   useEffect(() => {
     fetchAllSettings().then(set => {
@@ -950,6 +954,12 @@ export default function EventDetailPage() {
       if (Array.isArray(prf) && prf.every(x => typeof x === 'string')) {
         setPublishRequiredFields(prf as string[])
       }
+      const df = set[SETTINGS_KEYS.mergeDateFormat]
+      if (typeof df === 'string') setDateFmt(df as DateFormatKey)
+      const tf = set[SETTINGS_KEYS.mergeTimeFormat]
+      if (typeof tf === 'string') setTimeFmt(tf as TimeFormatKey)
+      const of = set[SETTINGS_KEYS.mergeOpenToFormat]
+      if (typeof of === 'string') setOpenToFmt(of as OpenToFormatKey)
     })
   }, [])
   void publishErrors
@@ -2346,21 +2356,24 @@ export default function EventDetailPage() {
       .replace(/\{\{full_name\}\}/g, `${applicant.first_name} ${applicant.last_name}`)
       .replace(/\{\{email\}\}/g, applicant.personal_email ?? '')
       .replace(/\{\{event_name\}\}/g, event?.name ?? '')
-      .replace(/\{\{event_date\}\}/g, event?.event_date
-        ? new Date(event.event_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-        : 'TBC')
+      .replace(/\{\{event_date\}\}/g, formatMergeDate(event?.event_date, dateFmt))
       .replace(/\{\{event_location\}\}/g, event?.location ?? 'TBC')
       .replace(/\{\{event_location_full\}\}/g, event?.location_full ?? event?.location ?? 'TBC')
-      .replace(/\{\{event_time\}\}/g, [event?.time_start, event?.time_end].filter(Boolean).join(' – ') || 'TBC')
+      .replace(/\{\{event_time\}\}/g, formatMergeTime(event?.time_start, event?.time_end, timeFmt))
       .replace(/\{\{dress_code\}\}/g, event?.dress_code ?? '')
       .replace(/\{\{event_dress_code\}\}/g, event?.dress_code ?? '')
       .replace(/\{\{apply_link\}\}/g, applyLinkUrl)
       .replace(/\{\{portal_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
       .replace(/\{\{rsvp_link\}\}/g, 'https://the-steps-foundation-intranet.vercel.app/my')
-      .replace(/\{\{application_deadline\}\}/g, event?.applications_close_at
-        ? new Date(event.applications_close_at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' }).replace(',', ' at')
-        : 'TBC')
-      .replace(/\{\{open_to\}\}/g, formatOpenTo(event?.eligible_year_groups, event?.open_to_gap_year ?? false))
+      .replace(/\{\{application_deadline\}\}/g, (() => {
+        if (!event?.applications_close_at) return 'TBC'
+        const d = new Date(event.applications_close_at)
+        if (Number.isNaN(d.getTime())) return 'TBC'
+        const isoDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+        return `${formatMergeDate(isoDate, dateFmt)} at ${formatMergeTime(hhmm, null, timeFmt)}`
+      })())
+      .replace(/\{\{open_to\}\}/g, formatMergeOpenTo(event?.eligible_year_groups, event?.open_to_gap_year ?? false, openToFmt))
       // last_attended_event isn't meaningful in the decision flow (we're
       // emailing about THE event, not a past one). Clear it rather than
       // leaking the raw token.

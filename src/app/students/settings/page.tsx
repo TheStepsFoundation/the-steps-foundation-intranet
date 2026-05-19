@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { EMAIL_AUTOMATION_TYPE_META, type EmailAutomationType, PUBLISH_REQUIRED_FIELD_OPTIONS } from '@/lib/events-api'
+import { DATE_FORMAT_OPTIONS, TIME_FORMAT_OPTIONS, OPENTO_FORMAT_OPTIONS, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT } from '@/lib/merge-tag-format'
 import { SETTINGS_KEYS, SETTINGS_DEFAULTS, fetchAllSettings, setSetting } from '@/lib/settings-api'
 
 // ---------------------------------------------------------------------------
@@ -20,7 +21,7 @@ import { SETTINGS_KEYS, SETTINGS_DEFAULTS, fetchAllSettings, setSetting } from '
 // with no redeploy. Falls back to SETTINGS_DEFAULTS when a row is missing.
 // ---------------------------------------------------------------------------
 
-type Tab = 'brand' | 'send' | 'team' | 'defaults' | 'copy'
+type Tab = 'brand' | 'send' | 'team' | 'defaults' | 'copy' | 'formats'
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('brand')
@@ -38,6 +39,7 @@ export default function SettingsPage() {
           { id: 'team' as const, label: 'Team management' },
           { id: 'defaults' as const, label: 'Form & event defaults' },
           { id: 'copy' as const, label: 'Copy & messaging' },
+          { id: 'formats' as const, label: 'Merge tag formats' },
         ].map(t => (
           <button
             key={t.id}
@@ -60,6 +62,7 @@ export default function SettingsPage() {
         {tab === 'team' && <TeamTab />}
         {tab === 'defaults' && <DefaultsTab />}
         {tab === 'copy' && <CopyTab />}
+        {tab === 'formats' && <FormatsTab />}
       </div>
     </main>
   )
@@ -593,6 +596,98 @@ function CopyField({ label, hint, tags, value, onChange, defaultValue }: {
         </button>
       </div>
       <div className="mt-2 p-2 rounded-md bg-slate-50 dark:bg-gray-800 text-sm text-slate-700 dark:text-gray-300" dangerouslySetInnerHTML={{ __html: renderPreview() }} />
+    </div>
+  )
+}
+
+function FormatsTab() {
+  const [dateFmt, setDateFmt] = useState<DateFormatKey>(DEFAULT_DATE_FORMAT)
+  const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
+  const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchAllSettings().then(s => {
+      const d = s[SETTINGS_KEYS.mergeDateFormat]
+      if (typeof d === 'string') setDateFmt(d as DateFormatKey)
+      const t = s[SETTINGS_KEYS.mergeTimeFormat]
+      if (typeof t === 'string') setTimeFmt(t as TimeFormatKey)
+      const o = s[SETTINGS_KEYS.mergeOpenToFormat]
+      if (typeof o === 'string') setOpenToFmt(o as OpenToFormatKey)
+      setLoading(false)
+    })
+  }, [])
+
+  const save = async () => {
+    setSaving(true); setError(null); setSaved(null)
+    const writes = await Promise.all([
+      setSetting(SETTINGS_KEYS.mergeDateFormat, dateFmt),
+      setSetting(SETTINGS_KEYS.mergeTimeFormat, timeFmt),
+      setSetting(SETTINGS_KEYS.mergeOpenToFormat, openToFmt),
+    ])
+    const firstErr = writes.find(w => w.error)
+    if (firstErr) setError(firstErr.error)
+    else setSaved('Merge tag formats saved.')
+    setSaving(false)
+  }
+
+  if (loading) return <p className="text-sm text-gray-500">Loading…</p>
+
+  return (
+    <Card>
+      <FormatSelector
+        label="Event date — {{event_date}}"
+        hint="How dates render in emails. Also drives the date portion of {{application_deadline}}."
+        options={DATE_FORMAT_OPTIONS}
+        value={dateFmt}
+        onChange={(v) => setDateFmt(v as DateFormatKey)}
+      />
+      <FormatSelector
+        label="Event time — {{event_time}}"
+        hint="How time ranges render. Also drives the time portion of {{application_deadline}}."
+        options={TIME_FORMAT_OPTIONS}
+        value={timeFmt}
+        onChange={(v) => setTimeFmt(v as TimeFormatKey)}
+      />
+      <FormatSelector
+        label="Open-to year groups — {{open_to}}"
+        hint="How the eligible year-group label reads."
+        options={OPENTO_FORMAT_OPTIONS}
+        value={openToFmt}
+        onChange={(v) => setOpenToFmt(v as OpenToFormatKey)}
+      />
+      <SaveBar saving={saving} onSave={save} saved={saved} error={error} />
+    </Card>
+  )
+}
+
+function FormatSelector({ label, hint, options, value, onChange }: {
+  label: string
+  hint: string
+  options: { value: string; label: string; sample: string }[]
+  value: string
+  onChange: (v: string) => void
+}) {
+  const selected = options.find(o => o.value === value)
+  return (
+    <div className="mb-6 last:mb-0">
+      <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">{label}</label>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{hint}</p>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full max-w-md px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+      >
+        {options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+      {selected && (
+        <p className="mt-2 text-xs text-slate-600 dark:text-gray-400">Preview: <span className="font-mono px-2 py-0.5 rounded bg-slate-100 dark:bg-gray-800">{selected.sample}</span></p>
+      )}
     </div>
   )
 }

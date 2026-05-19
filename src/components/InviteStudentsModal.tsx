@@ -21,6 +21,7 @@ import {
   EMAIL_SIGNATURE_HTML,
 } from './EmailComposePanels'
 import { fetchAllSettings, SETTINGS_KEYS } from '@/lib/settings-api'
+import { formatMergeDate, formatMergeTime, formatMergeOpenTo, type DateFormatKey, type TimeFormatKey, type OpenToFormatKey, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT, DEFAULT_OPENTO_FORMAT } from '@/lib/merge-tag-format'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -201,10 +202,19 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   // Configured signature (fetched from app_settings). Falls back to the
   // EMAIL_SIGNATURE_HTML constant if the setting is empty / fetch fails.
   const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
+  const [dateFmt, setDateFmt] = useState<DateFormatKey>(DEFAULT_DATE_FORMAT)
+  const [timeFmt, setTimeFmt] = useState<TimeFormatKey>(DEFAULT_TIME_FORMAT)
+  const [openToFmt, setOpenToFmt] = useState<OpenToFormatKey>(DEFAULT_OPENTO_FORMAT)
   useEffect(() => {
     fetchAllSettings().then(set => {
       const v = set[SETTINGS_KEYS.signatureHtml]
       if (typeof v === 'string' && v.trim().length > 0) setSignatureHtml(v)
+      const df = set[SETTINGS_KEYS.mergeDateFormat]
+      if (typeof df === 'string') setDateFmt(df as DateFormatKey)
+      const tf = set[SETTINGS_KEYS.mergeTimeFormat]
+      if (typeof tf === 'string') setTimeFmt(tf as TimeFormatKey)
+      const of = set[SETTINGS_KEYS.mergeOpenToFormat]
+      if (typeof of === 'string') setOpenToFmt(of as OpenToFormatKey)
     })
   }, [])
 
@@ -555,16 +565,21 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       .replace(/\{\{email\}\}/g, String(s.personal_email ?? ''))
       .replace(/\{\{event_name\}\}/g, eventName)
       .replace(/\{\{apply_link\}\}/g, applyLink)
-      .replace(/\{\{event_date\}\}/g, eventData?.event_date ? new Date(eventData.event_date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '')
-      .replace(/\{\{event_time\}\}/g, eventData?.time_start ? (eventData.time_start + (eventData.time_end ? ` – ${eventData.time_end}` : '')) : '')
+      .replace(/\{\{event_date\}\}/g, formatMergeDate(eventData?.event_date, dateFmt, ''))
+      .replace(/\{\{event_time\}\}/g, formatMergeTime(eventData?.time_start, eventData?.time_end, timeFmt, ''))
       .replace(/\{\{event_location\}\}/g, eventData?.location ?? '')
       .replace(/\{\{event_format\}\}/g, eventData?.format === 'in_person' ? 'in person' : eventData?.format === 'online' ? 'online' : eventData?.format === 'hybrid' ? 'hybrid' : '')
       .replace(/\{\{event_dress_code\}\}/g, eventData?.dress_code ?? '')
       .replace(/\{\{event_capacity\}\}/g, eventData?.capacity != null ? String(eventData.capacity) : '')
-      .replace(/\{\{open_to\}\}/g, formatOpenTo(eventData?.eligible_year_groups, eventData?.open_to_gap_year ?? false))
-      .replace(/\{\{application_deadline\}\}/g, eventData?.applications_close_at
-        ? new Date(eventData.applications_close_at).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/London' }).replace(',', ' at')
-        : '')
+      .replace(/\{\{open_to\}\}/g, formatMergeOpenTo(eventData?.eligible_year_groups, eventData?.open_to_gap_year ?? false, openToFmt))
+      .replace(/\{\{application_deadline\}\}/g, (() => {
+        if (!eventData?.applications_close_at) return ''
+        const d = new Date(eventData.applications_close_at)
+        if (Number.isNaN(d.getTime())) return ''
+        const isoDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+        return `${formatMergeDate(isoDate, dateFmt, '')} at ${formatMergeTime(hhmm, null, timeFmt, '')}`
+      })())
     // Last attended event — most recent event the student actually attended
     const attendedApps = (s.applications || [])
       .filter(a => a.attended)

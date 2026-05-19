@@ -33,6 +33,9 @@ export const SETTINGS_KEYS = {
   copyWithdrawConfirm: 'copy.withdraw_confirm_prompt',
   copyEventOptoutConfirm: 'copy.event_optout_confirm_prompt',
   copyUnsubscribeConfirm: 'copy.unsubscribe_confirm_message',
+  mergeDateFormat: 'merge.date_format',
+  mergeTimeFormat: 'merge.time_format',
+  mergeOpenToFormat: 'merge.opento_format',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -78,6 +81,9 @@ export const SETTINGS_DEFAULTS = {
   copyWithdrawConfirm: "You're about to withdraw your application to {{event_name}}.",
   copyEventOptoutConfirm: "We won't send you any further emails about {{event_name}} — invites, reminders, or updates.",
   copyUnsubscribeConfirm: "{{email}} has been removed from The Steps Foundation mailing list. You won't receive any further event invites or newsletters.",
+  mergeDateFormat: 'weekday_long' as const,
+  mergeTimeFormat: 'h24' as const,
+  mergeOpenToFormat: 'short' as const,
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------
