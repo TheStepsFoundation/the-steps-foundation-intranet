@@ -665,7 +665,7 @@ function StudentHubInner() {
               <h2 id="coming-soon-heading" className="font-display text-xl font-bold text-steps-dark">Coming Soon</h2>
               <span className="text-xs text-slate-400 uppercase tracking-wider">In the pipeline</span>
             </div>
-            <p className="text-sm text-slate-500 mb-4">Events scheduled to open for applications. Have a look at what\'s coming — applications open later.</p>
+            <p className="text-sm text-slate-500 mb-4">Events scheduled to open for applications. Have a look at what’s coming — applications open later.</p>
             <div className="space-y-4">
               {scheduledEvents.map(event => {
                 const publicLocation = getDisplayLocation(event, false)
