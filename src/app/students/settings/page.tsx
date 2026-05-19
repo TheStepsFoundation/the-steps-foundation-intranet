@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { EMAIL_AUTOMATION_TYPE_META, type EmailAutomationType } from '@/lib/events-api'
 import { SETTINGS_KEYS, SETTINGS_DEFAULTS, fetchAllSettings, setSetting } from '@/lib/settings-api'
 
 // ---------------------------------------------------------------------------
@@ -320,6 +321,7 @@ function DefaultsTab() {
   const [leadDays, setLeadDays] = useState<number>(SETTINGS_DEFAULTS.defaultApplicationsOpenLeadDays)
   const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
   const [pageSize, setPageSize] = useState<number>(SETTINGS_DEFAULTS.studentDashboardPageSize)
+  const [enabledAutomationTypes, setEnabledAutomationTypes] = useState<EmailAutomationType[]>(SETTINGS_DEFAULTS.enabledAutomationTypes as EmailAutomationType[])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -335,6 +337,8 @@ function DefaultsTab() {
       if (typeof mcq === 'number' && Number.isFinite(mcq) && mcq >= 0) setMinCustomQuestions(mcq)
       const ps = s[SETTINGS_KEYS.studentDashboardPageSize]
       if (typeof ps === 'number' && Number.isFinite(ps) && ps > 0) setPageSize(Math.floor(ps))
+      const eat = s[SETTINGS_KEYS.enabledAutomationTypes]
+      if (Array.isArray(eat) && eat.every(x => typeof x === 'string')) setEnabledAutomationTypes(eat as EmailAutomationType[])
       setLoading(false)
     })
   }, [])
@@ -351,6 +355,7 @@ function DefaultsTab() {
       setSetting(SETTINGS_KEYS.defaultApplicationsOpenLeadDays, Math.max(0, Math.floor(leadDays))),
       setSetting(SETTINGS_KEYS.minCustomQuestions, Math.max(0, Math.floor(minCustomQuestions))),
       setSetting(SETTINGS_KEYS.studentDashboardPageSize, Math.max(10, Math.floor(pageSize))),
+      setSetting(SETTINGS_KEYS.enabledAutomationTypes, enabledAutomationTypes),
     ])
     const firstErr = writes.find(w => w.error)
     if (firstErr) setError(firstErr.error)
@@ -397,6 +402,28 @@ function DefaultsTab() {
         />
         <span className="ml-2 text-xs text-gray-500">Default: {SETTINGS_DEFAULTS.studentDashboardPageSize}</span>
       </Section>
+      <Section title="Default email automations available on new events" hint="Which automation types appear in the 'Add automation' picker on the event editor. Untick to remove an option from the default; existing automations on events stay manageable even if their type is later removed.">
+        <div className="space-y-1.5">
+          {(Object.entries(EMAIL_AUTOMATION_TYPE_META) as [EmailAutomationType, { label: string; description: string }][]).map(([type, meta]) => (
+            <label key={type} className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enabledAutomationTypes.includes(type)}
+                onChange={e => {
+                  if (e.target.checked) setEnabledAutomationTypes([...enabledAutomationTypes, type])
+                  else setEnabledAutomationTypes(enabledAutomationTypes.filter(t => t !== type))
+                }}
+                className="mt-1 accent-steps-blue-600"
+              />
+              <span className="text-sm">
+                <strong className="font-semibold">{meta.label}</strong>
+                <span className="block text-xs text-gray-500">{meta.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </Section>
+
 
             <Section title="Minimum custom questions to publish" hint="How many event-specific custom questions a form must have before publish is allowed. Standard auto-included questions (school type, FSM, GCSEs, etc.) don't count. Set to 0 to allow publishing with no custom questions — useful for lightweight events like office hours.">
         <input

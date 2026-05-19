@@ -27,6 +27,7 @@ export const SETTINGS_KEYS = {
   defaultApplicationsOpenLeadDays: 'events.default_applications_open_lead_days',
   minCustomQuestions: 'events.min_custom_questions',
   studentDashboardPageSize: 'students.dashboard_page_size',
+  enabledAutomationTypes: 'events.enabled_automation_types',
 } as const
 
 export type SettingsKey = (typeof SETTINGS_KEYS)[keyof typeof SETTINGS_KEYS]
@@ -43,6 +44,14 @@ export const SETTINGS_DEFAULTS = {
   defaultApplicationsOpenLeadDays: 14,
   minCustomQuestions: 3,
   studentDashboardPageSize: 100,
+  enabledAutomationTypes: [
+    'rsvp_reminder',
+    'event_day_rsvped',
+    'event_day_no_rsvp',
+    'post_event_feedback',
+    'applications_closing',
+    'application_draft_stale',
+  ] as string[],
 } as const
 
 // ---- Client-side helpers (admin-only via RLS) ---------------------------

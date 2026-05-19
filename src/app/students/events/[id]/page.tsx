@@ -914,6 +914,7 @@ export default function EventDetailPage() {
   const [eventActionErr, setEventActionErr] = useState<string | null>(null)
   const [publishErrors, setPublishErrors] = useState<PublishValidationError[] | null>(null)
   const [minCustomQuestions, setMinCustomQuestions] = useState<number>(SETTINGS_DEFAULTS.minCustomQuestions)
+  const [enabledAutomationTypes, setEnabledAutomationTypes] = useState<EmailAutomationType[]>(SETTINGS_DEFAULTS.enabledAutomationTypes as EmailAutomationType[])
   const [signatureHtml, setSignatureHtml] = useState<string>(EMAIL_SIGNATURE_HTML)
   useEffect(() => {
     fetchAllSettings().then(set => {
@@ -925,6 +926,10 @@ export default function EventDetailPage() {
     fetchAllSettings().then(set => {
       const v = set[SETTINGS_KEYS.minCustomQuestions]
       if (typeof v === 'number' && Number.isFinite(v) && v >= 0) setMinCustomQuestions(v)
+      const eat = set[SETTINGS_KEYS.enabledAutomationTypes]
+      if (Array.isArray(eat) && eat.every(x => typeof x === 'string')) {
+        setEnabledAutomationTypes(eat as EmailAutomationType[])
+      }
     })
   }, [])
   void publishErrors
