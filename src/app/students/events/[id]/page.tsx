@@ -1211,6 +1211,8 @@ export default function EventDetailPage() {
     const patch: Record<string, any> = {}
     if (draft.name && draft.name !== baseline.name) patch.name = draft.name
     if (draft.slug && draft.slug !== baseline.slug) patch.slug = draft.slug
+    if ((draft.display_initials ?? null) !== (baseline.display_initials ?? null)) patch.display_initials = draft.display_initials ?? null
+    if ((draft.is_private ?? false) !== (baseline.is_private ?? false)) patch.is_private = !!draft.is_private
     if ((draft.event_date ?? '') !== (baseline.event_date ?? '')) patch.event_date = draft.event_date || null
     if ((draft.location ?? '') !== (baseline.location ?? '')) patch.location = draft.location || null
     if ((draft.location_full ?? '') !== (baseline.location_full ?? '')) patch.location_full = draft.location_full || null
