@@ -367,7 +367,11 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
     : null
 
   // Whether to show the action bar (mobile sticky + inline button row)
-  const showActionsApply = !application && eligibleForApply
+  // Block Apply when applications haven't opened yet ('Coming soon' state).
+  // The card on /my still navigates here so the student can read details,
+  // but the Apply button only appears once applications_open_at has passed.
+  const applicationsNotYetOpen = !!event.applications_open_at && new Date(event.applications_open_at).getTime() > Date.now()
+  const showActionsApply = !application && eligibleForApply && !applicationsNotYetOpen
   const showActionsEdit = application && !isPast && application.status === 'submitted'
   const showActionsWithdraw = application && !isPast && application.status !== 'withdrew' && application.status !== 'rejected'
   const hasActions = showActionsApply || showActionsEdit || showActionsWithdraw

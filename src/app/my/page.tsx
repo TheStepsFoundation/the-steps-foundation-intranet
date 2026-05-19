@@ -9,7 +9,7 @@ import { PressableButton } from '@/components/PressableButton'
 import Link from 'next/link'
 import {
   fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents,
-  signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, fetchMyEventOptoutsVisible, setEventOptout, fetchLiveEvents,
+  signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, fetchMyEventOptoutsVisible, setEventOptout, fetchLiveEvents, fetchScheduledEvents,
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
 import { getDisplayLocation } from '@/lib/event-display'
@@ -78,6 +78,7 @@ function StudentHubInner() {
   const [profile, setProfile] = useState<StudentSelf | null>(null)
   const [applications, setApplications] = useState<HubApplication[]>([])
   const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
+  const [scheduledEvents, setScheduledEvents] = useState<HubEvent[]>([])
   // Admin-preview mode — set when admin opens /my from the Hub Preview overlay.
   // Two flavours: a real student (?_admin_preview=<student_uuid>) or a
   // synthetic profile (?_admin_preview=synthetic&_payload=<base64>).
@@ -619,6 +620,78 @@ function StudentHubInner() {
                           ) : <span />}
                           <span className="flex-shrink-0 px-4 py-2 bg-steps-blue-600 text-white text-sm font-semibold rounded-xl border-t border-white/20 shadow-press-blue group-hover:shadow-press-blue-hover group-hover:-translate-y-0.5 transition-all">
                             View &amp; apply
+                          </span>
+                        </div>
+                      </div>
+                      {event.hub_image_url && (
+                        <div className="flex-shrink-0 w-32 sm:w-60 self-stretch bg-slate-100 relative border-l border-slate-100">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={event.hub_image_url}
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover"
+                            style={{ objectPosition: `${event.hub_focal_x ?? 50}% ${event.hub_focal_y ?? 50}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* === Section: Coming Soon (scheduled, not yet open) === */}
+        {scheduledEvents.length > 0 && (
+          <section className="mb-10" aria-labelledby="coming-soon-heading">
+            <div className="flex items-baseline justify-between mb-1">
+              <h2 id="coming-soon-heading" className="font-display text-xl font-bold text-steps-dark">Coming Soon</h2>
+              <span className="text-xs text-slate-400 uppercase tracking-wider">In the pipeline</span>
+            </div>
+            <p className="text-sm text-slate-500 mb-4">Events scheduled to open for applications. Have a look at what\'s coming — applications open later.</p>
+            <div className="space-y-4">
+              {scheduledEvents.map(event => {
+                const publicLocation = getDisplayLocation(event, false)
+                const openDays = daysUntil(event.applications_open_at)
+                return (
+                  <Link
+                    key={event.id}
+                    href={`/my/events/${event.id}`}
+                    className="relative block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden saturate-50 opacity-80 hover:saturate-100 hover:opacity-100 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 transition group"
+                  >
+                    <div className="flex items-stretch min-h-[160px] sm:min-h-[200px]">
+                      <div className="flex-1 min-w-0 p-5 sm:p-6 flex flex-col">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.18em] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Coming soon</span>
+                        </div>
+                        <h3 className="font-display text-lg sm:text-xl font-bold text-steps-dark group-hover:text-steps-blue-700 transition-colors">
+                          {event.name}
+                        </h3>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 mt-1.5">
+                          {event.event_date && <span className="inline-flex items-center gap-1"><DotIcon /> {formatDate(event.event_date)}</span>}
+                          {event.time_start && (
+                            <span>{event.time_start}{event.time_end ? ` – ${event.time_end}` : ''}</span>
+                          )}
+                          {publicLocation && <span>{publicLocation}</span>}
+                          {event.format && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                              {event.format === 'in_person' ? 'In person' : event.format === 'online' ? 'Online' : event.format}
+                            </span>
+                          )}
+                        </div>
+                        {event.description && (
+                          <p className="text-sm text-slate-500 mt-3 line-clamp-3">{stripToText(event.description)}</p>
+                        )}
+                        <div className="mt-auto pt-4 flex items-center justify-between gap-3 flex-wrap">
+                          {event.applications_open_at ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
+                              <CalendarIcon />
+                              {openDays === 0 ? 'Applications open today' : openDays === 1 ? 'Applications open tomorrow' : openDays !== null && openDays > 0 ? `Applications open in ${openDays} days` : `Opens ${formatShortDate(event.applications_open_at)}`}
+                            </span>
+                          ) : <span />}
+                          <span className="flex-shrink-0 px-3 py-1.5 text-xs font-semibold rounded-lg text-slate-600 border border-slate-200">
+                            Preview
                           </span>
                         </div>
                       </div>

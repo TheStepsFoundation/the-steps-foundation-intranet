@@ -235,6 +235,29 @@ export async function fetchOpenEvents(): Promise<HubEvent[]> {
 // RLS will hide private events the calling student hasn't been invited to.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Scheduled events — status 'open' but applications_open_at is in the
+// future. Surfaced on /my as a 'Coming Soon' section so all students can
+// see what's in the pipeline without being able to apply yet.
+// ---------------------------------------------------------------------------
+
+export async function fetchScheduledEvents(): Promise<HubEvent[]> {
+  const now = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('events')
+    .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year')
+    .is('deleted_at', null)
+    .is('archived_at', null)
+    .not('status', 'in', '(draft,cancelled)')
+    .gt('applications_open_at', now)
+    .order('applications_open_at', { ascending: true })
+  if (error) {
+    console.warn('[hub] fetchScheduledEvents:', error.message)
+    return []
+  }
+  return (data ?? []) as HubEvent[]
+}
+
 export async function fetchLiveEvents(): Promise<HubEvent[]> {
   const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
   const { data, error } = await supabase
