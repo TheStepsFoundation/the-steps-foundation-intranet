@@ -218,7 +218,7 @@ function StudentHubInner() {
         }
         if (adminPreviewMode === 'synthetic' && (adminPreviewKey || adminPreviewPayload)) {
           try {
-            let decoded: { profile?: Record<string, unknown>; applications?: unknown[]; openEvents?: unknown[] } = {}
+            let decoded: { profile?: Record<string, unknown>; applications?: unknown[]; openEvents?: unknown[]; scheduledEvents?: unknown[] } = {}
             if (adminPreviewKey) {
               const raw = typeof window !== 'undefined' ? localStorage.getItem(adminPreviewKey) : null
               if (raw) decoded = JSON.parse(raw)
@@ -254,6 +254,7 @@ function StudentHubInner() {
             populateForm(synthProfile)
             setApplications((decoded.applications ?? []) as HubApplication[])
             setOpenEvents((decoded.openEvents ?? []) as HubEvent[])
+            setScheduledEvents((decoded.scheduledEvents ?? []) as HubEvent[])
             setAuthEmail('preview@thestepsfoundation.com')
             setLoading(false)
           } catch {
@@ -272,6 +273,7 @@ function StudentHubInner() {
           populateForm(data.profile as StudentSelf)
           setApplications((data.applications ?? []) as HubApplication[])
           setOpenEvents((data.openEvents ?? []) as HubEvent[])
+          setScheduledEvents((data.scheduledEvents ?? []) as HubEvent[])
           setAuthEmail(data.profile?.personal_email ?? 'preview@thestepsfoundation.com')
           setLoading(false)
         } catch {

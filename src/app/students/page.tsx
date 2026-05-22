@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StudentHubPreview, type PreviewProfile } from '@/components/StudentHubPreview'
 import type { HubApplication, HubEvent } from '@/lib/hub-api'
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
-import { fetchOpenEvents } from '@/lib/hub-api'
+import { fetchOpenEvents, fetchScheduledEvents } from '@/lib/hub-api'
 import { fetchAllEvents as fetchAllEventsAdmin } from '@/lib/events-api'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched, useEvents } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
@@ -917,6 +917,7 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
   // section in the preview.
   const [pickerEvents, setPickerEvents] = useState<HubEvent[]>([])
   const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
+  const [scheduledEvents, setScheduledEvents] = useState<HubEvent[]>([])
   const [pickedEventStatuses, setPickedEventStatuses] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
 
@@ -925,11 +926,13 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
     Promise.all([
       fetchAllEventsAdmin(),
       fetchOpenEvents(),
-    ]).then(([all, open]) => {
+      fetchScheduledEvents(),
+    ]).then(([all, open, scheduled]) => {
       if (!active) return
       const visible = (all as unknown as HubEvent[]).filter(e => e.status !== 'draft' && e.status !== 'cancelled')
       setPickerEvents(visible)
       setOpenEvents(open)
+      setScheduledEvents(scheduled)
       setLoading(false)
     }).catch(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -963,12 +966,12 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
   const [syntheticVersion, setSyntheticVersion] = useState(0)
   useEffect(() => {
     try {
-      localStorage.setItem(previewKey, JSON.stringify({ profile, applications, openEvents }))
+      localStorage.setItem(previewKey, JSON.stringify({ profile, applications, openEvents, scheduledEvents }))
       setSyntheticVersion(v => v + 1)
     } catch { /* swallow — preview is best-effort */ }
     return () => { try { localStorage.removeItem(previewKey) } catch {} }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewKey, yearGroup, JSON.stringify(pickedEventStatuses), pickerEvents.length, openEvents.length])
+  }, [previewKey, yearGroup, JSON.stringify(pickedEventStatuses), pickerEvents.length, openEvents.length, scheduledEvents.length])
 
   const STATUS_OPTIONS = ['submitted', 'shortlisted', 'waitlist', 'accepted', 'rejected', 'withdrew']
 

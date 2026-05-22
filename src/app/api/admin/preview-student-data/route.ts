@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
   // students only — so we replicate the same filter here. Without this,
   // admin's Hub Preview leaks private events to non-invited students.
   const now = new Date().toISOString()
-  const [{ data: open }, { data: invitations }] = await Promise.all([
+  const [{ data: open }, { data: scheduled }, { data: invitations }] = await Promise.all([
     svc.from('events')
       .select(HUB_EVENT_COLUMNS)
       .is('deleted_at', null)
@@ -137,6 +137,18 @@ export async function GET(req: NextRequest) {
       .lte('applications_open_at', now)
       .gte('applications_close_at', now)
       .order('event_date', { ascending: true }),
+    // Scheduled = published but applications_open_at still in the future.
+    // Mirror of fetchScheduledEvents in hub-api, run service-role here so
+    // the Coming Soon section shows in the admin Hub Preview the same as
+    // it does for the real student.
+    svc.from('events')
+      .select(HUB_EVENT_COLUMNS)
+      .is('deleted_at', null)
+      .is('archived_at', null)
+      .neq('status', 'draft')
+      .neq('status', 'cancelled')
+      .gt('applications_open_at', now)
+      .order('applications_open_at', { ascending: true }),
     svc.from('event_invitations')
       .select('event_id')
       .eq('student_id', studentId),
@@ -144,11 +156,15 @@ export async function GET(req: NextRequest) {
 
   const appliedSet = new Set(eventIds)
   const invitedSet = new Set((invitations ?? []).map((i: { event_id: string }) => i.event_id))
-  const openEvents = ((open ?? []) as Array<Record<string, unknown>>).filter(e => {
+  // Same visibility rule for both lists: not already applied to, and either
+  // public or one the student was explicitly invited to.
+  const visibleToStudent = (e: Record<string, unknown>) => {
     if (appliedSet.has(e.id as string)) return false
     if (e.is_private === true && !invitedSet.has(e.id as string)) return false
     return true
-  })
+  }
+  const openEvents = ((open ?? []) as Array<Record<string, unknown>>).filter(visibleToStudent)
+  const scheduledEvents = ((scheduled ?? []) as Array<Record<string, unknown>>).filter(visibleToStudent)
 
-  return NextResponse.json({ profile, applications, openEvents })
+  return NextResponse.json({ profile, applications, openEvents, scheduledEvents })
 }
