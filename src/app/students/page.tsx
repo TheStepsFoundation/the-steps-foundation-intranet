@@ -10,6 +10,8 @@ import { fetchAllEvents as fetchAllEventsAdmin } from '@/lib/events-api'
 import { EVENTS, EnrichedStudent, Eligibility, SchoolType, fetchAllStudentsEnriched, useEvents } from '@/lib/students-api'
 import { supabase } from '@/lib/supabase'
 import SelectAllBanner from '@/components/SelectAllBanner'
+import ExportButton from '@/components/ExportButton'
+import type { ExportColumn } from '@/lib/export-data'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -84,6 +86,59 @@ const defaultFilters = (): Filters => ({
   minAttended: 0,
   minEngagement: 0,
 })
+
+// --- Export configuration --------------------------------------------------
+function exportIncomeBandLabel(band: string | null): string {
+  switch (band) {
+    case 'under_25k': return 'Under \u00a325k'
+    case 'under_40k': return 'Under \u00a340k'
+    case 'under_60k': return 'Under \u00a360k'
+    case 'over_60k': return 'Over \u00a360k'
+    case 'over_40k': return '\u00a340k or more'
+    case 'prefer_na': return 'Prefer not to say'
+    default: return band ?? ''
+  }
+}
+function exportSchoolTypeLabel(t: string | null): string {
+  switch (t) {
+    case 'state': return 'State'
+    case 'grammar': return 'Grammar'
+    case 'independent': return 'Independent'
+    case 'independent_bursary': return 'Independent (90%+ bursary)'
+    default: return t ?? ''
+  }
+}
+function exportFmtDate(ts: string | null): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+const STUDENT_EXPORT_COLUMNS: ExportColumn<EnrichedStudent>[] = [
+  { id: 'name', label: 'Name', accessor: s => `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim() },
+  { id: 'preferred_name', label: 'Preferred name', accessor: s => s.preferred_name ?? '' },
+  { id: 'email', label: 'Email', accessor: s => s.personal_email ?? '' },
+  { id: 'year_group', label: 'Year group', accessor: s => s.year_group ?? '' },
+  { id: 'school', label: 'School', accessor: s => s.school_name_raw ?? '' },
+  { id: 'school_linked', label: 'School (linked)', accessor: s => s.school_name ?? '' },
+  { id: 'school_type', label: 'School type', accessor: s => exportSchoolTypeLabel(s.school_type) },
+  { id: 'eligibility', label: 'Eligibility', accessor: s => s.eligibility },
+  { id: 'fsm', label: 'Free school meals', accessor: s => s.free_school_meals },
+  { id: 'income', label: 'Household income', accessor: s => exportIncomeBandLabel(s.parental_income_band) },
+  { id: 'smi_count', label: 'SMI count', accessor: s => s.smi_count },
+  { id: 'first_gen', label: 'First-generation uni', accessor: s => s.first_generation_uni },
+  { id: 'engagement', label: 'Engagement score', accessor: s => s.engagement_score },
+  { id: 'attended', label: 'Events attended', accessor: s => s.attended_count },
+  { id: 'accepted', label: 'Events accepted', accessor: s => s.accepted_count },
+  { id: 'no_show', label: 'No-shows', accessor: s => s.no_show_count },
+  { id: 'submitted', label: 'Apps submitted', accessor: s => s.submitted_count },
+  { id: 'rejected', label: 'Rejections', accessor: s => s.rejected_count },
+  { id: 'bonus', label: 'Bonus points', accessor: s => s.bonus_total },
+  { id: 'subscribed', label: 'Subscribed to mailing', accessor: s => s.subscribed_to_mailing },
+  { id: 'town', label: 'School town', accessor: s => s.school_town ?? '' },
+  { id: 'postcode', label: 'School postcode', accessor: s => s.school_postcode ?? '' },
+  { id: 'created_at', label: 'Date added', accessor: s => exportFmtDate(s.created_at) },
+]
+const STUDENT_EXPORT_DEFAULT = ['name', 'email', 'school', 'year_group', 'school_type', 'eligibility', 'engagement', 'attended']
 
 export default function StudentsDashboard() {
   const { events: EVENTS_LIVE } = useEvents()
@@ -570,6 +625,15 @@ export default function StudentsDashboard() {
         <span className="inline-flex items-center gap-1"><span className="text-gray-300 dark:text-gray-700">—</span> Didn't apply</span>
         <span className="inline-flex items-center gap-1"><span className="text-amber-500">★</span> +1 bonus</span>
         <span className="inline-flex items-center gap-1"><span className="text-red-500">▼</span> -1 bonus</span>
+        <div className="ml-auto">
+          <ExportButton<EnrichedStudent>
+            rows={filtered}
+            columns={STUDENT_EXPORT_COLUMNS}
+            defaultSelectedIds={STUDENT_EXPORT_DEFAULT}
+            filenameBase={`steps-students-${new Date().toISOString().slice(0, 10)}`}
+            sheetTitle={`Steps students (${filtered.length})`}
+          />
+        </div>
       </div>
 
       {/* Bulk actions */}

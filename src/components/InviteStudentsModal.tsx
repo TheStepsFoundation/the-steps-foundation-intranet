@@ -6,6 +6,8 @@ import { type EnrichedStudent, fetchAllStudentsEnriched, fetchEnrichedStudent, u
 import { type EventRow, fetchEvent, formatOpenTo } from '@/lib/events-api'
 import SelectAllBanner from './SelectAllBanner'
 import ColumnPicker, { type ColumnPickerItem } from './ColumnPicker'
+import ExportButton from './ExportButton'
+import type { ExportColumn } from '@/lib/export-data'
 import {
   type RichTextEmailEditorHandle,
   type SingleLineMergeEditorHandle,
@@ -314,6 +316,26 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     for (const c of INVITE_COLUMN_DEFS) if (!seen.has(c.id)) result.push(c.id)
     return result.filter(id => !hiddenCols.has(id))
   }, [colOrder, hiddenCols])
+
+  // Columns for the exporter - name + email always offered, plus the same
+  // optional columns the picker shows. Mirrors the on-screen cell formatting.
+  const inviteExportColumns = useMemo<ExportColumn<EnrichedStudent>[]>(() => [
+    { id: 'name', label: 'Name', accessor: s => `${s.first_name ?? ''} ${s.last_name ?? ''}`.trim() },
+    { id: 'email', label: 'Email', accessor: s => s.personal_email ?? '' },
+    { id: 'school_type', label: 'School type', accessor: s => s.school_type ? s.school_type.charAt(0).toUpperCase() + s.school_type.slice(1) : '' },
+    { id: 'year', label: 'Year group', accessor: s => s.year_group ?? '' },
+    { id: 'events', label: 'Events attended', accessor: s => EVENTS.length > 0 ? `${s.attended_count}/${EVENTS.length}` : '' },
+    { id: 'past_events_detail', label: 'Past events (att:acc:sub)', accessor: s => `${s.attended_count ?? 0}:${s.accepted_count ?? 0}:${s.submitted_count ?? 0}` },
+    { id: 'eligibility', label: 'Eligibility', accessor: s => s.eligibility === 'eligible' ? 'Eligible' : 'Unknown' },
+    { id: 'score', label: 'Engagement score', accessor: s => s.engagement_score },
+    { id: 'apps_total', label: 'Total applications', accessor: s => (s.applications ?? []).length },
+    { id: 'last_contacted', label: 'Last contacted', accessor: s => {
+      const ts = lastContactedForEvent[s.id] || lastContactedAny[s.id]
+      return ts ? formatAbsolute(ts) : ''
+    } },
+  ], [EVENTS, lastContactedForEvent, lastContactedAny])
+
+  const inviteExportDefault = useMemo(() => ['name', 'email', ...visibleCols], [visibleCols])
 
   // Filters
   const [yearFilter, setYearFilter] = useState<string[]>([])
@@ -1158,7 +1180,14 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                 </div>
 
                 {/* Column picker — per-user persistence via localStorage */}
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-2">
+                  <ExportButton<EnrichedStudent>
+                    rows={filtered}
+                    columns={inviteExportColumns}
+                    defaultSelectedIds={inviteExportDefault}
+                    filenameBase={`${eventName}-candidates`}
+                    sheetTitle={`${eventName} \u2014 candidates (${filtered.length})`}
+                  />
                   <ColumnPicker
                     allColumns={INVITE_COLUMN_DEFS}
                     hidden={hiddenCols}

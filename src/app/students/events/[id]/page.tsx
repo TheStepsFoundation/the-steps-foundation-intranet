@@ -18,6 +18,8 @@ import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
 import { eventFeedbackByEventId } from '@/data/event-feedback'
 import LinkableInput from '@/components/LinkableInput'
 import ColumnPicker, { ColumnPickerItem } from '@/components/ColumnPicker'
+import ExportButton from '@/components/ExportButton'
+import type { ExportColumn } from '@/lib/export-data'
 import SelectAllBanner from '@/components/SelectAllBanner'
 import {
   RichTextEmailEditor,
@@ -2634,6 +2636,77 @@ export default function EventDetailPage() {
     })
   }, [allColumns, hiddenCols, statusFilter])
 
+  // Columns available to the exporter - mirrors the on-screen cell formatting
+  // so an export reads the same as the table, and is built from the same
+  // allColumns model the ColumnPicker uses (so custom form-question columns
+  // export too).
+  const applicantExportColumns = useMemo<ExportColumn<Applicant>[]>(() => {
+    const incomeLabel = (b: string | null) =>
+      b === 'under_25k' ? 'Under \u00a325k' : b === 'under_40k' ? 'Under \u00a340k'
+      : b === 'under_60k' ? 'Under \u00a360k' : b === 'over_60k' ? 'Over \u00a360k' : (b ?? '')
+    const fmtTs = (ts: string | null) => ts
+      ? new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : ''
+    const cell = (app: Applicant, colId: string): string | number => {
+      switch (colId) {
+        case 'name': return `${app.first_name ?? ''} ${app.last_name ?? ''}`.trim()
+        case 'school_type': return app.school_type ? app.school_type.charAt(0).toUpperCase() + app.school_type.slice(1) : ''
+        case 'status': return STATUS_MAP[app.status]?.label ?? app.status
+        case 'internal_review': return getInternalReviewMeta(app.internal_review_status)?.adminLabel ?? ''
+        case 'grades': {
+          const post16 = app.qualifications.filter(q => /a.?level|ib|btec/i.test(q.qualType) || q.level === 'post-16')
+          const letters = post16.map(q => q.grade).filter(Boolean).join(', ')
+          return post16.length > 0 ? `${letters} (${app.gradeScore})` : ''
+        }
+        case 'engagement': return app.engagementScore
+        case 'past_events': {
+          const sub = Math.max(0, (app.totalApplications ?? 0) - 1)
+          const acc = Math.max(0, (app.acceptedCount ?? 0) - (app.status === 'accepted' ? 1 : 0))
+          const att = Math.max(0, (app.attendedCount ?? 0) - (app.attended ? 1 : 0))
+          return sub === 0 ? 'New' : `${att}/${acc}/${sub}`
+        }
+        case 'rsvp': return app.status === 'accepted' ? (app.rsvp_confirmed === true ? 'Yes' : 'Pending') : ''
+        case 'attended': return app.attended ? 'Yes' : 'No'
+        case 'submitted_at': return fmtTs(app.submitted_at)
+        case 'school': return app.school_name ?? ''
+        case 'email': return app.personal_email ?? ''
+        case 'year_group': return app.year_group != null ? (app.year_group === 14 ? 'Gap' : `Y${app.year_group}`) : ''
+        case 'parental_income': return incomeLabel(app.parental_income_band)
+        case 'fsm': return app.free_school_meals === true ? 'Yes' : app.free_school_meals === false ? 'No' : ''
+        case 'attribution': return (app.attributionSource ?? app.attributionChannel ?? '').replace(/_/g, ' ')
+        case 'reviewed_at': return app.reviewed_at ? `${fmtTs(app.reviewed_at)}${app.reviewer_name ? ` (${app.reviewer_name})` : ''}` : ''
+        case 'std_first_gen': return app.firstGenerationUni === true ? 'Yes' : app.firstGenerationUni === false ? 'No' : ''
+        case 'std_additional': return app.additionalContext ?? ''
+        case 'std_anything_else': return app.anythingElse ?? ''
+        case 'std_attribution': {
+          const v = app.attributionChannel || app.attributionSource || ''
+          return v ? toTitleCase(v) : ''
+        }
+        default: {
+          const cfId = colId.replace(/^cf_/, '')
+          const val = app.customFields[cfId]
+          if (val == null) return ''
+          if (Array.isArray(val)) {
+            return val.map(v => typeof v === 'object' && v !== null
+              ? Object.values(v as Record<string, unknown>).filter(Boolean).map(x => toTitleCase(String(x))).join(': ')
+              : toTitleCase(String(v))).join(', ')
+          }
+          if (typeof val === 'object') {
+            const obj = val as Record<string, unknown>
+            const ranked = Object.keys(obj).some(k => k in ORDINAL)
+            if (ranked) {
+              const keys = ['first', 'second', 'third', 'fourth', 'fifth'].filter(k => obj[k])
+              return keys.map(k => `${ORDINAL[k]}: ${toTitleCase(String(obj[k]))}`).join(', ')
+            }
+            return Object.entries(obj).filter(([, v]) => v).map(([, v]) => toTitleCase(String(v))).join(', ')
+          }
+          return String(val)
+        }
+      }
+    }
+    return allColumns.map(c => ({ id: c.id, label: c.label, accessor: (app: Applicant) => cell(app, c.id) }))
+  }, [allColumns])
+
   const toggleCol = useCallback((id: string) => {
     setHiddenCols(prev => {
       const next = new Set(prev)
@@ -3343,6 +3416,15 @@ export default function EventDetailPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 w-64"
+            />
+
+            {/* Export */}
+            <ExportButton<Applicant>
+              rows={filtered}
+              columns={applicantExportColumns}
+              defaultSelectedIds={visibleColumns.map(c => c.id)}
+              filenameBase={`${event?.name ?? 'event'}-applicants`}
+              sheetTitle={`${event?.name ?? 'Event'} \u2014 applicants (${filtered.length})`}
             />
 
             {/* Filter & Sort toggle */}
