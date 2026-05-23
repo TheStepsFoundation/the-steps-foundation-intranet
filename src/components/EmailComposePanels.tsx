@@ -306,6 +306,47 @@ export type EmailPreviewPanelProps = {
   footerBanner?: ReactNode     // amber callout below the preview (recipient count, status-change note, etc.)
 }
 
+// ---------------------------------------------------------------------------
+// EmailBodyFrame — renders the composed body inside a sandboxed iframe so the
+// preview is CSS-isolated from the app. The app's Tailwind Preflight resets
+// list styling (<ul>/<li> render with no bullets or indent), which made
+// malformed list markup look clean in the old in-div preview while Gmail
+// rendered real bullets (including empty <li> ones). A bare iframe with
+// default user-agent styles matches what mail clients actually show, so the
+// admin sees the true formatting before sending.
+//
+// sandbox="allow-same-origin" (no allow-scripts) keeps scripts in the body
+// from executing while still letting us read scrollHeight to auto-size.
+// ---------------------------------------------------------------------------
+function EmailBodyFrame({ html }: { html: string }) {
+  const ref = useRef<HTMLIFrameElement | null>(null)
+  const [height, setHeight] = useState(360)
+  const srcDoc =
+    '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<style>html,body{margin:0;padding:0;background:#fff;color:#222;' +
+    'font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;' +
+    '-webkit-text-size-adjust:100%}body{padding:2px 2px 8px}' +
+    'img{max-width:100%}</style></head><body>' + html + '</body></html>'
+  const measure = () => {
+    const doc = ref.current?.contentDocument
+    if (!doc) return
+    const h = Math.max(doc.documentElement?.scrollHeight ?? 0, doc.body?.scrollHeight ?? 0)
+    if (h > 0) setHeight(h + 4)
+  }
+  return (
+    <iframe
+      ref={ref}
+      title="Email body preview"
+      srcDoc={srcDoc}
+      sandbox="allow-same-origin"
+      onLoad={() => { measure(); setTimeout(measure, 200) }}
+      className="w-full border-0 bg-white rounded-sm"
+      style={{ height }}
+    />
+  )
+}
+
 export function EmailPreviewPanel(props: EmailPreviewPanelProps) {
   const { recipientName, recipientEmail, filledSubject, filledBodyHtml, appendSignature = true, footerBanner } = props
   const body = appendSignature ? filledBodyHtml + EMAIL_SIGNATURE_HTML : filledBodyHtml
@@ -321,7 +362,7 @@ export function EmailPreviewPanel(props: EmailPreviewPanelProps) {
         <div className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
           {filledSubject}
         </div>
-        <div dangerouslySetInnerHTML={{ __html: wrappedBody }} />
+        <EmailBodyFrame html={wrappedBody} />
       </div>
       {footerBanner}
     </div>
