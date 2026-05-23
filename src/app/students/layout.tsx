@@ -59,6 +59,7 @@ export default function StudentsLayout({ children }: { children: React.ReactNode
             <nav className="hidden sm:flex items-center gap-1 text-sm">
               <Link href="/hub" className="px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Hub</Link>
               <Link href="/" className="px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Task Tracker</Link>
+              <Link href="/tracker/strategy" className="px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Strategy</Link>
               <NavDropdown label="Students" active={pathname.startsWith('/students')} items={[
                 { href: '/students', label: 'Dashboard' },
                 { href: '/students/events', label: 'Events' },
