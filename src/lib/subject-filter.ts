@@ -57,6 +57,14 @@ export function collectSubjectOptions(rows: { qualifications?: unknown }[]): str
 }
 
 /**
+ * Comma-separated, deduped, sorted display list of a row's subjects — for
+ * the "Subjects" export column. Empty string when there are none.
+ */
+export function subjectsForExport(qualifications: unknown): string {
+  return collectSubjectOptions([{ qualifications }]).join(', ')
+}
+
+/**
  * Does this row's subject set satisfy the selected subjects under the mode?
  * `selected` is an array of display values (matched case-insensitively).
  *   - 'any'  → row studies at least one selected subject

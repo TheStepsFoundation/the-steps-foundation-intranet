@@ -13,7 +13,7 @@ import SelectAllBanner from '@/components/SelectAllBanner'
 import ExportButton from '@/components/ExportButton'
 import type { ExportColumn } from '@/lib/export-data'
 import SubjectFilter from '@/components/SubjectFilter'
-import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, type SubjectMatchMode } from '@/lib/subject-filter'
+import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, subjectsForExport, type SubjectMatchMode } from '@/lib/subject-filter'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -128,6 +128,7 @@ const STUDENT_EXPORT_COLUMNS: ExportColumn<EnrichedStudent>[] = [
   { id: 'school_linked', label: 'School (linked)', accessor: s => s.school_name ?? '' },
   { id: 'school_type', label: 'School type', accessor: s => exportSchoolTypeLabel(s.school_type) },
   { id: 'eligibility', label: 'Eligibility', accessor: s => s.eligibility },
+  { id: 'subjects', label: 'Subjects', accessor: s => subjectsForExport(s.qualifications) },
   { id: 'fsm', label: 'Free school meals', accessor: s => s.free_school_meals },
   { id: 'income', label: 'Household income', accessor: s => exportIncomeBandLabel(s.parental_income_band) },
   { id: 'smi_count', label: 'SMI count', accessor: s => s.smi_count },
@@ -144,7 +145,7 @@ const STUDENT_EXPORT_COLUMNS: ExportColumn<EnrichedStudent>[] = [
   { id: 'postcode', label: 'School postcode', accessor: s => s.school_postcode ?? '' },
   { id: 'created_at', label: 'Date added', accessor: s => exportFmtDate(s.created_at) },
 ]
-const STUDENT_EXPORT_DEFAULT = ['name', 'email', 'school', 'year_group', 'school_type', 'eligibility', 'engagement', 'attended']
+const STUDENT_EXPORT_DEFAULT = ['name', 'email', 'school', 'year_group', 'school_type', 'subjects', 'eligibility', 'engagement', 'attended']
 
 export default function StudentsDashboard() {
   const { events: EVENTS_LIVE } = useEvents()

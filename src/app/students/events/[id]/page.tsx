@@ -21,7 +21,7 @@ import ColumnPicker, { ColumnPickerItem } from '@/components/ColumnPicker'
 import ExportButton from '@/components/ExportButton'
 import type { ExportColumn } from '@/lib/export-data'
 import SubjectFilter from '@/components/SubjectFilter'
-import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, type SubjectMatchMode } from '@/lib/subject-filter'
+import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, subjectsForExport, type SubjectMatchMode } from '@/lib/subject-filter'
 import SelectAllBanner from '@/components/SelectAllBanner'
 import {
   RichTextEmailEditor,
@@ -2719,7 +2719,10 @@ export default function EventDetailPage() {
         }
       }
     }
-    return allColumns.map(c => ({ id: c.id, label: c.label, accessor: (app: Applicant) => cell(app, c.id) }))
+    return [
+      ...allColumns.map(c => ({ id: c.id, label: c.label, accessor: (app: Applicant) => cell(app, c.id) })),
+      { id: 'subjects', label: 'Subjects', accessor: (app: Applicant) => subjectsForExport(app.qualifications) },
+    ]
   }, [allColumns])
 
   const toggleCol = useCallback((id: string) => {
@@ -3437,7 +3440,7 @@ export default function EventDetailPage() {
             <ExportButton<Applicant>
               rows={filtered}
               columns={applicantExportColumns}
-              defaultSelectedIds={visibleColumns.map(c => c.id)}
+              defaultSelectedIds={[...visibleColumns.map(c => c.id), 'subjects']}
               filenameBase={`${event?.name ?? 'event'}-applicants`}
               sheetTitle={`${event?.name ?? 'Event'} \u2014 applicants (${filtered.length})`}
             />

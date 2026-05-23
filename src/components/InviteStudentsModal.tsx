@@ -9,7 +9,7 @@ import ColumnPicker, { type ColumnPickerItem } from './ColumnPicker'
 import ExportButton from './ExportButton'
 import type { ExportColumn } from '@/lib/export-data'
 import SubjectFilter from './SubjectFilter'
-import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, type SubjectMatchMode } from '@/lib/subject-filter'
+import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, subjectsForExport, type SubjectMatchMode } from '@/lib/subject-filter'
 import {
   type RichTextEmailEditorHandle,
   type SingleLineMergeEditorHandle,
@@ -335,9 +335,10 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
       const ts = lastContactedForEvent[s.id] || lastContactedAny[s.id]
       return ts ? formatAbsolute(ts) : ''
     } },
+    { id: 'subjects', label: 'Subjects', accessor: s => subjectsForExport(s.qualifications) },
   ], [EVENTS, lastContactedForEvent, lastContactedAny])
 
-  const inviteExportDefault = useMemo(() => ['name', 'email', ...visibleCols], [visibleCols])
+  const inviteExportDefault = useMemo(() => ['name', 'email', 'subjects', ...visibleCols], [visibleCols])
 
   // Filters
   const [yearFilter, setYearFilter] = useState<string[]>([])
