@@ -20,6 +20,8 @@ import LinkableInput from '@/components/LinkableInput'
 import ColumnPicker, { ColumnPickerItem } from '@/components/ColumnPicker'
 import ExportButton from '@/components/ExportButton'
 import type { ExportColumn } from '@/lib/export-data'
+import SubjectFilter from '@/components/SubjectFilter'
+import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, type SubjectMatchMode } from '@/lib/subject-filter'
 import SelectAllBanner from '@/components/SelectAllBanner'
 import {
   RichTextEmailEditor,
@@ -790,6 +792,8 @@ export default function EventDetailPage() {
   // Column filters
   const [yearGroupFilter, setYearGroupFilter] = useState<string>('all')
   const [schoolTypeFilter, setSchoolTypeFilter] = useState<string>('all')
+  const [subjectFilter, setSubjectFilter] = useState<string[]>([])
+  const [subjectMode, setSubjectMode] = useState<SubjectMatchMode>('any')
 
   // Filter/sort panel visibility
   const [showFilters, setShowFilters] = useState(false)
@@ -823,6 +827,8 @@ export default function EventDetailPage() {
           hiddenCols: string[]
           colOrder: string[]
           search: string
+          subjectFilter: string[]
+          subjectMode: SubjectMatchMode
         }>
         if (typeof v.statusFilter === 'string') setStatusFilter(v.statusFilter)
         if (typeof v.yearGroupFilter === 'string') setYearGroupFilter(v.yearGroupFilter)
@@ -831,6 +837,8 @@ export default function EventDetailPage() {
         if (typeof v.sortKey === 'string') setSortKey(v.sortKey)
         if (typeof v.sortDir === 'string') setSortDir(v.sortDir)
         if (typeof v.search === 'string') setSearch(v.search)
+        if (Array.isArray(v.subjectFilter)) setSubjectFilter(v.subjectFilter.filter((x): x is string => typeof x === 'string'))
+        if (v.subjectMode === 'any' || v.subjectMode === 'all') setSubjectMode(v.subjectMode)
       }
     } catch {
       // Corrupt or inaccessible storage — fall through to defaults.
@@ -850,12 +858,14 @@ export default function EventDetailPage() {
         sortKey,
         sortDir,
         search,
+        subjectFilter,
+        subjectMode,
       }
       window.localStorage.setItem(viewStorageKey, JSON.stringify(payload))
     } catch {
       // Storage full / disabled — view still works for this session.
     }
-  }, [viewHydrated, eventId, viewStorageKey, statusFilter, yearGroupFilter, schoolTypeFilter, minGradeScore, sortKey, sortDir, search])
+  }, [viewHydrated, eventId, viewStorageKey, statusFilter, yearGroupFilter, schoolTypeFilter, minGradeScore, sortKey, sortDir, search, subjectFilter, subjectMode])
 
   // Seed column config (hidden + order) from the event row when it loads.
   // Shared across admins: lives in events.dashboard_columns. We only seed once,
@@ -1770,6 +1780,8 @@ export default function EventDetailPage() {
   // Filtering
   // ---------------------------------------------------------------------------
 
+  const subjectOptions = useMemo(() => collectSubjectOptions(applicants), [applicants])
+
   const filtered = useMemo(() => {
     let list = applicants
     if (statusFilter !== 'all') {
@@ -1791,6 +1803,9 @@ export default function EventDetailPage() {
     }
     if (minGradeScore > 0) {
       list = list.filter(a => a.gradeScore >= minGradeScore)
+    }
+    if (subjectFilter.length > 0) {
+      list = list.filter(a => matchesSubjects(extractSubjectsLower(a.qualifications), subjectFilter, subjectMode))
     }
     // Sort
     const dir = sortDir === 'asc' ? 1 : -1
@@ -1820,7 +1835,7 @@ export default function EventDetailPage() {
       }
     })
     return list
-  }, [applicants, statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, sortKey, sortDir])
+  }, [applicants, statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir])
 
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = { all: applicants.length }
@@ -1845,7 +1860,7 @@ export default function EventDetailPage() {
   const paged = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page])
 
   // Reset page when filters change
-  useEffect(() => { setPage(0) }, [statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, sortKey, sortDir])
+  useEffect(() => { setPage(0) }, [statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir])
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -3431,7 +3446,7 @@ export default function EventDetailPage() {
             <button
               onClick={() => setShowFilters(f => !f)}
               className={`px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-1.5 ${
-                showFilters || yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || hiddenCols.size > 0
+                showFilters || yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0
                   ? 'border-steps-blue-300 bg-steps-blue-50 text-steps-blue-700 dark:border-steps-blue-600 dark:bg-steps-blue-900/20 dark:text-steps-blue-400'
                   : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
@@ -3440,7 +3455,7 @@ export default function EventDetailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
               </svg>
               Filter & Sort
-              {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || hiddenCols.size > 0) && (
+              {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0) && (
                 <span className="w-1.5 h-1.5 rounded-full bg-steps-blue-500" />
               )}
             </button>
@@ -3566,6 +3581,18 @@ export default function EventDetailPage() {
                   />
                 </div>
 
+                {/* Subjects */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Subjects</label>
+                  <SubjectFilter
+                    compact
+                    options={subjectOptions}
+                    selected={subjectFilter}
+                    mode={subjectMode}
+                    onChange={(sel, m) => { setSubjectFilter(sel); setSubjectMode(m) }}
+                  />
+                </div>
+
                 {/* Divider */}
                 <div className="w-px h-8 bg-gray-300 dark:bg-gray-600 self-end" />
 
@@ -3606,9 +3633,9 @@ export default function EventDetailPage() {
                 </div>
 
                 {/* Reset */}
-                {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || hiddenCols.size > 0 || colOrder.length > 0) && (
+                {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0 || colOrder.length > 0) && (
                   <button
-                    onClick={() => { setYearGroupFilter('all'); setSchoolTypeFilter('all'); setSortKey('submitted_at'); setSortDir('desc'); setMinGradeScore(0); resetCols(); try { window.localStorage.removeItem(viewStorageKey) } catch {} }}
+                    onClick={() => { setYearGroupFilter('all'); setSchoolTypeFilter('all'); setSortKey('submitted_at'); setSortDir('desc'); setMinGradeScore(0); setSubjectFilter([]); setSubjectMode('any'); resetCols(); try { window.localStorage.removeItem(viewStorageKey) } catch {} }}
                     className="px-2.5 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline self-end"
                   >
                     Reset all

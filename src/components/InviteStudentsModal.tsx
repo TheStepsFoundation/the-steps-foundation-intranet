@@ -8,6 +8,8 @@ import SelectAllBanner from './SelectAllBanner'
 import ColumnPicker, { type ColumnPickerItem } from './ColumnPicker'
 import ExportButton from './ExportButton'
 import type { ExportColumn } from '@/lib/export-data'
+import SubjectFilter from './SubjectFilter'
+import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, type SubjectMatchMode } from '@/lib/subject-filter'
 import {
   type RichTextEmailEditorHandle,
   type SingleLineMergeEditorHandle,
@@ -344,6 +346,8 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
   const [eventFilter, setEventFilter] = useState<string[]>([])
   const [eventDropdownOpen, setEventDropdownOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [subjectFilter, setSubjectFilter] = useState<string[]>([])
+  const [subjectMode, setSubjectMode] = useState<SubjectMatchMode>('any')
 
   // Student preview panel
   const [previewStudent, setPreviewStudent] = useState<EnrichedStudent | null>(null)
@@ -493,6 +497,8 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
     return sorted
   }, [students])
 
+  const subjectOptions = useMemo(() => collectSubjectOptions(students), [students])
+
   const filtered = useMemo(() => {
     const cutoff = hideContactedDays > 0
       ? new Date(Date.now() - hideContactedDays * 24 * 60 * 60 * 1000).toISOString()
@@ -519,9 +525,10 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
             !(s.school_type ?? '').toLowerCase().includes(q) &&
             !(s.personal_email ?? '').toLowerCase().includes(q)) return false
       }
+      if (subjectFilter.length > 0 && !matchesSubjects(extractSubjectsLower(s.qualifications), subjectFilter, subjectMode)) return false
       return true
     })
-  }, [students, yearFilter, minScore, minAttended, eventFilter, search, hideContactedDays, hideContactedScope, lastContactedForEvent, lastContactedAny])
+  }, [students, yearFilter, minScore, minAttended, eventFilter, search, subjectFilter, subjectMode, hideContactedDays, hideContactedScope, lastContactedForEvent, lastContactedAny])
 
   // Pagination
   const PAGE_SIZE = 50
@@ -1071,6 +1078,18 @@ export default function InviteStudentsModal({ eventId, eventName, eventSlug, tea
                     onChange={e => setMinScore(Number(e.target.value))}
                     className="w-14 px-2 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
                     min={0}
+                  />
+                </div>
+
+                {/* Subjects */}
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-gray-500">Subjects:</span>
+                  <SubjectFilter
+                    compact
+                    options={subjectOptions}
+                    selected={subjectFilter}
+                    mode={subjectMode}
+                    onChange={(sel, m) => { setSubjectFilter(sel); setSubjectMode(m) }}
                   />
                 </div>
 

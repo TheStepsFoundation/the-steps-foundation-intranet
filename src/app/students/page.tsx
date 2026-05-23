@@ -12,6 +12,8 @@ import { supabase } from '@/lib/supabase'
 import SelectAllBanner from '@/components/SelectAllBanner'
 import ExportButton from '@/components/ExportButton'
 import type { ExportColumn } from '@/lib/export-data'
+import SubjectFilter from '@/components/SubjectFilter'
+import { extractSubjectsLower, collectSubjectOptions, matchesSubjects, type SubjectMatchMode } from '@/lib/subject-filter'
 
 type SortKey =
   | 'engagement' | 'attended' | 'accepted' | 'no_show' | 'submitted'
@@ -72,6 +74,8 @@ type Filters = {
   eventStatus: Record<string, EventStatus>
   minAttended: number
   minEngagement: number
+  subjects: string[]
+  subjectMode: SubjectMatchMode
 }
 
 const defaultFilters = (): Filters => ({
@@ -85,6 +89,8 @@ const defaultFilters = (): Filters => ({
   eventStatus: Object.fromEntries(EVENTS.map(e => [e.id, 'any' as EventStatus])),
   minAttended: 0,
   minEngagement: 0,
+  subjects: [],
+  subjectMode: 'any',
 })
 
 // --- Export configuration --------------------------------------------------
@@ -183,6 +189,8 @@ export default function StudentsDashboard() {
     return () => { active = false }
   }, [])
 
+  const subjectOptions = useMemo(() => collectSubjectOptions(students), [students])
+
   const yearGroupOptions = useMemo(() => {
     const set = new Set<string>()
     for (const s of students) if (s.year_group) set.add(s.year_group)
@@ -276,6 +284,7 @@ export default function StudentsDashboard() {
       }
       if (f.minAttended > 0 && s.attended_count < f.minAttended) return false
       if (f.minEngagement > 0 && s.engagement_score < f.minEngagement) return false
+      if (f.subjects.length && !matchesSubjects(extractSubjectsLower(s.qualifications), f.subjects, f.subjectMode)) return false
       return true
     })
     const dir = sortDir === 'asc' ? 1 : -1
@@ -577,6 +586,15 @@ export default function StudentsDashboard() {
                 </div>
               </div>
             </div>
+          </Segment>
+
+          <Segment title="Subjects">
+            <SubjectFilter
+              options={subjectOptions}
+              selected={filters.subjects}
+              mode={filters.subjectMode}
+              onChange={(subjects, subjectMode) => setFilters(f => ({ ...f, subjects, subjectMode }))}
+            />
           </Segment>
 
           <Segment title="Thresholds">
