@@ -195,3 +195,40 @@ strong .merge-tag-chip,
 .merge-tag-chip[data-bold='true'] {
   font-weight: 700 !important;
 }
+
+/* Compose surface should render like a mail client (Gmail), not like the
+   app. Tailwind's Preflight strips list bullets/indent and paragraph
+   margins, so a list-formatted (or malformed) body looked clean while
+   composing but rendered with real bullets in Gmail. These rules restore
+   user-agent / email defaults inside the editor so what you type matches
+   what the recipient sees — same defaults as the send-preview iframe. */
+.email-compose-surface {
+  font-family: Arial, Helvetica, sans-serif;
+}
+.email-compose-surface p {
+  margin: 1em 0;
+}
+.email-compose-surface ul {
+  list-style: disc outside;
+  padding-left: 40px;
+  margin: 1em 0;
+}
+.email-compose-surface ol {
+  list-style: decimal outside;
+  padding-left: 40px;
+  margin: 1em 0;
+}
+.email-compose-surface li {
+  display: list-item;
+}
+.email-compose-surface a {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+.email-compose-surface blockquote {
+  margin: 1em 0 1em 40px;
+}
+/* Keep the first/last block flush so the top aligns with the placeholder
+   and there's no phantom trailing gap. */
+.email-compose-surface > *:first-child { margin-top: 0; }
+.email-compose-surface > *:last-child { margin-bottom: 0; }

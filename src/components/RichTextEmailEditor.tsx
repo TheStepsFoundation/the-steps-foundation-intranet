@@ -772,7 +772,7 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
           onKeyUp={saveSelection}
           onMouseUp={saveSelection}
           onPaste={onEditorPaste}
-          className="min-h-[180px] max-h-[420px] overflow-y-auto px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none"
+          className="email-compose-surface min-h-[180px] max-h-[420px] overflow-y-auto px-3 py-2.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none"
           style={{ lineHeight: 1.5 }}
         />
 
