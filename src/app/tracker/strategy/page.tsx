@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-provider'
@@ -251,9 +251,14 @@ export default function StrategyPage() {
             </span>
             <nav className="hidden sm:flex items-center gap-1 text-sm">
               <Link href="/hub" className="px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Hub</Link>
-              <Link href="/" className="px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Task Tracker</Link>
-              <Link href="/tracker/strategy" className="px-3 py-1.5 rounded-md text-gray-900 dark:text-gray-100 font-medium bg-gray-100 dark:bg-gray-800">Strategy</Link>
-              <Link href="/students" className="px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Students</Link>
+              <NavDropdown label="Task Tracker" active items={[
+                { href: '/tracker', label: 'Task Tracker' },
+                { href: '/tracker/strategy', label: 'Strategy' },
+              ]} />
+              <NavDropdown label="Students" items={[
+                { href: '/students', label: 'Dashboard' },
+                { href: '/students/events', label: 'Events' },
+              ]} />
             </nav>
           </div>
           <div className="flex items-center gap-3">
@@ -492,7 +497,7 @@ function PlanCard({
 
       {/* Workflow link */}
       {workflow && (
-        <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-steps-blue-600 dark:hover:text-steps-blue-300">
+        <Link href="/tracker" className="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-steps-blue-600 dark:hover:text-steps-blue-300">
           <span className={`inline-block w-2 h-2 rounded-full ${workflow.color}`} />
           {workflow.name}
           <span className="text-gray-400">· {relatedTasks} open task{relatedTasks === 1 ? '' : 's'}</span>
@@ -679,6 +684,43 @@ function PlanModal({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+
+function NavDropdown({ label, active = false, items }: {
+  label: string
+  active?: boolean
+  items: { href: string; label: string }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const handler = (e: globalThis.MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`px-3 py-1.5 rounded-md flex items-center gap-1 ${active ? 'text-gray-700 dark:text-gray-300' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+      >
+        {label}
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-40 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-lg py-1 z-50">
+          {items.map((item) => (
+            <a key={item.href} href={item.href} onClick={() => setOpen(false)} className="block px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">{item.label}</a>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
