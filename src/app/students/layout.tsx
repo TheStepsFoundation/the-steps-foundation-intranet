@@ -58,7 +58,7 @@ export default function StudentsLayout({ children }: { children: React.ReactNode
             </span>
             <nav className="hidden sm:flex items-center gap-1 text-sm">
               <Link href="/hub" className="px-3 py-1.5 rounded-md text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Hub</Link>
-              <NavDropdown label="Task Tracker" active={false} items={[
+              <NavDropdown label="Workflows" active={false} items={[
                 { href: '/tracker', label: 'Task Tracker' },
                 { href: '/tracker/strategy', label: 'Strategy' },
               ]} />
