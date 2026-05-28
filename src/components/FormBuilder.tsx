@@ -166,28 +166,45 @@ const inputClass = "w-full px-3 py-1.5 text-sm rounded-md border border-gray-300
 const OptionListEditor = ({ options, onOptionsChange }: {
   options: { value: string; label: string }[]
   onOptionsChange: (opts: { value: string; label: string }[]) => void
-}) => (
-  <div className="ml-2 space-y-1.5">
-    {options.map((opt, oi) => (
-      <div key={oi} className="flex items-center gap-2">
-        <input value={opt.label}
-          onChange={e => {
-            const updated = [...options]
-            const label = e.target.value
-            updated[oi] = { value: label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""), label }
-            onOptionsChange(updated)
-          }}
-          placeholder={`Option ${oi + 1}`} className={`flex-1 ${inputClass}`} />
-        {options.length > 1 && (
-          <button onClick={() => onOptionsChange(options.filter((_, i) => i !== oi))}
-            className="text-red-400 hover:text-red-600 text-sm font-bold px-1">×</button>
-        )}
-      </div>
-    ))}
-    <button onClick={() => onOptionsChange([...options, { value: "", label: "" }])}
-      className="text-xs text-steps-blue-600 dark:text-steps-blue-400 font-medium hover:underline">+ Add option</button>
-  </div>
-)
+}) => {
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= options.length) return
+    const updated = [...options]
+    const [item] = updated.splice(from, 1)
+    updated.splice(to, 0, item)
+    onOptionsChange(updated)
+  }
+  return (
+    <div className="ml-2 space-y-1.5">
+      {options.map((opt, oi) => (
+        <div key={oi} className="flex items-center gap-2">
+          <div className="flex flex-col shrink-0 -my-1">
+            <button type="button" onClick={() => move(oi, oi - 1)} disabled={oi === 0}
+              title="Move up"
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▲</button>
+            <button type="button" onClick={() => move(oi, oi + 1)} disabled={oi === options.length - 1}
+              title="Move down"
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▼</button>
+          </div>
+          <input value={opt.label}
+            onChange={e => {
+              const updated = [...options]
+              const label = e.target.value
+              updated[oi] = { value: label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""), label }
+              onOptionsChange(updated)
+            }}
+            placeholder={`Option ${oi + 1}`} className={`flex-1 ${inputClass}`} />
+          {options.length > 1 && (
+            <button type="button" onClick={() => onOptionsChange(options.filter((_, i) => i !== oi))}
+              className="text-red-400 hover:text-red-600 text-sm font-bold px-1">×</button>
+          )}
+        </div>
+      ))}
+      <button type="button" onClick={() => onOptionsChange([...options, { value: "", label: "" }])}
+        className="text-xs text-steps-blue-600 dark:text-steps-blue-400 font-medium hover:underline">+ Add option</button>
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Stable option editor — values are immutable IDs, decoupled from labels.
@@ -252,6 +269,26 @@ const StableOptionListEditor = ({ active, retired, onChange }: {
     <div className="ml-2 space-y-1.5">
       {active.map((opt, oi) => (
         <div key={opt.value} className="flex items-center gap-2">
+          <div className="flex flex-col shrink-0 -my-1">
+            <button type="button" onClick={() => {
+              if (oi === 0) return
+              const updated = [...active]
+              const [item] = updated.splice(oi, 1)
+              updated.splice(oi - 1, 0, item)
+              onChange(updated, retired)
+            }} disabled={oi === 0}
+              title="Move up"
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▲</button>
+            <button type="button" onClick={() => {
+              if (oi === active.length - 1) return
+              const updated = [...active]
+              const [item] = updated.splice(oi, 1)
+              updated.splice(oi + 1, 0, item)
+              onChange(updated, retired)
+            }} disabled={oi === active.length - 1}
+              title="Move down"
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▼</button>
+          </div>
           <input value={opt.label}
             onChange={e => {
               const updated = [...active]
