@@ -449,44 +449,45 @@ export default function StudentsDashboard() {
           <h1 className="font-display text-3xl font-black text-steps-dark dark:text-gray-100 tracking-tight">Student database</h1>
           <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Engagement across every Steps event &mdash; sortable, filterable, exportable.</p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-          <button
-            type="button"
-            onClick={() => setShowPreviewHub(true)}
-            className="px-3 py-2 text-sm rounded-md border border-violet-300 dark:border-violet-700 text-violet-800 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40 inline-flex items-center gap-1.5"
-            title="Build a hypothetical student profile and see /my from their perspective"
-          >
-            <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-            Preview Student Hub
-          </button>
+        <div className="w-full sm:w-auto flex flex-col gap-2 sm:flex-row sm:items-center">
+          {/* Row 1 on mobile / inline row on desktop: action buttons */}
+          <div className="flex items-center gap-2 order-1 sm:order-2">
+            <button
+              type="button"
+              onClick={() => setShowPreviewHub(true)}
+              className="flex-1 sm:flex-none px-3 py-2 text-sm rounded-md border border-violet-300 dark:border-violet-700 text-violet-800 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20 hover:bg-violet-100 dark:hover:bg-violet-900/40 inline-flex items-center justify-center gap-1.5"
+              title="Build a hypothetical student profile and see /my from their perspective"
+            >
+              <svg aria-hidden className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+              Preview Student Hub
+            </button>
+            <button
+              onClick={() => setPanelOpen(o => !o)}
+              className={`flex-1 sm:flex-none px-3 py-2 text-sm rounded-md border flex items-center justify-center gap-2 ${panelOpen || activeFilterCount > 0
+                ? 'bg-steps-blue-600 text-white border-steps-blue-600'
+                : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
+              Sort &amp; Filter
+              {activeFilterCount > 0 && (
+                <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white/90 text-steps-blue-700 text-[11px] font-semibold">{activeFilterCount}</span>
+              )}
+            </button>
+          </div>
+          {/* Row 2 on mobile / inline row on desktop: search input */}
           <input
             value={filters.search}
             onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
             placeholder="Search name, email, school…"
-            className="flex-1 sm:flex-none sm:w-72 min-w-0 px-3 py-2 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-steps-blue-500"
+            className="w-full sm:w-72 min-w-0 order-2 sm:order-1 px-3 py-2 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-steps-blue-500"
           />
-          <button
-            onClick={() => setPanelOpen(o => !o)}
-            className={`px-3 py-2 text-sm rounded-md border flex items-center gap-2 ${panelOpen || activeFilterCount > 0
-              ? 'bg-steps-blue-600 text-white border-steps-blue-600'
-              : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M6 12h12M10 18h4"/></svg>
-            Sort &amp; Filter
-            {activeFilterCount > 0 && (
-              <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white/90 text-steps-blue-700 text-[11px] font-semibold">{activeFilterCount}</span>
-            )}
-          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
-        <Kpi label="Total students" value={totals.total} />
-        <Kpi label="Attended 1+" value={totals.attended1plus} />
-        <Kpi label="Attended 3+" value={totals.attended3plus} accent />
-        <Kpi label="No-shows 2+" value={totals.noshow2plus} warn />
-        <Kpi label="SMI 2+" value={totals.smi2plus} accent />
-        <Kpi label="Eligible" value={totals.eligible} accent />
+        <div className="col-span-2">
+          <Kpi label="Total students" value={totals.total} />
+        </div>
       </div>
 
       {panelOpen && (
