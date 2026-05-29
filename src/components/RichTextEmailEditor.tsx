@@ -459,6 +459,72 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
     emitChange()
   }
 
+  // Run a command with CSS styling mode on so it emits inline styles
+  // (e.g. text-align, margin-left) rather than align attrs or <blockquote>,
+  // both of which render poorly in email clients. Mode is reset to off after.
+  const execStyled = (cmd: string, value?: string) => {
+    restoreSelection()
+    divRef.current?.focus()
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('styleWithCSS', false, 'true')
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand(cmd, false, value)
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('styleWithCSS', false, 'false')
+    } catch {
+      // no-op
+    }
+    saveSelection()
+    emitChange()
+  }
+
+  // Apply a web-safe font-family to the selection as an inline style.
+  const applyFontName = (css: string) => {
+    if (!css) return
+    execStyled('fontName', css)
+  }
+
+  // Apply a pixel font-size. execCommand('fontSize') only accepts 1-7, so we
+  // wrap the selection in a temporary <font size="7"> marker then rewrite it
+  // to <span style="font-size:Npx"> for real, email-safe px output.
+  const applyFontSize = (px: string) => {
+    if (!px) return
+    restoreSelection()
+    divRef.current?.focus()
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('styleWithCSS', false, 'false')
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      document.execCommand('fontSize', false, '7')
+      divRef.current?.querySelectorAll('font[size="7"]').forEach(el => {
+        const span = document.createElement('span')
+        span.style.fontSize = `${px}px`
+        while (el.firstChild) span.appendChild(el.firstChild)
+        el.replaceWith(span)
+      })
+    } catch {
+      // no-op
+    }
+    emitChange()
+  }
+
+  // Web-safe font + size options for the toolbar dropdowns.
+  const TB_SELECT =
+    'h-7 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 ' +
+    'text-gray-700 dark:text-gray-200 text-xs px-1 focus:outline-none focus:ring-1 ' +
+    'focus:ring-steps-blue-400 cursor-pointer'
+  const FONT_FAMILY_OPTIONS: { label: string; css: string }[] = [
+    { label: 'Arial', css: 'Arial, Helvetica, sans-serif' },
+    { label: 'Georgia', css: 'Georgia, serif' },
+    { label: 'Times New Roman', css: '"Times New Roman", Times, serif' },
+    { label: 'Verdana', css: 'Verdana, Geneva, sans-serif' },
+    { label: 'Tahoma', css: 'Tahoma, Geneva, sans-serif' },
+    { label: 'Trebuchet MS', css: '"Trebuchet MS", Helvetica, sans-serif' },
+    { label: 'Courier New', css: '"Courier New", Courier, monospace' },
+  ]
+  const FONT_SIZE_OPTIONS = ['12', '14', '16', '18', '20', '24', '28', '32']
+
   // Toggle bold on chips inside the current selection BEFORE falling
   // through to execCommand('bold') for surrounding text. execCommand
   // can't wrap contenteditable=false elements (the chips), so the CSS
@@ -615,6 +681,20 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
     <div className="rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex-wrap">
+        {/* Paragraph style */}
+        <select
+          title="Paragraph style"
+          aria-label="Paragraph style"
+          onMouseDown={saveSelection}
+          onChange={e => { const v = e.target.value; if (v) exec('formatBlock', v); e.currentTarget.selectedIndex = 0 }}
+          className={`${TB_SELECT} w-24`}
+        >
+          <option value="">Style</option>
+          <option value="<p>">Normal</option>
+          <option value="<h2>">Heading</option>
+          <option value="<h3>">Subheading</option>
+        </select>
+        <div className="w-px h-4 mx-1 bg-gray-300 dark:bg-gray-600" />
         <ToolbarBtn title="Bold (Ctrl+B)" onClick={() => handleBold()}>
           <span className="font-bold">B</span>
         </ToolbarBtn>
@@ -627,6 +707,32 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
         <ToolbarBtn title="Strikethrough" onClick={() => exec('strikeThrough')}>
           <span className="line-through">S</span>
         </ToolbarBtn>
+        <div className="w-px h-4 mx-1 bg-gray-300 dark:bg-gray-600" />
+        {/* Font family + size */}
+        <select
+          title="Font"
+          aria-label="Font family"
+          onMouseDown={saveSelection}
+          onChange={e => { applyFontName(e.target.value); e.currentTarget.selectedIndex = 0 }}
+          className={`${TB_SELECT} w-28`}
+        >
+          <option value="">Font</option>
+          {FONT_FAMILY_OPTIONS.map(f => (
+            <option key={f.label} value={f.css} style={{ fontFamily: f.css }}>{f.label}</option>
+          ))}
+        </select>
+        <select
+          title="Font size"
+          aria-label="Font size"
+          onMouseDown={saveSelection}
+          onChange={e => { applyFontSize(e.target.value); e.currentTarget.selectedIndex = 0 }}
+          className={`${TB_SELECT} w-16`}
+        >
+          <option value="">Size</option>
+          {FONT_SIZE_OPTIONS.map(sz => (
+            <option key={sz} value={sz}>{sz}</option>
+          ))}
+        </select>
         <div className="w-px h-4 mx-1 bg-gray-300 dark:bg-gray-600" />
         {/* Text colour */}
         <label
@@ -678,6 +784,25 @@ export const RichTextEmailEditor = React.forwardRef<RichTextEmailEditorHandle, R
         </ToolbarBtn>
         <ToolbarBtn title="Bulleted list" onClick={() => exec('insertUnorderedList')}>
           <span className="text-xs">•</span>
+        </ToolbarBtn>
+        <select
+          title="Alignment"
+          aria-label="Text alignment"
+          onMouseDown={saveSelection}
+          onChange={e => { const v = e.target.value; if (v) execStyled(v); e.currentTarget.selectedIndex = 0 }}
+          className={`${TB_SELECT} w-20`}
+        >
+          <option value="">Align</option>
+          <option value="justifyLeft">Left</option>
+          <option value="justifyCenter">Center</option>
+          <option value="justifyRight">Right</option>
+          <option value="justifyFull">Justify</option>
+        </select>
+        <ToolbarBtn title="Indent" onClick={() => execStyled('indent')}>
+          <span className="text-xs">&#8677;</span>
+        </ToolbarBtn>
+        <ToolbarBtn title="Outdent" onClick={() => execStyled('outdent')}>
+          <span className="text-xs">&#8676;</span>
         </ToolbarBtn>
         <div className="w-px h-4 mx-1 bg-gray-300 dark:bg-gray-600" />
         <ToolbarBtn
