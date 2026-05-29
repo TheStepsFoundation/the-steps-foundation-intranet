@@ -358,11 +358,12 @@ function ScaleField({ field, value, onChange }: {
   return (
     <div className="mb-4">
       <FieldLabel field={field} />
-      <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-        {minLabel && <span className="text-xs text-gray-400 mr-1 hidden sm:inline">{minLabel}</span>}
+      {/* Numbers row: each button shares the row width equally. Caps at the
+          form's max-w container so they stay sensibly sized on wide screens. */}
+      <div className="flex items-stretch gap-2 sm:gap-3 w-full">
         {points.map(p => (
           <button key={p} type="button" onClick={() => onChange(String(p))}
-            className={`w-11 h-11 sm:w-10 sm:h-10 rounded-lg border-2 text-base sm:text-sm font-medium transition ${
+            className={`flex-1 h-12 rounded-lg border-2 text-base font-semibold transition ${
               value === String(p)
                 ? 'border-steps-blue-500 bg-steps-blue-50 text-steps-blue-700'
                 : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
@@ -370,11 +371,13 @@ function ScaleField({ field, value, onChange }: {
             {p}
           </button>
         ))}
-        {maxLabel && <span className="text-xs text-gray-400 ml-1 hidden sm:inline">{maxLabel}</span>}
       </div>
+      {/* Min/max labels always render under the row, split left/right.
+          Consistent across mobile + desktop — used to be inline on sm+. */}
       {(minLabel || maxLabel) && (
-        <div className="flex justify-between text-xs text-gray-400 mt-1 sm:hidden">
-          <span>{minLabel}</span><span>{maxLabel}</span>
+        <div className="flex justify-between gap-2 text-xs text-gray-400 mt-2 px-1">
+          <span>{minLabel}</span>
+          <span className="text-right">{maxLabel}</span>
         </div>
       )}
     </div>
