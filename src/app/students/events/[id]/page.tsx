@@ -3846,6 +3846,24 @@ export default function EventDetailPage() {
               onClear={clearSelection}
               noun="applicants"
             />
+          {/* Row colour legend — always visible above the table so an admin
+              can read the row tints at a glance. Solid tints = committed
+              student-facing decisions. Pale tints = internal review drafts
+              not yet sent to the student. */}
+          <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+            <span className="font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500">Row colours:</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-emerald-100/90 border border-emerald-200" /> Accepted</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-violet-100/90 border border-violet-200" /> Shortlisted</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-amber-100/90 border border-amber-200" /> Waitlist</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-rose-100/90 border border-rose-200" /> Rejected</span>
+            <span className="text-gray-300 dark:text-gray-700" aria-hidden>·</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-emerald-50 border border-emerald-200" /> Internal accept</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-violet-50 border border-violet-200" /> Internal shortlist</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-amber-50 border border-amber-200" /> Internal waitlist</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-rose-50 border border-rose-200" /> Internal reject</span>
+            <span className="text-gray-300 dark:text-gray-700" aria-hidden>·</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-red-50 border border-red-200" /> Ineligible</span>
+          </div>
           <div className="overflow-auto always-scrollbar rounded-lg border border-gray-200 dark:border-gray-800" style={{ maxHeight: 'calc(100vh - 280px)', minHeight: 360 }}>
             <table className="text-sm w-full border-collapse">
               <thead>
@@ -3924,16 +3942,27 @@ export default function EventDetailPage() {
                     /a.?level|ib|btec/i.test(q.qualType) || q.level === 'post-16'
                   )
                   const gradeLetters = post16.map(q => q.grade).filter(Boolean).join(', ')
-                  const rowBg = app.eligibility === 'ineligible'
-                    ? 'bg-red-50 dark:bg-red-900/10'
-                    : selected.has(app.id)
-                      ? 'bg-steps-blue-50/50 dark:bg-steps-blue-900/10'
-                      : 'bg-white dark:bg-gray-900'
+                  // Row tint priority:
+                  //   committed status > internal review > ineligibility > default.
+                  // Selection adds a left rim accent (border-l-4) — doesn't override
+                  // the status tint, so you can still read the row's state at a glance.
+                  const rowBg =
+                    app.status === 'accepted'    ? 'bg-emerald-100/70 dark:bg-emerald-900/30'
+                  : app.status === 'shortlisted' ? 'bg-violet-100/70 dark:bg-violet-900/30'
+                  : app.status === 'waitlist'    ? 'bg-amber-100/70 dark:bg-amber-900/30'
+                  : app.status === 'rejected'    ? 'bg-rose-100/70 dark:bg-rose-900/30'
+                  : app.internal_review_status === 'accept'    ? 'bg-emerald-50 dark:bg-emerald-950/30'
+                  : app.internal_review_status === 'shortlist' ? 'bg-violet-50 dark:bg-violet-950/30'
+                  : app.internal_review_status === 'waitlist'  ? 'bg-amber-50 dark:bg-amber-950/30'
+                  : app.internal_review_status === 'reject'    ? 'bg-rose-50 dark:bg-rose-950/30'
+                  : app.eligibility === 'ineligible' ? 'bg-red-50 dark:bg-red-900/10'
+                  : 'bg-white dark:bg-gray-900'
+                  const isSel = selected.has(app.id)
 
                   return (
                     <tr
                       key={app.id}
-                      className={`border-b border-gray-100 dark:border-gray-800/50 transition-colors ${rowBg}`}
+                      className={`border-b border-gray-100 dark:border-gray-800/50 transition-colors ${rowBg} ${isSel ? 'shadow-[inset_4px_0_0_0_rgb(29,73,167)]' : ''}`}
                     >
                       <td className={`p-3 sticky left-0 z-10 ${rowBg}`}>
                         <input
