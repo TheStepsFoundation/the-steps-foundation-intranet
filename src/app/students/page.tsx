@@ -439,7 +439,7 @@ export default function StudentsDashboard() {
   const [showPreviewHub, setShowPreviewHub] = useState(false)
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6 animate-tsf-fade-up">
         <div>
           <Link href="/hub" className="text-sm text-steps-blue-600 hover:text-steps-blue-700 inline-flex items-center gap-1 mb-2">
@@ -449,7 +449,7 @@ export default function StudentsDashboard() {
           <h1 className="font-display text-3xl font-black text-steps-dark dark:text-gray-100 tracking-tight">Student database</h1>
           <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Engagement across every Steps event &mdash; sortable, filterable, exportable.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
           <button
             type="button"
             onClick={() => setShowPreviewHub(true)}
@@ -463,7 +463,7 @@ export default function StudentsDashboard() {
             value={filters.search}
             onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
             placeholder="Search name, email, school…"
-            className="w-72 px-3 py-2 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-steps-blue-500"
+            className="flex-1 sm:flex-none sm:w-72 min-w-0 px-3 py-2 text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-steps-blue-500"
           />
           <button
             onClick={() => setPanelOpen(o => !o)}
