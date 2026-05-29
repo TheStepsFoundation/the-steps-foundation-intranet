@@ -8,7 +8,7 @@ import { TopNav } from '@/components/TopNav'
 import { PressableButton } from '@/components/PressableButton'
 import Link from 'next/link'
 import {
-  fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents,
+  fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents, fetchMyFeedbackEventIds,
   signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, fetchMyEventOptoutsVisible, setEventOptout, fetchLiveEvents, fetchScheduledEvents,
   type HubApplication, type HubEvent, type ProfileUpdate,
 } from '@/lib/hub-api'
@@ -80,6 +80,7 @@ function StudentHubInner() {
   const [applications, setApplications] = useState<HubApplication[]>([])
   const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
   const [scheduledEvents, setScheduledEvents] = useState<HubEvent[]>([])
+  const [feedbackSubmittedFor, setFeedbackSubmittedFor] = useState<Set<string>>(new Set())
   // Admin-preview mode — set when admin opens /my from the Hub Preview overlay.
   // Two flavours: a real student (?_admin_preview=<student_uuid>) or a
   // synthetic profile (?_admin_preview=synthetic&_payload=<base64>).
