@@ -46,6 +46,8 @@ export type HubEvent = {
   eligible_year_groups: number[] | null
   /** If true, gap-year students (year_group=14) are eligible regardless of eligible_year_groups. */
   open_to_gap_year: boolean
+  /** Post-event feedback form schema. Present only where fetched (hub apps + event detail). */
+  feedback_config?: EventFeedbackConfig | null
 }
 
 export type HubApplicationStatusHistoryRow = {
@@ -60,6 +62,8 @@ export type HubApplication = {
   /** Set by trigger to 'pending' when status flips to 'accepted'. Null on
    *  rows that pre-date the RSVP feature (migration 0037). */
   rsvp: 'pending' | 'yes' | 'maybe' | 'no' | null
+  /** Whether the student was marked present at the event. */
+  attended?: boolean
   created_at: string
   event: HubEvent
   /** All prior status transitions. Used to render journey-aware labels like
@@ -156,7 +160,7 @@ export async function fetchMyApplications(): Promise<HubApplication[]> {
 
   const { data } = await supabase
     .from('applications')
-    .select('id, event_id, status, rsvp, created_at')
+    .select('id, event_id, status, rsvp, attended, created_at')
     .eq('student_id', student.id)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
@@ -167,7 +171,7 @@ export async function fetchMyApplications(): Promise<HubApplication[]> {
   const eventIds = [...new Set(data.map(a => a.event_id))]
   const { data: events } = await supabase
     .from('events')
-    .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year')
+    .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, status, applications_open_at, applications_close_at, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year, feedback_config')
     .in('id', eventIds)
 
   const eventMap = new Map((events ?? []).map(e => [e.id, e]))
@@ -411,6 +415,8 @@ export async function setEventOptout(studentId: string, eventId: string, optedOu
 export type HubApplicationDetail = {
   id: string
   status: string
+  /** Whether the student was marked present at the event. */
+  attended?: boolean
   created_at: string
   updated_at: string | null
   raw_response: Record<string, unknown> | null
@@ -455,7 +461,7 @@ export async function fetchEventOverview(eventId: string): Promise<EventOverview
   // Event
   const { data: event } = await supabase
     .from('events')
-    .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, dress_code, capacity, status, applications_open_at, applications_close_at, interest_options, form_config, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year')
+    .select('id, name, slug, event_date, location, location_full, format, description, time_start, time_end, dress_code, capacity, status, applications_open_at, applications_close_at, interest_options, form_config, banner_image_url, hub_image_url, banner_focal_x, banner_focal_y, hub_focal_x, hub_focal_y, eligible_year_groups, open_to_gap_year, feedback_config')
     .eq('id', eventId)
     .is('deleted_at', null)
     .maybeSingle()
@@ -474,7 +480,7 @@ export async function fetchEventOverview(eventId: string): Promise<EventOverview
   // Application (most recent non-deleted for this event+student)
   const { data: app } = await supabase
     .from('applications')
-    .select('id, status, created_at, updated_at, raw_response')
+    .select('id, status, attended, created_at, updated_at, raw_response')
     .eq('student_id', profile.id)
     .eq('event_id', eventId)
     .is('deleted_at', null)

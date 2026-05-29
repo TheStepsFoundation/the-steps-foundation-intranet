@@ -6,14 +6,14 @@ import Link from 'next/link'
 import { TopNav } from '@/components/TopNav'
 import { PressableButton } from '@/components/PressableButton'
 import {
-  fetchEventOverview, signOut, withdrawApplication,
+  fetchEventOverview, signOut, withdrawApplication, fetchMyFeedback,
   type EventOverview,
 } from '@/lib/hub-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
 import { getJourneyAwareLabel } from '@/lib/application-status'
 import { getDisplayLocation, canSeeFullAddress } from '@/lib/event-display'
 import { sanitizeRichHtml, stripToText } from '@/lib/sanitize-html'
-import { formatOpenTo } from '@/lib/events-api'
+import { formatOpenTo, getFeedbackFields } from '@/lib/events-api'
 import { isEligibleForYearGroup } from '@/lib/eligibility'
 import { supabase } from '@/lib/supabase-student'
 import { supabase as adminSupabase } from '@/lib/supabase'
@@ -204,6 +204,7 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
   const [withdrawing, setWithdrawing] = useState(false)
   const [showWithdrawModal, setShowWithdrawModal] = useState(false)
   const [withdrawErr, setWithdrawErr] = useState<string | null>(null)
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -277,6 +278,8 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
 
       const data = await fetchEventOverview(id)
       setOverview(data)
+      const fb = await fetchMyFeedback(id)
+      setFeedbackSubmitted(!!fb)
     } catch (e) {
       setErr((e as Error).message ?? 'Failed to load event')
     } finally {
@@ -374,7 +377,8 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
   const showActionsApply = !application && eligibleForApply && !applicationsNotYetOpen
   const showActionsEdit = application && !isPast && application.status === 'submitted'
   const showActionsWithdraw = application && !isPast && application.status !== 'withdrew' && application.status !== 'rejected'
-  const hasActions = showActionsApply || showActionsEdit || showActionsWithdraw
+  const showActionsFeedback = !!application && !!isPast && application.status === 'accepted' && application.attended === true && getFeedbackFields(event.feedback_config).length > 0 && !feedbackSubmitted
+  const hasActions = showActionsApply || showActionsEdit || showActionsWithdraw || showActionsFeedback
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24 sm:pb-12">
@@ -492,6 +496,11 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
                       >
                         Withdraw
                       </button>
+                    )}
+                    {showActionsFeedback && !adminPreviewMode && (
+                      <PressableButton href={`/my/events/${event.id}/feedback`} variant="primary">
+                        Submit feedback
+                      </PressableButton>
                     )}
                   </div>
                 )}
@@ -628,6 +637,11 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
             >
               Withdraw
             </button>
+          )}
+          {showActionsFeedback && !adminPreviewMode && (
+            <PressableButton href={`/my/events/${event.id}/feedback`} variant="primary" fullWidth size="sm">
+              Submit feedback
+            </PressableButton>
           )}
         </div>
       )}

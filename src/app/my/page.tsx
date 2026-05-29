@@ -14,7 +14,7 @@ import {
 } from '@/lib/hub-api'
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
 import { getDisplayLocation } from '@/lib/event-display'
-import { formatOpenTo } from '@/lib/events-api'
+import { formatOpenTo, getFeedbackFields } from '@/lib/events-api'
 import { isEligibleForYearGroup as isEligibleForYG } from '@/lib/eligibility'
 import { hasPasswordSet, upgradeToPassword, type StudentSelf } from '@/lib/apply-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
@@ -878,11 +878,11 @@ function StudentHubInner() {
                           Applied {new Date(app.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </p>
 
-                        {/* Submit feedback CTA — only for events on/after the A-Level
-                            Office Hour (2026-05-28). Earlier events had their feedback
-                            collected via Google Forms before the intranet flow existed,
-                            so we don't bother students about them. */}
-                        {isPast && app.status === 'accepted' && !feedbackSubmittedFor.has(app.event_id) && !!app.event.event_date && app.event.event_date >= '2026-05-28' && (
+                        {/* Submit feedback CTA — shown once the student has been
+                            marked attended on a past accepted event that has a feedback
+                            form configured (events.feedback_config). No backfill: events
+                            without a configured feedback form never show it. */}
+                        {isPast && app.status === 'accepted' && app.attended === true && !feedbackSubmittedFor.has(app.event_id) && getFeedbackFields(app.event.feedback_config).length > 0 && (
                           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
                             <a
                               href={`/my/events/${app.event.id}/feedback`}
