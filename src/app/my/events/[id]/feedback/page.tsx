@@ -231,7 +231,7 @@ export default function FeedbackFormPage() {
     return (
       <div className="min-h-screen bg-slate-50">
         <TopNav />
-        <main className="max-w-2xl mx-auto px-4 py-10">
+        <main className="max-w-2xl mx-auto px-4 py-6 sm:py-10 pb-24 sm:pb-10">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 animate-pulse">
             <div className="h-6 w-1/3 bg-slate-200 rounded mb-4" />
             <div className="h-4 w-2/3 bg-slate-200 rounded" />
@@ -245,7 +245,7 @@ export default function FeedbackFormPage() {
     return (
       <div className="min-h-screen bg-slate-50">
         <TopNav />
-        <main className="max-w-2xl mx-auto px-4 py-10">
+        <main className="max-w-2xl mx-auto px-4 py-6 sm:py-10 pb-24 sm:pb-10">
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center">
             <h1 className="text-2xl font-bold text-steps-dark mb-2">Feedback isn&apos;t open for this event</h1>
             <p className="text-slate-600 mb-6">
@@ -261,13 +261,13 @@ export default function FeedbackFormPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <TopNav />
-      <main className="max-w-2xl mx-auto px-4 py-10">
+      <main className="max-w-2xl mx-auto px-4 py-6 sm:py-10 pb-24 sm:pb-10">
         <div className="mb-6">
           <Link href={`/my/events/${eventId}`} className="text-sm text-steps-blue-600 hover:underline">← Back to {event.name}</Link>
         </div>
 
         <header className="mb-6">
-          <h1 className="font-display text-3xl font-black text-steps-dark tracking-tight">Your feedback on {event.name}</h1>
+          <h1 className="font-display text-2xl sm:text-3xl font-black text-steps-dark tracking-tight">Your feedback on {event.name}</h1>
           {intro && <p className="mt-3 text-slate-700 leading-relaxed">{intro}</p>}
         </header>
 
@@ -298,7 +298,7 @@ export default function FeedbackFormPage() {
         )}
 
         {showForm && (
-          <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 sm:p-8 space-y-6">
+          <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 sm:p-8 space-y-6">
             {fields.map(field => (
               <DynamicFormField
                 key={field.id}
@@ -320,13 +320,31 @@ export default function FeedbackFormPage() {
               </div>
             )}
 
-            <div className="flex items-center justify-between border-t border-slate-100 pt-5">
+            {/* Desktop: inline row at bottom of card. Mobile: hidden here, surfaced as a sticky bottom bar instead. */}
+            <div className="hidden sm:flex items-center justify-between border-t border-slate-100 pt-5">
               <p className="text-xs text-slate-500">Your responses are tied to your hub account.</p>
               <PressableButton type="submit" disabled={submitting} className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">
                 {submitting ? 'Saving…' : (existing ? 'Update feedback' : 'Submit feedback')}
               </PressableButton>
             </div>
           </form>
+        )}
+
+        {/* Mobile sticky bottom submit — only visible while the form is active. */}
+        {showForm && (
+          <div className="fixed bottom-0 inset-x-0 z-40 sm:hidden bg-white/95 backdrop-blur border-t border-slate-200 px-4 py-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+            <button
+              type="button"
+              onClick={() => {
+                const form = document.querySelector('form')
+                if (form) form.requestSubmit()
+              }}
+              disabled={submitting}
+              className="w-full py-3 min-h-[48px] text-base font-semibold rounded-xl bg-steps-blue-600 text-white hover:bg-steps-blue-700 active:bg-steps-blue-800 disabled:opacity-50 transition"
+            >
+              {submitting ? 'Saving…' : (existing ? 'Update feedback' : 'Submit feedback')}
+            </button>
+          </div>
         )}
       </main>
     </div>

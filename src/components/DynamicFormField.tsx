@@ -243,7 +243,7 @@ export default function DynamicFormField({ field, value, onChange, allValues }: 
             {[{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }].map(opt => (
               <button key={opt.v} type="button"
                 onClick={() => set(opt.v)}
-                className={`flex-1 py-2.5 rounded-xl border-2 text-sm font-medium transition ${
+                className={`flex-1 py-3 sm:py-2.5 min-h-[44px] sm:min-h-0 rounded-xl border-2 text-base sm:text-sm font-medium transition ${
                   (value as string) === opt.v
                     ? 'border-steps-blue-500 bg-steps-blue-50 text-steps-blue-700'
                     : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
@@ -278,14 +278,20 @@ export default function DynamicFormField({ field, value, onChange, allValues }: 
       return (
         <div className="mb-4">
           <FieldLabel field={field} asLegend />
-          {(field.options ?? []).map(opt => (
-            <label key={opt.value} className="flex items-center gap-3 py-1.5 cursor-pointer">
-              <input type="radio" name={`field_${field.id}`} value={opt.value}
-                checked={(value as string) === opt.value} onChange={e => set(e.target.value)}
-                className="accent-steps-blue-600" />
-              <span className="text-sm text-gray-700">{opt.label}</span>
-            </label>
-          ))}
+          {(field.options ?? []).map(opt => {
+            const isSelected = (value as string) === opt.value
+            return (
+              <label key={opt.value}
+                className={`flex items-center gap-3 px-3 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 rounded-lg border sm:border-0 sm:px-0 cursor-pointer transition ${
+                  isSelected ? 'border-steps-blue-300 bg-steps-blue-50/60 sm:bg-transparent' : 'border-gray-200 hover:border-gray-300 sm:hover:border-transparent'
+                }`}>
+                <input type="radio" name={`field_${field.id}`} value={opt.value}
+                  checked={isSelected} onChange={e => set(e.target.value)}
+                  className="accent-steps-blue-600" />
+                <span className="text-base sm:text-sm text-gray-700">{opt.label}</span>
+              </label>
+            )
+          })}
         </div>
       )
 
@@ -356,7 +362,7 @@ function ScaleField({ field, value, onChange }: {
         {minLabel && <span className="text-xs text-gray-400 mr-1 hidden sm:inline">{minLabel}</span>}
         {points.map(p => (
           <button key={p} type="button" onClick={() => onChange(String(p))}
-            className={`w-10 h-10 rounded-lg border-2 text-sm font-medium transition ${
+            className={`w-11 h-11 sm:w-10 sm:h-10 rounded-lg border-2 text-base sm:text-sm font-medium transition ${
               value === String(p)
                 ? 'border-steps-blue-500 bg-steps-blue-50 text-steps-blue-700'
                 : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
@@ -404,16 +410,25 @@ function CheckboxListField({ field, value, onChange }: {
     <fieldset className="mb-4">
       <FieldLabel field={field} asLegend />
       {helper && <p className="text-xs text-gray-400 mb-2">{helper}</p>}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-        {(field.options ?? []).map(opt => (
-          <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
-            <input type="checkbox" checked={selected.includes(opt.value)}
-              onChange={() => toggle(opt.value)}
-              disabled={!selected.includes(opt.value) && !!max && selected.length >= max}
-              className="mt-0.5 accent-steps-blue-600" />
-            <span className="text-sm text-gray-700">{opt.label}</span>
-          </label>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 sm:gap-y-1">
+        {(field.options ?? []).map(opt => {
+          const isSel = selected.includes(opt.value)
+          const isDisabled = !isSel && !!max && selected.length >= max
+          return (
+            <label key={opt.value}
+              className={`flex items-start gap-3 px-3 py-2.5 sm:py-1.5 sm:px-0 min-h-[44px] sm:min-h-0 rounded-lg border sm:border-0 transition ${
+                isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              } ${
+                isSel ? 'border-steps-blue-300 bg-steps-blue-50/60 sm:bg-transparent' : 'border-gray-200 hover:border-gray-300 sm:hover:border-transparent'
+              }`}>
+              <input type="checkbox" checked={isSel}
+                onChange={() => toggle(opt.value)}
+                disabled={isDisabled}
+                className="mt-0.5 accent-steps-blue-600" />
+              <span className="text-base sm:text-sm text-gray-700">{opt.label}</span>
+            </label>
+          )
+        })}
       </div>
     </fieldset>
   )

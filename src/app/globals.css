@@ -232,3 +232,21 @@ strong .merge-tag-chip,
    and there's no phantom trailing gap. */
 .email-compose-surface > *:first-child { margin-top: 0; }
 .email-compose-surface > *:last-child { margin-bottom: 0; }
+
+/* Mobile: stop iOS Safari auto-zooming on focus by guaranteeing form
+   controls have a font-size >= 16px on small viewports. Desktop styling
+   stays as designed (text-sm 14px). */
+@media (max-width: 640px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Mobile: make all native checkboxes/radios chunkier so they're easier to
+   tap without a magnifying glass. Desktop stays normal. */
+@media (max-width: 640px) {
+  input[type="checkbox"], input[type="radio"] {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+}
