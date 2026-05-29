@@ -568,6 +568,27 @@ export async function fetchFeedbackEvent(eventId: string): Promise<FeedbackEvent
   return (data as FeedbackEventInfo | null)
 }
 
+/**
+ * Fetch the set of event IDs the signed-in student has already submitted
+ * feedback for. Used on /my to gate the "Submit feedback" CTA on past
+ * event cards — hidden once the row exists, shown until then.
+ */
+export async function fetchMyFeedbackEventIds(): Promise<Set<string>> {
+  const email = await currentUserEmail()
+  if (!email) return new Set()
+  const { data: profile } = await supabase
+    .from('students')
+    .select('id')
+    .eq('personal_email', email)
+    .maybeSingle()
+  if (!profile) return new Set()
+  const { data } = await supabase
+    .from('event_feedback')
+    .select('event_id')
+    .eq('student_id', (profile as { id: string }).id)
+  return new Set(((data ?? []) as { event_id: string }[]).map(r => r.event_id))
+}
+
 export async function fetchMyFeedback(eventId: string): Promise<MyFeedbackSubmission | null> {
   const email = await currentUserEmail()
   if (!email) return null

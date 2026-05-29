@@ -162,6 +162,8 @@ function StudentHubInner() {
     setWithdrawSuccess(`Your application to ${eventName} has been withdrawn.`)
     setTimeout(() => setWithdrawSuccess(null), 5000)
     const fresh = await fetchMyApplications()
+    const freshFeedback = await fetchMyFeedbackEventIds()
+    setFeedbackSubmittedFor(freshFeedback)
     setApplications(fresh)
   }
 
@@ -295,15 +297,17 @@ function StudentHubInner() {
     const loadAll = async (email: string) => {
       if (cancelled) return
       setAuthEmail(email)
-      const [prof, apps, events, scheduled] = await Promise.all([
+      const [prof, apps, events, scheduled, feedbackIds] = await Promise.all([
         fetchProfile(),
         fetchMyApplications(),
         fetchOpenEvents(),
         fetchScheduledEvents(),
+        fetchMyFeedbackEventIds(),
       ])
       if (cancelled) return
       if (prof) { setProfile(prof); populateForm(prof) }
       setApplications(apps)
+      setFeedbackSubmittedFor(feedbackIds)
       const appliedEventIds = new Set(apps.map(a => a.event_id))
       setOpenEvents(events.filter(e => !appliedEventIds.has(e.id)))
       // Scheduled events shouldn't appear under 'Coming Soon' if the
@@ -873,6 +877,17 @@ function StudentHubInner() {
                           Applied {new Date(app.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </p>
 
+                        {isPast && app.status === 'accepted' && !feedbackSubmittedFor.has(app.event_id) && (
+                          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
+                            <a
+                              href={`/my/events/${app.event.id}/feedback`}
+                              onClick={e => e.stopPropagation()}
+                              className="px-3 py-2 text-sm font-semibold text-white bg-steps-blue-600 hover:bg-steps-blue-700 rounded-xl transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-1"
+                            >
+                              Submit feedback
+                            </a>
+                          </div>
+                        )}
                         {!isPast && app.status !== 'withdrew' && app.status !== 'rejected' && (
                           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
                             {app.status === 'submitted' && (
