@@ -181,10 +181,10 @@ const OptionListEditor = ({ options, onOptionsChange }: {
           <div className="flex flex-col shrink-0 -my-1">
             <button type="button" onClick={() => move(oi, oi - 1)} disabled={oi === 0}
               title="Move up"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▲</button>
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs sm:text-[10px] leading-none px-2 py-1 sm:px-1 sm:py-0.5 min-w-[28px] sm:min-w-0 min-h-[20px] sm:min-h-0">▲</button>
             <button type="button" onClick={() => move(oi, oi + 1)} disabled={oi === options.length - 1}
               title="Move down"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▼</button>
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs sm:text-[10px] leading-none px-2 py-1 sm:px-1 sm:py-0.5 min-w-[28px] sm:min-w-0 min-h-[20px] sm:min-h-0">▼</button>
           </div>
           <input value={opt.label}
             onChange={e => {
@@ -278,7 +278,7 @@ const StableOptionListEditor = ({ active, retired, onChange }: {
               onChange(updated, retired)
             }} disabled={oi === 0}
               title="Move up"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▲</button>
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs sm:text-[10px] leading-none px-2 py-1 sm:px-1 sm:py-0.5 min-w-[28px] sm:min-w-0 min-h-[20px] sm:min-h-0">▲</button>
             <button type="button" onClick={() => {
               if (oi === active.length - 1) return
               const updated = [...active]
@@ -287,7 +287,7 @@ const StableOptionListEditor = ({ active, retired, onChange }: {
               onChange(updated, retired)
             }} disabled={oi === active.length - 1}
               title="Move down"
-              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-[10px] leading-none px-1 py-0.5">▼</button>
+              className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-xs sm:text-[10px] leading-none px-2 py-1 sm:px-1 sm:py-0.5 min-w-[28px] sm:min-w-0 min-h-[20px] sm:min-h-0">▼</button>
           </div>
           <input value={opt.label}
             onChange={e => {

@@ -205,7 +205,7 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
   const fullName = `${student.first_name || ''} ${student.last_name || ''}`.trim() || student.personal_email || 'Unnamed'
 
   return (
-    <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
       <div className="mb-6 flex items-center justify-between">
         <Link href="/students" className="text-sm text-steps-blue-600 dark:text-steps-blue-400 hover:underline">← All students</Link>
         {toast && <span className="text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded">{toast}</span>}
@@ -447,6 +447,7 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
           <h2 className="font-medium text-gray-900 dark:text-gray-100">Event history</h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Status and attendance save on change.</p>
         </div>
+        <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 dark:bg-gray-800/60 text-gray-500 dark:text-gray-400">
             <tr>
@@ -554,6 +555,7 @@ export default function StudentProfilePage({ params }: { params: { id: string } 
             })}
           </tbody>
         </table>
+        </div>
       </section>
 
       <EventFeedbackPanel

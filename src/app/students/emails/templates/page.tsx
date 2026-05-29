@@ -235,7 +235,7 @@ export default function EmailTemplatesPage() {
   const previewSubject = useMemo(() => applyPreviewSubs(draft.subject || ''), [draft.subject])
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
       <div className="flex items-end justify-between gap-4 mb-6">
         <div>
           <Link href="/students/events" className="text-sm text-steps-blue-600 hover:text-steps-blue-700 inline-flex items-center gap-1 mb-2">

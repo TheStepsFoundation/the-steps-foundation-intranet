@@ -428,7 +428,7 @@ function Section({ id, title, subtitle, defaultOpen = false, children }: {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
+        className="w-full flex items-center gap-3 px-4 py-4 sm:py-3 min-h-[52px] sm:min-h-0 bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
       >
         <svg
           className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-90' : ''}`}
@@ -2788,7 +2788,7 @@ export default function EventDetailPage() {
       </div>
 
       {/* Event header */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 mb-6">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 sm:p-6 mb-6">
         {editing ? (
           /* ---- EDIT MODE ---- */
           <div className="space-y-4">
@@ -2798,12 +2798,12 @@ export default function EventDetailPage() {
               </div>
             )}
             {/* Sticky action bar: always-visible Save / Cancel / Preview / Copy-link */}
-            <div className="sticky top-0 z-30 -mx-6 -mt-6 px-6 py-3 mb-2 flex flex-wrap items-center gap-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-b border-gray-200 dark:border-gray-800">
+            <div className="sticky top-0 z-30 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 px-4 sm:px-6 py-3 mb-2 flex flex-wrap items-center gap-2 bg-white/95 dark:bg-gray-900/95 backdrop-blur border-b border-gray-200 dark:border-gray-800">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mr-auto">Edit Event</h2>
               <button
                 type="button"
                 onClick={() => copySignupLink(editDraft.slug ?? event.slug)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 min-h-[36px] sm:min-h-0 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
                 title="Copy sign-up link to clipboard"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
@@ -2812,7 +2812,7 @@ export default function EventDetailPage() {
               <button
                 type="button"
                 onClick={() => { void openPreview() }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 min-h-[36px] sm:min-h-0 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
                 title="Preview the form as a new applicant"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
@@ -2821,7 +2821,7 @@ export default function EventDetailPage() {
               <button
                 type="button"
                 onClick={() => { setTestModeOpen(true); setTestModeKey(k => k + 1) }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 dark:hover:bg-amber-900/40 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 min-h-[36px] sm:min-h-0 text-xs font-medium rounded-md bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800 dark:hover:bg-amber-900/40 transition-colors"
                 title="Submit a real test application — written as is_test=true, hidden from the default applicants table"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
@@ -2841,8 +2841,8 @@ export default function EventDetailPage() {
                 onDelete={handleDeleteEvent}
               />
               <span className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" aria-hidden />
-              <button onClick={() => { void cancelEditing() }} disabled={editSaving} className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50" title="Reverts any changes saved during this edit session">Cancel</button>
-              <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
+              <button onClick={() => { void cancelEditing() }} disabled={editSaving} className="px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50" title="Reverts any changes saved during this edit session">Cancel</button>
+              <button onClick={saveEditing} disabled={editSaving || !editDraft.name || !editDraft.slug} className="px-4 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{editSaving ? 'Saving…' : 'Save changes'}</button>
             </div>
 
             {/* === Publish checklist ===
@@ -3257,7 +3257,7 @@ export default function EventDetailPage() {
                     {signupLinkCopied === event.slug ? 'Copied!' : 'Copy sign-up link'}
                   </button>
                   <button type="button" onClick={() => { setPreviewOpen(true); setPreviewKey(k => k + 1) }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 sm:py-1.5 min-h-[36px] sm:min-h-0 text-xs font-medium rounded-md bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-gray-700 transition-colors"
                     title="Preview the form as a new applicant">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                     Preview form
@@ -4479,7 +4479,7 @@ export default function EventDetailPage() {
                   <button
                     onClick={() => setEmailStep('preview')}
                     disabled={!emailSubject.trim() || !emailBody.trim() || getRecipients().length === 0}
-                    className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50"
+                    className="px-4 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50"
                   >
                     Preview
                   </button>
