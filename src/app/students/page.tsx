@@ -1036,6 +1036,7 @@ function SyntheticHubPreviewOverlay({ onClose }: { onClose: () => void }) {
       id: `synthetic_${e.id}`,
       event_id: e.id,
       status: pickedEventStatuses[e.id],
+      rsvp: null,
       created_at: new Date().toISOString(),
       event: e,
       status_history: [],
