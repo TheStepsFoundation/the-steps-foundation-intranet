@@ -877,7 +877,11 @@ function StudentHubInner() {
                           Applied {new Date(app.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </p>
 
-                        {isPast && app.status === 'accepted' && !feedbackSubmittedFor.has(app.event_id) && (
+                        {/* Submit feedback CTA — only for events on/after the A-Level
+                            Office Hour (2026-05-28). Earlier events had their feedback
+                            collected via Google Forms before the intranet flow existed,
+                            so we don't bother students about them. */}
+                        {isPast && app.status === 'accepted' && !feedbackSubmittedFor.has(app.event_id) && !!app.event.event_date && app.event.event_date >= '2026-05-28' && (
                           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
                             <a
                               href={`/my/events/${app.event.id}/feedback`}
