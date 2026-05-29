@@ -536,6 +536,12 @@ export type FeedbackEventInfo = {
   name: string
   slug: string
   event_date: string | null
+  time_start: string | null
+  time_end: string | null
+  location: string | null
+  banner_image_url: string | null
+  banner_focal_x: number | null
+  banner_focal_y: number | null
   feedback_config: FeedbackConfig | null
 }
 
@@ -554,7 +560,7 @@ export type MyFeedbackSubmission = {
 export async function fetchFeedbackEvent(eventId: string): Promise<FeedbackEventInfo | null> {
   const { data, error } = await supabase
     .from('events')
-    .select('id, name, slug, event_date, feedback_config')
+    .select('id, name, slug, event_date, time_start, time_end, location, banner_image_url, banner_focal_x, banner_focal_y, feedback_config')
     .eq('id', eventId)
     .is('deleted_at', null)
     .maybeSingle()

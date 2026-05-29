@@ -266,6 +266,18 @@ export default function FeedbackFormPage() {
           <Link href={`/my/events/${eventId}`} className="text-sm text-steps-blue-600 hover:underline">← Back to {event.name}</Link>
         </div>
 
+        {event.banner_image_url ? (
+          /* Same banner the apply form uses — reuses events.banner_image_url
+             + focal point so the feedback view feels visually consistent
+             with the event's application page. */
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={event.banner_image_url}
+            alt={event.name}
+            className="w-full aspect-[4/1] object-cover rounded-2xl shadow-sm mb-5"
+            style={{ objectPosition: `${event.banner_focal_x ?? 50}% ${event.banner_focal_y ?? 50}%` }}
+          />
+        ) : null}
         <header className="mb-6">
           <h1 className="font-display text-2xl sm:text-3xl font-black text-steps-dark tracking-tight">Your feedback on {event.name}</h1>
           {intro && <p className="mt-3 text-slate-700 leading-relaxed">{intro}</p>}
