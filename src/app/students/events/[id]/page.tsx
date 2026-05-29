@@ -2752,7 +2752,7 @@ export default function EventDetailPage() {
 
   if (loading) {
     return (
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
         <div className="text-gray-500 dark:text-gray-400">Loading event…</div>
       </main>
     )
@@ -2760,7 +2760,7 @@ export default function EventDetailPage() {
 
   if (!event) {
     return (
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
         <div className="text-red-600 dark:text-red-400">Event not found.</div>
         <Link href="/students/events" className="text-sm text-steps-blue-600 dark:text-steps-blue-400 hover:underline mt-2 inline-block">
           Back to Events
@@ -2779,7 +2779,7 @@ export default function EventDetailPage() {
   const acceptedCount = applicants.filter(a => a.status === 'accepted').length
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
       {/* Breadcrumb */}
       <div className="mb-4">
         <Link href="/students/events" className="text-sm text-steps-blue-600 dark:text-steps-blue-400 hover:underline">
@@ -3846,7 +3846,7 @@ export default function EventDetailPage() {
               onClear={clearSelection}
               noun="applicants"
             />
-          <div className="overflow-x-scroll overflow-y-visible always-scrollbar" style={{ minHeight: Math.max((paged.length + 5) * 48, 336) }}>
+          <div className="overflow-auto always-scrollbar rounded-lg border border-gray-200 dark:border-gray-800" style={{ maxHeight: 'calc(100vh - 280px)', minHeight: 360 }}>
             <table className="text-sm w-full border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">

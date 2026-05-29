@@ -310,7 +310,7 @@ function Inner() {
 
   // Render
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
       {/* === Header === */}
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6 animate-tsf-fade-up">
         <div>
@@ -984,7 +984,7 @@ function CloneModal({ events, onClose, onClone }: {
 export default function EventsOverviewPage() {
   return (
     <Suspense fallback={
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8 overflow-x-hidden">
         <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
           <div aria-hidden className="animate-spin w-7 h-7 border-2 border-steps-blue-600 border-t-transparent rounded-full mx-auto mb-3" />
           <p className="text-sm text-slate-500">Loading events…</p>
