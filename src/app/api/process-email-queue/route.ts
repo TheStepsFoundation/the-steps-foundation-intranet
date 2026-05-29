@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { buildRawEmail, sanitiseAttachments } from '@/lib/email-mime'
 import { buildUnsubscribeUrl } from '@/lib/unsubscribe-token'
 import { buildWithdrawUrl, WITHDRAW_LINK_TAG_REGEX } from '@/lib/withdraw-token'
+import { buildRsvpUrl, RSVP_LINK_TAG_REGEX } from '@/lib/rsvp-token'
 import { buildEventOptoutUrl, EVENT_OPTOUT_LINK_TAG_REGEX } from '@/lib/event-optout-token'
 import { fetchSettingsServer, SETTINGS_KEYS, SETTINGS_DEFAULTS, getString, getStringEnum } from '@/lib/settings-api'
 import { getMarketing24hCount, MARKETING_CAP_24H, resolveMarketingCap } from '@/lib/send-cap'
@@ -157,6 +158,7 @@ export async function POST(req: NextRequest) {
     const optoutScope = getStringEnum(settings, SETTINGS_KEYS.eventOptoutScope, ['all', 'marketing_only'] as const, SETTINGS_DEFAULTS.eventOptoutScope)
     const withdrawLinkAnchor = getString(settings, SETTINGS_KEYS.withdrawLinkAnchor, SETTINGS_DEFAULTS.withdrawLinkAnchor)
     const eventOptoutLinkAnchor = getString(settings, SETTINGS_KEYS.eventOptoutLinkAnchor, SETTINGS_DEFAULTS.eventOptoutLinkAnchor)
+    const rsvpLinkAnchor = getString(settings, SETTINGS_KEYS.rsvpLinkAnchor, SETTINGS_DEFAULTS.rsvpLinkAnchor)
 
   for (const row of rows) {
     // ---- MARKETING-ONLY GUARDS -------------------------------------------
@@ -280,8 +282,27 @@ export async function POST(req: NextRequest) {
         out = out.replace(EVENT_OPTOUT_LINK_TAG_REGEX, `<a href="${optoutUrl}" style="${OPTOUT_STYLE}">${eventOptoutLinkAnchor}</a>`)
         return out
       }
-      const resolvedSubject = resolveOptout(resolveWithdraw(row.subject))
-      const resolvedBodyHtml = resolveOptout(resolveWithdraw(row.body_html))
+      // {{rsvp_link}} → an RSVP URL pointing at /my/events/<event>/rsvp?token=...
+      // Only resolvable when the outbox row carries both application_id + event_id
+      // (acceptance / waitlist templates are the realistic callers). Otherwise we
+      // strip the tag to avoid shipping a broken link.
+      const rsvpUrl = (row.application_id && row.event_id)
+        ? buildRsvpUrl(row.application_id, row.event_id)
+        : null
+      const RSVP_STYLE = 'color:#1d4ed8;text-decoration:underline;font-weight:600'
+      const resolveRsvp = (s: string): string => {
+        if (!s) return s
+        if (!rsvpUrl) {
+          return s
+            .replace(/href=("|&quot;|')\{\{rsvp_link\}\}\1/g, 'href=$1#$1')
+            .replace(RSVP_LINK_TAG_REGEX, '#')
+        }
+        let out = s.replace(/href=("|&quot;|')\{\{rsvp_link\}\}\1/g, (_m, q) => `href=${q}${rsvpUrl}${q}`)
+        out = out.replace(RSVP_LINK_TAG_REGEX, `<a href="${rsvpUrl}" style="${RSVP_STYLE}">${rsvpLinkAnchor}</a>`)
+        return out
+      }
+      const resolvedSubject = resolveRsvp(resolveOptout(resolveWithdraw(row.subject)))
+      const resolvedBodyHtml = resolveRsvp(resolveOptout(resolveWithdraw(row.body_html)))
       const raw = await buildRawEmail({
         to: row.to_email,
         subject: resolvedSubject,

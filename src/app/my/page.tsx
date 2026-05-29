@@ -892,6 +892,29 @@ function StudentHubInner() {
                             </a>
                           </div>
                         )}
+                        {!isPast && app.status === 'accepted' && app.rsvp && (
+                          <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                              app.rsvp === 'yes' ? 'bg-emerald-100 text-emerald-800' :
+                              app.rsvp === 'maybe' ? 'bg-amber-100 text-amber-800' :
+                              app.rsvp === 'no' ? 'bg-rose-100 text-rose-800' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
+                              <span aria-hidden>RSVP:</span>
+                              {app.rsvp === 'yes' && 'Going'}
+                              {app.rsvp === 'maybe' && 'Not sure'}
+                              {app.rsvp === 'no' && "Can't make it"}
+                              {app.rsvp === 'pending' && 'Awaiting your answer'}
+                            </span>
+                            <a
+                              href={`/api/rsvp/start?application_id=${encodeURIComponent(app.id)}`}
+                              onClick={e => e.stopPropagation()}
+                              className="px-3 py-1.5 text-sm text-steps-blue-700 hover:text-steps-blue-900 font-medium border border-steps-blue-200 rounded-xl hover:bg-steps-blue-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-1"
+                            >
+                              {app.rsvp === 'pending' ? 'RSVP now' : 'Change RSVP'}
+                            </a>
+                          </div>
+                        )}
                         {!isPast && app.status !== 'withdrew' && app.status !== 'rejected' && (
                           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
                             {app.status === 'submitted' && (

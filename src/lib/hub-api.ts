@@ -57,6 +57,9 @@ export type HubApplication = {
   id: string
   event_id: string
   status: string
+  /** Set by trigger to 'pending' when status flips to 'accepted'. Null on
+   *  rows that pre-date the RSVP feature (migration 0037). */
+  rsvp: 'pending' | 'yes' | 'maybe' | 'no' | null
   created_at: string
   event: HubEvent
   /** All prior status transitions. Used to render journey-aware labels like
@@ -153,7 +156,7 @@ export async function fetchMyApplications(): Promise<HubApplication[]> {
 
   const { data } = await supabase
     .from('applications')
-    .select('id, event_id, status, created_at')
+    .select('id, event_id, status, rsvp, created_at')
     .eq('student_id', student.id)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
