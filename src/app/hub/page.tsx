@@ -76,6 +76,7 @@ export default function HubPage() {
 
   const [events, setEvents] = useState<EventWithStats[] | null>(null)
   const [outstandingTasks, setOutstandingTasks] = useState<number | null>(null)
+  const [totalStudents, setTotalStudents] = useState<number | null>(null)
 
   // Same auth gating logic as before — only the chrome changed.
   useEffect(() => {
@@ -91,17 +92,21 @@ export default function HubPage() {
     if (loading || !user) return
     let cancelled = false
     ;(async () => {
-      const [eventsRes, tasksRes] = await Promise.all([
+      const [eventsRes, tasksRes, studentsRes] = await Promise.all([
         fetchEventsWithStats().catch(() => [] as EventWithStats[]),
         supabase
           .from('tasks')
           .select('id', { count: 'exact', head: true })
           .neq('status', 'done')
           .eq('archived', false),
+        supabase
+          .from('students')
+          .select('id', { count: 'exact', head: true }),
       ])
       if (cancelled) return
       setEvents(eventsRes)
       setOutstandingTasks(tasksRes.error ? 0 : (tasksRes.count ?? 0))
+      setTotalStudents(studentsRes.error ? 0 : (studentsRes.count ?? 0))
     })()
     return () => { cancelled = true }
   }, [loading, user])
@@ -114,15 +119,15 @@ export default function HubPage() {
     const upcoming = events.filter(e => e.event_date && new Date(e.event_date + 'T00:00:00').getTime() >= todayMs)
     const liveEvents = events.filter(e => e.status === 'open')
     const pendingApps = liveEvents.reduce((sum, e) => sum + (e.submitted_count ?? 0), 0)
-    const accepted = events.reduce((sum, e) => sum + (e.accepted_count ?? 0), 0)
-    const attended = events.reduce((sum, e) => sum + (e.attended_count ?? 0), 0)
+    const pendingTopEvent = [...liveEvents]
+      .filter(e => (e.submitted_count ?? 0) > 0)
+      .sort((a, b) => (b.submitted_count ?? 0) - (a.submitted_count ?? 0))[0]
     return {
       pendingApps,
       pendingAppsContext: liveEvents.length === 0 ? 'No live events' : `Across ${liveEvents.length} open event${liveEvents.length === 1 ? '' : 's'}`,
+      pendingTopEventId: pendingTopEvent?.id ?? null,
       upcomingCount: upcoming.length,
       upcomingNext: upcoming.sort((a, b) => (a.event_date ?? '').localeCompare(b.event_date ?? ''))[0],
-      acceptedNotAttended: Math.max(0, accepted - attended),
-      acceptedNotAttendedContext: accepted === 0 ? 'No acceptances yet' : `of ${accepted} accepted`,
     }
   }, [events])
 
@@ -191,6 +196,13 @@ export default function HubPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-10">
           <KpiCard
             href="/students"
+            label="Total students"
+            value={totalStudents}
+            sub="Young people we support"
+            tone="emerald"
+          />
+          <KpiCard
+            href={kpis?.pendingTopEventId ? `/students/events/${kpis.pendingTopEventId}` : '/students'}
             label="Pending applications"
             value={kpis?.pendingApps}
             sub={kpis?.pendingAppsContext}
@@ -204,13 +216,6 @@ export default function HubPage() {
               ? `Next: ${kpis.upcomingNext.name} · ${formatEventDate(kpis.upcomingNext.event_date)}`
               : 'Nothing on the calendar'}
             tone="amber"
-          />
-          <KpiCard
-            href="/students"
-            label="Accepted, not attended"
-            value={kpis?.acceptedNotAttended}
-            sub={kpis?.acceptedNotAttendedContext}
-            tone="emerald"
           />
           <KpiCard
             href="/"
