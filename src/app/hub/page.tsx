@@ -299,7 +299,7 @@ export default function HubPage() {
         )}
 
         <p className="text-center text-xs text-slate-400 tracking-wide uppercase">
-          <em className="not-italic">Virtus non origo</em> &nbsp;·&nbsp; Character, not origin
+          <em className="italic" style={{ fontFamily: '"Times New Roman", Times, serif' }}>Virtus non origo</em> &nbsp;·&nbsp; Character, not origin
         </p>
       </main>
     </div>
