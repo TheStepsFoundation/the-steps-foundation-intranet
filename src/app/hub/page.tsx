@@ -177,16 +177,21 @@ export default function HubPage() {
             Hero — greeting + dynamic time-of-day. Sets a personal tone
             without taking too much vertical space.
         ───────────────────────────────────────────────────────────────── */}
-        <div className="pt-[150px] pb-[150px]">
-          <p className="text-xs font-semibold uppercase tracking-wider text-steps-blue-600 mb-2">
-            The Steps Foundation · Team Intranet
-          </p>
-          <h1 className="font-display text-3xl sm:text-4xl font-black text-steps-dark tracking-tight">
-            {greeting}, {firstName}
-          </h1>
-          <p className="mt-2 text-slate-600 text-sm sm:text-base">
-            Here&apos;s where things stand right now.
-          </p>
+        <div className="pt-[64px] pb-[64px] flex items-center justify-between gap-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-steps-blue-600 mb-2">
+              The Steps Foundation · Team Intranet
+            </p>
+            <h1 className="font-display text-3xl sm:text-4xl font-black text-steps-dark tracking-tight">
+              {greeting}, {firstName}
+            </h1>
+            <p className="mt-2 text-slate-600 text-sm sm:text-base">
+              Here&apos;s where things stand right now.
+            </p>
+          </div>
+          <div className="hidden sm:block shrink-0">
+            <ProfileAvatar size={176} ringClassName="ring-2 ring-steps-blue-600" />
+          </div>
         </div>
 
         {/* ─────────────────────────────────────────────────────────────────
