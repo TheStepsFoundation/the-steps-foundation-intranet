@@ -24,6 +24,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-provider'
+import ProfileAvatar from '@/components/ProfileAvatar'
 import { TopNav } from '@/components/TopNav'
 import { fetchEventsWithStats, type EventWithStats } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
@@ -161,6 +162,7 @@ export default function HubPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <TopNav>
+        <ProfileAvatar />
         <span className="hidden sm:block text-sm text-slate-600">{displayName}</span>
         <button
           onClick={() => signOut().then(() => router.push('/login'))}
@@ -175,7 +177,7 @@ export default function HubPage() {
             Hero — greeting + dynamic time-of-day. Sets a personal tone
             without taking too much vertical space.
         ───────────────────────────────────────────────────────────────── */}
-        <div className="mb-8">
+        <div className="pt-[150px] pb-[150px]">
           <p className="text-xs font-semibold uppercase tracking-wider text-steps-blue-600 mb-2">
             The Steps Foundation · Team Intranet
           </p>
