@@ -190,7 +190,7 @@ export default function HubPage() {
             </p>
           </div>
           <div className="hidden sm:block shrink-0">
-            <ProfileAvatar size={176} ringClassName="ring-2 ring-steps-blue-600" />
+            <ProfileAvatar size={176} ringClassName="ring-1 ring-steps-blue-600" />
           </div>
         </div>
 
