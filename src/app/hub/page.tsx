@@ -197,7 +197,7 @@ export default function HubPage() {
             tone="blue"
           />
           <KpiCard
-            href={kpis?.upcomingNext ? `/students/events/${kpis.upcomingNext.id}` : '/students/events'}
+            href="/students/events"
             label="Upcoming events"
             value={kpis?.upcomingCount}
             sub={kpis?.upcomingNext
