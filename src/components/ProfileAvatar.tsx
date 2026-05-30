@@ -33,15 +33,19 @@ type Props = {
   size?: number
   /** Tailwind ring classes for the outline. */
   ringClassName?: string
+  /** Show the member's job_title beneath the avatar. */
+  showTitle?: boolean
 }
 
 export default function ProfileAvatar({
   size = 36,
   ringClassName = 'ring-1 ring-slate-200 hover:ring-steps-blue-400',
+  showTitle = false,
 }: Props) {
   const { user, teamMember } = useAuth()
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [initials, setInitials] = useState<string>('')
+  const [jobTitle, setJobTitle] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -57,12 +61,13 @@ export default function ProfileAvatar({
     ;(async () => {
       const { data } = await supabase
         .from('team_members')
-        .select('avatar, avatar_url, name')
+        .select('avatar, avatar_url, name, job_title')
         .eq('email', email.toLowerCase())
         .maybeSingle()
       if (cancelled || !data) return
       setAvatarUrl(data.avatar_url ?? null)
       setInitials(initialsFrom(data.name, data.avatar))
+      setJobTitle(data.job_title ?? null)
     })()
     return () => { cancelled = true }
   }, [user?.email])
@@ -193,6 +198,7 @@ export default function ProfileAvatar({
 
   return (
     <>
+      <div className="flex flex-col items-center gap-2">
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -210,6 +216,10 @@ export default function ProfileAvatar({
           </span>
         )}
       </button>
+        {showTitle && jobTitle && (
+          <p className="text-center text-xs font-semibold uppercase tracking-wider text-slate-500">{jobTitle}</p>
+        )}
+      </div>
 
       {open && mounted && createPortal(modal, document.body)}
     </>
