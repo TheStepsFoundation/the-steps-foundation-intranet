@@ -45,11 +45,32 @@ function getServiceClient() {
   })
 }
 
+// Floor delay so the no-op path takes at least as long as the send path.
+// The allowlisted path naturally takes 1–3s (SMTP round-trip); the no-op
+// path would otherwise return in ~50ms and leak membership via timing.
+// We pad both paths to this floor so a timing attacker can't distinguish.
+// Pitched at 2000ms — comfortably above the no-op DB round-trip, and
+// usually below or close to the allowlisted SMTP round-trip so the
+// allowlisted path rarely gets padded further.
+const RESPONSE_FLOOR_MS = 2000
+
+async function withFloor<T>(start: number, value: T): Promise<T> {
+  const elapsed = Date.now() - start
+  if (elapsed < RESPONSE_FLOOR_MS) {
+    await new Promise(r => setTimeout(r, RESPONSE_FLOOR_MS - elapsed))
+  }
+  return value
+}
+
 export async function POST(req: NextRequest) {
+  const start = Date.now()
+
   let body: any
   try {
     body = await req.json()
   } catch {
+    // Malformed input — return immediately. No timing leak here because
+    // the caller never got past parsing; no membership inferred.
     return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 })
   }
 
@@ -59,10 +80,12 @@ export async function POST(req: NextRequest) {
   }
   const email = rawEmail.toLowerCase()
 
-  // Very light syntactic check — Supabase will reject malformed emails
-  // anyway, but failing fast saves a service-role round-trip.
+  // Very light syntactic check — Supabase would reject malformed emails
+  // anyway, but failing fast here saves a service-role round-trip. We
+  // pad to the floor on this path too so an attacker can't distinguish
+  // "syntactically invalid" from "not on allowlist" by timing.
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return NextResponse.json({ ok: false, error: 'Invalid email format' }, { status: 400 })
+    return withFloor(start, NextResponse.json({ ok: true }))
   }
 
   let svc
@@ -83,13 +106,14 @@ export async function POST(req: NextRequest) {
 
   if (lookupErr) {
     console.error('[send-team-otp] team_members lookup error:', lookupErr.message)
-    // Don't leak that we even tried — return the no-op shape and log.
-    return NextResponse.json({ ok: true })
+    // Don't leak that we even tried — return the no-op shape (post-floor) and log.
+    return withFloor(start, NextResponse.json({ ok: true }))
   }
 
   if (!row) {
-    // Email not on allowlist. Quietly do nothing. Identical response shape.
-    return NextResponse.json({ ok: true })
+    // Email not on allowlist. Quietly do nothing — but pad to the floor
+    // so the response timing matches the allowlisted path.
+    return withFloor(start, NextResponse.json({ ok: true }))
   }
 
   // Allowlisted — send the OTP via the service client (same email pipe as
@@ -104,8 +128,9 @@ export async function POST(req: NextRequest) {
   if (otpErr) {
     console.error('[send-team-otp] signInWithOtp failed:', otpErr.message)
     // Real upstream failure — surface as 5xx so the UI can show a retry hint.
+    // No floor padding: this is a legitimate error, not a covert no-op.
     return NextResponse.json({ ok: false, error: 'Failed to send code. Try again in a moment.' }, { status: 502 })
   }
 
-  return NextResponse.json({ ok: true })
+  return withFloor(start, NextResponse.json({ ok: true }))
 }
