@@ -372,8 +372,8 @@ export default function LoginPage() {
           {otpMode && otpStep === 'code' && (
             <form onSubmit={handleVerifyOtp} className="space-y-4" noValidate>
               <div>
-                <h2 className="font-display text-2xl font-black text-steps-dark tracking-tight mb-1.5">Enter your code</h2>
-                <p className="text-sm text-slate-500">We sent a 6-digit code to <strong>{email}</strong>. It expires in 60 minutes.</p>
+                <h2 className="font-display text-2xl font-black text-steps-dark tracking-tight mb-1.5">Check your inbox</h2>
+                <p className="text-sm text-slate-500">If <strong>{email}</strong> is on our team list, we&apos;ve sent a 6-digit code there. Enter it below to sign in. The code expires in 60 minutes.</p>
               </div>
               <div>
                 <label htmlFor="otp-code" className="block text-sm font-medium text-slate-700 mb-1.5">6-digit code</label>

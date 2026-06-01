@@ -443,22 +443,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const sendOtp = async (email: string): Promise<{ error: string | null }> => {
-    // No pre-check (same reasoning as signIn): we let Supabase send the
-    // code, then handleAuthChange runs the membership check post-verify and
-    // signs the user out if they aren't on the team. shouldCreateUser=true
-    // lets brand-new team members (added to team_members but no auth user
-    // yet) sign in for the first time via OTP.
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.toLowerCase().trim(),
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: typeof window !== 'undefined'
-          ? `${window.location.origin}/login`
-          : undefined,
-      },
-    })
-    if (error) return { error: error.message }
-    return { error: null }
+    // We hit a server route (not supabase.auth.signInWithOtp directly) so
+    // the team_members allowlist check happens with the service role,
+    // server-side. The route returns ok:true whether or not the email was
+    // on the list — the browser never learns the answer, and we don't
+    // burn SMTP quota / pollute auth.users on random typed-in addresses.
+    try {
+      const res = await fetch('/api/auth/send-team-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.toLowerCase().trim() }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json?.ok === false) {
+        return { error: json?.error || 'Failed to send code. Try again in a moment.' }
+      }
+      return { error: null }
+    } catch (err: any) {
+      return { error: err?.message || 'Network error sending code.' }
+    }
   }
 
   const verifyOtp = async (email: string, token: string): Promise<{ error: string | null }> => {
