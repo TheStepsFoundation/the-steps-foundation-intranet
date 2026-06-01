@@ -26,7 +26,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-provider'
 import ProfileAvatar from '@/components/ProfileAvatar'
 import { TopNav } from '@/components/TopNav'
-import { fetchEventsWithStats, type EventWithStats } from '@/lib/events-api'
+import { fetchEventsWithStats, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, type EventWithStats } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
 
 // ---------------------------------------------------------------------------
@@ -297,12 +297,12 @@ export default function HubPage() {
                     {ev.accepted_count > 0 && (
                       <span><strong className="text-emerald-700 font-semibold">{ev.accepted_count}</strong> accepted</span>
                     )}
-                    <span className={`ml-auto inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-                      ev.status === 'open' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                      ev.status === 'closed' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
-                      ev.status === 'completed' ? 'bg-steps-blue-50 text-steps-blue-700 border border-steps-blue-200' :
-                      'bg-slate-100 text-slate-500 border border-slate-200'
-                    }`}>{ev.status}</span>
+                    {(() => {
+                      const m = EFFECTIVE_STATUS_META[computeEventEffectiveStatus(ev)]
+                      return (
+                        <span className={`ml-auto inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${m.classes}`}>{m.label}</span>
+                      )
+                    })()}
                   </div>
                 </Link>
               ))}

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EventRow, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion, type EmailAutomationRow, type EmailAutomationType, EMAIL_AUTOMATION_TYPE_META } from '@/lib/events-api'
+import { EventRow, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion, type EmailAutomationRow, type EmailAutomationType, EMAIL_AUTOMATION_TYPE_META } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
@@ -3294,21 +3294,25 @@ export default function EventDetailPage() {
                 </div>
                 {/* Event detail tags */}
                 <div className="flex flex-wrap items-center gap-2 mt-1">
-                  {/* Status badge */}
-                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                    event.status === 'open' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' :
-                    event.status === 'closed' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                    event.status === 'completed' ? 'bg-steps-blue-100 text-steps-blue-700 dark:bg-steps-blue-900/30 dark:text-steps-blue-400' :
-                    'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      event.status === 'open' ? 'bg-emerald-500' :
-                      event.status === 'closed' ? 'bg-red-500' :
-                      event.status === 'completed' ? 'bg-steps-blue-500' :
-                      'bg-gray-400'
-                    }`} />
-                    {event.status.charAt(0).toUpperCase() + event.status.slice(1)}
-                  </span>
+                  {/* Status badge — derived from the application window (close date) via
+                      computeEventEffectiveStatus, so it matches the events
+                      list and the public apply form even when the raw
+                      `status` column still says 'open'. */}
+                  {(() => {
+                    const eff = computeEventEffectiveStatus(event)
+                    const m = EFFECTIVE_STATUS_META[eff]
+                    const dot = m.tone === 'emerald' ? 'bg-emerald-500'
+                      : m.tone === 'amber' ? 'bg-amber-500'
+                      : m.tone === 'violet' ? 'bg-violet-500'
+                      : m.tone === 'blue' ? 'bg-steps-blue-500'
+                      : 'bg-slate-400'
+                    return (
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${m.classes}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+                        {m.label}
+                      </span>
+                    )
+                  })()}
                   {/* Date */}
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
