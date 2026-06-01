@@ -37,6 +37,18 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signUp: (email: string, password: string) => Promise<{ error: string | null }>
   signInWithGoogle: () => Promise<{ error: string | null }>
+  /** Send a 6-digit email OTP to the given address. */
+  sendOtp: (email: string) => Promise<{ error: string | null }>
+  /** Verify a 6-digit email OTP and establish a session. */
+  verifyOtp: (email: string, token: string) => Promise<{ error: string | null }>
+  /** Set or update the current user's password. Marks user_metadata.has_password=true. */
+  setPassword: (password: string) => Promise<{ error: string | null }>
+  /**
+   * True when the signed-in user hasn't established a password yet
+   * (i.e. they OAuthed in or used OTP and never set one). UI surfaces a
+   * prompt to set one so they can use email+password next time.
+   */
+  needsPasswordSetup: boolean
   signOut: () => Promise<void>
 }
 
@@ -430,6 +442,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }
 
+  const sendOtp = async (email: string): Promise<{ error: string | null }> => {
+    // No pre-check (same reasoning as signIn): we let Supabase send the
+    // code, then handleAuthChange runs the membership check post-verify and
+    // signs the user out if they aren't on the team. shouldCreateUser=true
+    // lets brand-new team members (added to team_members but no auth user
+    // yet) sign in for the first time via OTP.
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.toLowerCase().trim(),
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: typeof window !== 'undefined'
+          ? `${window.location.origin}/login`
+          : undefined,
+      },
+    })
+    if (error) return { error: error.message }
+    return { error: null }
+  }
+
+  const verifyOtp = async (email: string, token: string): Promise<{ error: string | null }> => {
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.toLowerCase().trim(),
+      token,
+      type: 'email',
+    })
+    if (error) return { error: error.message }
+    return { error: null }
+  }
+
+  const setPassword = async (password: string): Promise<{ error: string | null }> => {
+    // Update password AND set a metadata flag so we don't keep prompting
+    // them on subsequent sign-ins. Then refresh the session so the new
+    // JWT (with the updated user object) is persisted before the UI moves on.
+    const { error } = await supabase.auth.updateUser({
+      password,
+      data: { has_password: true },
+    })
+    if (error) return { error: error.message }
+    await supabase.auth.refreshSession()
+    return { error: null }
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
     teamMemberRef.current = null
@@ -441,6 +495,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const isTeamMember = !!teamMember
+  // True when the user is signed in but hasn't set a password yet. We rely
+  // on a user_metadata flag set by setPassword(), so admins who signed up
+  // long ago with signUp(email, password) won't be flagged unless they
+  // also went through the modal at least once. The modal handles its own
+  // session-level dismissal so this just gates whether to ever show it.
+  const needsPasswordSetup = !!user && !user.user_metadata?.has_password
 
   return (
     <AuthContext.Provider
@@ -453,6 +513,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signUp,
         signInWithGoogle,
+        sendOtp,
+        verifyOtp,
+        setPassword,
+        needsPasswordSetup,
         signOut,
       }}
     >
@@ -478,6 +542,10 @@ export function useAuth(): AuthContextType {
       signIn: async () => ({ error: 'Auth provider not initialised' }),
       signUp: async () => ({ error: 'Auth provider not initialised' }),
       signInWithGoogle: async () => ({ error: 'Auth provider not initialised' }),
+      sendOtp: async () => ({ error: 'Auth provider not initialised' }),
+      verifyOtp: async () => ({ error: 'Auth provider not initialised' }),
+      setPassword: async () => ({ error: 'Auth provider not initialised' }),
+      needsPasswordSetup: false,
       signOut: async () => {},
     }
   }

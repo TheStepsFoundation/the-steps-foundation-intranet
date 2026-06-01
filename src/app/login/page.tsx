@@ -33,8 +33,15 @@ export default function LoginPage() {
   const [forgotMode, setForgotMode] = useState(false)
   const [resetSending, setResetSending] = useState(false)
   const [resetSent, setResetSent] = useState(false)
+  // Email-code (OTP) flow state. mode 'email' shows the address input,
+  // mode 'code' shows the 6-digit code input after we've sent it.
+  const [otpMode, setOtpMode] = useState(false)
+  const [otpStep, setOtpStep] = useState<'email' | 'code'>('email')
+  const [otpCode, setOtpCode] = useState('')
+  const [otpSending, setOtpSending] = useState(false)
+  const [otpVerifying, setOtpVerifying] = useState(false)
   const router = useRouter()
-  const { signIn, signInWithGoogle, user, isTeamMember, loading: authLoading } = useAuth()
+  const { signIn, signInWithGoogle, sendOtp, verifyOtp, user, isTeamMember, loading: authLoading } = useAuth()
 
   // Check for OAuth tokens in URL hash (from Google redirect)
   useEffect(() => {
@@ -79,6 +86,44 @@ export default function LoginPage() {
     await supabase.auth.resetPasswordForEmail(email.toLowerCase().trim(), { redirectTo })
     setResetSending(false)
     setResetSent(true)
+  }
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email.trim()) return
+    setOtpSending(true)
+    setMessage(null)
+    const { error } = await sendOtp(email)
+    setOtpSending(false)
+    if (error) {
+      setMessage({ type: 'error', text: error })
+      return
+    }
+    setOtpStep('code')
+  }
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!otpCode.trim()) return
+    setOtpVerifying(true)
+    setMessage(null)
+    const { error } = await verifyOtp(email, otpCode.trim())
+    setOtpVerifying(false)
+    if (error) {
+      setMessage({ type: 'error', text: error })
+      return
+    }
+    // Successful verification — handleAuthChange will run team_members
+    // check and either keep the session or sign them out. Push them
+    // optimistically; if they get bounced the layout guard handles it.
+    router.push('/hub')
+  }
+
+  const exitOtpMode = () => {
+    setOtpMode(false)
+    setOtpStep('email')
+    setOtpCode('')
+    setMessage(null)
   }
 
   if (checkingHash) {
@@ -143,7 +188,7 @@ export default function LoginPage() {
       {/* --- Form pane --- */}
       <main className="relative flex-1 flex items-center justify-center px-4 sm:px-6 py-10 lg:py-14 bg-gradient-to-b from-white to-slate-50">
         <div className="w-full max-w-md animate-tsf-fade-up-2">
-          {!forgotMode && (
+          {!forgotMode && !otpMode && (
             <div className="text-center lg:text-left mb-8">
               <h2 className="font-display text-3xl font-black text-steps-dark tracking-tight">Sign in</h2>
               <p className="text-slate-500 mt-2 text-sm">Use your Steps Foundation team account.</p>
@@ -151,7 +196,7 @@ export default function LoginPage() {
           )}
 
           {/* Sign-in form */}
-          {!forgotMode && (
+          {!forgotMode && !otpMode && (
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
@@ -259,6 +304,133 @@ export default function LoginPage() {
                 )}
                 Continue with Google
               </button>
+
+              {/* Email code (passwordless) option */}
+              <button
+                type="button"
+                onClick={() => { setOtpMode(true); setOtpStep('email'); setMessage(null) }}
+                disabled={loading || googleLoading}
+                className="mt-3 w-full py-3 px-4 bg-white border border-slate-200 text-slate-700 font-medium rounded-xl hover:bg-slate-50 hover:border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 transition disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-3"
+              >
+                <svg aria-hidden className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l9 6 9-6M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                Sign in with an email code
+              </button>
+            </form>
+          )}
+
+          {/* Email-code (OTP) flow */}
+          {otpMode && otpStep === 'email' && (
+            <form onSubmit={handleSendOtp} className="space-y-4" noValidate>
+              <div>
+                <h2 className="font-display text-2xl font-black text-steps-dark tracking-tight mb-1.5">Sign in with an email code</h2>
+                <p className="text-sm text-slate-500">We&apos;ll email you a 6-digit code. No password needed for this sign-in.</p>
+              </div>
+              <div>
+                <label htmlFor="otp-email" className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
+                <input
+                  id="otp-email"
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="you@thestepsfoundation.com"
+                  required
+                  autoComplete="email"
+                  inputMode="email"
+                  spellCheck={false}
+                  disabled={otpSending}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition disabled:bg-slate-50"
+                />
+              </div>
+              {message && (
+                <div
+                  role="alert"
+                  aria-live="polite"
+                  className="p-3.5 rounded-xl text-sm border bg-red-50 text-red-700 border-red-200"
+                >
+                  {message.text}
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={otpSending || !email.trim()}
+                className="w-full py-3 px-4 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-press-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
+              >
+                {otpSending ? 'Sending code…' : 'Send code'}
+              </button>
+              <button
+                type="button"
+                onClick={exitOtpMode}
+                className="w-full text-sm text-slate-500 hover:text-slate-700 py-1"
+              >
+                ← Back to sign in
+              </button>
+            </form>
+          )}
+
+          {otpMode && otpStep === 'code' && (
+            <form onSubmit={handleVerifyOtp} className="space-y-4" noValidate>
+              <div>
+                <h2 className="font-display text-2xl font-black text-steps-dark tracking-tight mb-1.5">Enter your code</h2>
+                <p className="text-sm text-slate-500">We sent a 6-digit code to <strong>{email}</strong>. It expires in 60 minutes.</p>
+              </div>
+              <div>
+                <label htmlFor="otp-code" className="block text-sm font-medium text-slate-700 mb-1.5">6-digit code</label>
+                <input
+                  id="otp-code"
+                  type="text"
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  required
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="\d{6}"
+                  maxLength={6}
+                  disabled={otpVerifying}
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition disabled:bg-slate-50 tracking-[0.5em] text-center font-mono text-lg"
+                />
+              </div>
+              {message && (
+                <div
+                  role="alert"
+                  aria-live="polite"
+                  className="p-3.5 rounded-xl text-sm border bg-red-50 text-red-700 border-red-200"
+                >
+                  {message.text}
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={otpVerifying || otpCode.length !== 6}
+                className="w-full py-3 px-4 bg-steps-blue-600 text-white font-semibold rounded-xl border-t border-white/20 shadow-press-blue hover:-translate-y-0.5 hover:shadow-press-blue-hover active:translate-y-0.5 active:shadow-none active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-press-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
+              >
+                {otpVerifying ? 'Verifying…' : 'Sign in'}
+              </button>
+              <div className="flex items-center justify-between text-sm">
+                <button
+                  type="button"
+                  onClick={() => { setOtpStep('email'); setOtpCode(''); setMessage(null) }}
+                  className="text-slate-500 hover:text-slate-700 py-1"
+                >
+                  ← Use a different email
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setOtpSending(true); setMessage(null)
+                    const { error } = await sendOtp(email)
+                    setOtpSending(false)
+                    if (error) setMessage({ type: 'error', text: error })
+                    else setMessage({ type: 'success', text: 'New code sent.' })
+                  }}
+                  disabled={otpSending}
+                  className="text-steps-blue-600 hover:text-steps-blue-700 font-medium py-1 disabled:opacity-50"
+                >
+                  Resend code
+                </button>
+              </div>
             </form>
           )}
 
@@ -308,8 +480,8 @@ export default function LoginPage() {
             </form>
           )}
 
-          {/* Student portal handoff — outside the form so it stays visible across both modes */}
-          {!forgotMode && (
+          {/* Student portal handoff — outside the form so it stays visible across all modes */}
+          {!forgotMode && !otpMode && (
             <Link
               href="/my/sign-in"
               className="group mt-6 block rounded-2xl border-2 border-steps-blue-200 bg-gradient-to-br from-steps-blue-50 to-white px-5 py-4 hover:border-steps-blue-400 hover:shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 animate-tsf-fade-up-3"
