@@ -6335,14 +6335,20 @@ export default function Home() {
 
             {/* Compact View */}
             {teamViewMode === 'compact' && (
-            <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-3 px-3 sm:mx-0 sm:px-0">
+            <div className="space-y-5">
+              <section>
+                <div className="flex items-baseline gap-2 mb-2 px-1">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Core team</h3>
+                  <span className="text-[10px] text-gray-400">{teamMembers.filter(m => m.role === 'admin').length} {teamMembers.filter(m => m.role === 'admin').length === 1 ? 'member' : 'members'}</span>
+                </div>
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-3 px-3 sm:mx-0 sm:px-0">
               {/* Unassigned Column */}
               <DroppableColumn
                 id="member-0"
-                className="bg-gray-100 rounded-lg p-3 min-h-[200px] transition-colors border border-dashed border-gray-300 w-[160px] sm:w-[180px] flex-shrink-0 snap-center"
+                className="bg-gray-100 rounded-lg p-3.5 min-h-[280px] transition-colors border border-dashed border-gray-300 w-[180px] sm:w-[210px] flex-shrink-0 snap-center"
               >
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-300">
-                  <div className="w-7 h-7 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 font-bold text-xs">
+                  <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 font-bold text-xs">
                     ?
                   </div>
                   <div className="flex-1 min-w-0">
@@ -6351,7 +6357,7 @@ export default function Home() {
                   </div>
                 </div>
                 
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {getUnassignedTasks()
                     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
                     .slice(0, expandedMembers.has(0) ? undefined : 7)
@@ -6361,9 +6367,9 @@ export default function Home() {
                         <div
                           key={task.id}
                           onClick={() => setEditingTask(task)}
-                          className="bg-white rounded p-2 cursor-pointer hover:shadow-sm transition border border-gray-100"
+                          className="bg-white rounded p-2.5 cursor-pointer hover:shadow-sm transition border border-gray-100"
                         >
-                          <p className="text-[11px] font-medium text-gray-900 line-clamp-1">{task.title}</p>
+                          <p className="text-xs font-medium text-gray-900 line-clamp-1">{task.title}</p>
                           <div className="flex items-center gap-1 mt-1 flex-wrap">
                             {workflow && (
                               <span className={`text-[9px] px-1.5 py-0.5 rounded text-white ${workflow.color}`}>
@@ -6399,7 +6405,7 @@ export default function Home() {
                 </div>
               </DroppableColumn>
 
-              {teamMembers.map(member => {
+              {teamMembers.filter(m => m.role === 'admin').map(member => {
                 // Get tasks and apply filter
                 let activeTasks = getTasksByMember(member.id)
                 if (teamViewFilter === 'assigned') {
@@ -6417,10 +6423,10 @@ export default function Home() {
                   <DroppableColumn
                     key={member.id}
                     id={`member-${member.id}`}
-                    className="bg-gray-50 rounded-lg p-3 min-h-[200px] transition-colors w-[160px] sm:w-[180px] flex-shrink-0 snap-center"
+                    className="bg-gray-50 rounded-lg p-3.5 min-h-[280px] transition-colors w-[180px] sm:w-[210px] flex-shrink-0 snap-center"
                   >
                     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-200">
-                      <div className="w-7 h-7 rounded-full bg-steps-blue-100 flex items-center justify-center text-steps-blue-700 font-bold text-[10px]">
+                      <div className="w-8 h-8 rounded-full bg-steps-blue-100 flex items-center justify-center text-steps-blue-700 font-bold text-[10px]">
                         {member.avatar}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -6429,7 +6435,7 @@ export default function Home() {
                       </div>
                     </div>
                     
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       {displayTasks.map(task => {
                         const workflow = workflows.find(w => w.id === task.workflow)
                         const isPrimaryAssignee = task.assignee === member.id
@@ -6439,7 +6445,7 @@ export default function Home() {
                         return (
                           <div
                             key={task.id}
-                            className={`group bg-white rounded p-2 hover:shadow-sm transition ${
+                            className={`group bg-white rounded p-2.5 hover:shadow-sm transition ${
                               isPrimaryAssignee ? 'border-2 border-steps-blue-300 ring-1 ring-steps-blue-100' : 'border border-gray-100'
                             } ${allSubtasksCompleted ? 'opacity-60' : ''}`}
                           >
@@ -6464,7 +6470,7 @@ export default function Home() {
                                 </button>
                               )}
                               <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditingTask(task)}>
-                                <p className={`text-[11px] font-medium text-gray-900 line-clamp-1 ${allSubtasksCompleted ? 'line-through' : ''}`}>{task.title}</p>
+                                <p className={`text-xs font-medium text-gray-900 line-clamp-1 ${allSubtasksCompleted ? 'line-through' : ''}`}>{task.title}</p>
                                 <div className="flex items-center gap-1 mt-1 flex-wrap">
                                   {workflow && (
                                     <span className={`text-[9px] px-1.5 py-0.5 rounded text-white ${workflow.color}`}>
@@ -6507,11 +6513,136 @@ export default function Home() {
                 )
               })}
             </div>
+              </section>
+              {teamMembers.filter(m => m.role !== 'admin').length > 0 && (
+                <section>
+                  <div className="flex items-baseline gap-2 mb-2 px-1">
+                    <h3 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Wider team</h3>
+                    <span className="text-[10px] text-gray-400">{teamMembers.filter(m => m.role !== 'admin').length} {teamMembers.filter(m => m.role !== 'admin').length === 1 ? 'member' : 'members'}</span>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory -mx-3 px-3 sm:mx-0 sm:px-0">
+              {teamMembers.filter(m => m.role !== 'admin').map(member => {
+                // Get tasks and apply filter
+                let activeTasks = getTasksByMember(member.id)
+                if (teamViewFilter === 'assigned') {
+                  activeTasks = activeTasks.filter(t => t.assignee === member.id)
+                } else if (teamViewFilter === 'collaborating') {
+                  activeTasks = activeTasks.filter(t => t.assignee !== member.id && t.collaborators.includes(member.id))
+                }
+                // Sort by due date (earliest first)
+                activeTasks = [...activeTasks].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                
+                const isExpanded = expandedMembers.has(member.id)
+                const displayTasks = isExpanded ? activeTasks : activeTasks.slice(0, 7)
+                
+                return (
+                  <DroppableColumn
+                    key={member.id}
+                    id={`member-${member.id}`}
+                    className="bg-gray-50 rounded-lg p-3.5 min-h-[280px] transition-colors w-[180px] sm:w-[210px] flex-shrink-0 snap-center"
+                  >
+                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-200">
+                      <div className="w-8 h-8 rounded-full bg-steps-blue-100 flex items-center justify-center text-steps-blue-700 font-bold text-[10px]">
+                        {member.avatar}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="font-semibold text-gray-700 text-xs truncate">{member.name.split(' ')[0]}</h2>
+                        <p className="text-[10px] text-gray-400">{activeTasks.length} active</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {displayTasks.map(task => {
+                        const workflow = workflows.find(w => w.id === task.workflow)
+                        const isPrimaryAssignee = task.assignee === member.id
+                        const memberSubtasks = task.subtasks.filter(st => st.personId === member.id)
+                        const hasSubtasks = memberSubtasks.length > 0
+                        const allSubtasksCompleted = hasSubtasks && memberSubtasks.every(st => st.completed)
+                        return (
+                          <div
+                            key={task.id}
+                            className={`group bg-white rounded p-2.5 hover:shadow-sm transition ${
+                              isPrimaryAssignee ? 'border-2 border-steps-blue-300 ring-1 ring-steps-blue-100' : 'border border-gray-100'
+                            } ${allSubtasksCompleted ? 'opacity-60' : ''}`}
+                          >
+                            <div className="flex items-start gap-1.5">
+                              {hasSubtasks && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleSubtaskCompletion(task, member.id)
+                                  }}
+                                  className={`mt-0.5 flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center transition ${
+                                    allSubtasksCompleted
+                                      ? 'bg-green-500 border-green-500 text-white'
+                                      : 'border-gray-300 hover:border-green-400 opacity-0 group-hover:opacity-100'
+                                  }`}
+                                >
+                                  {allSubtasksCompleted && (
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </button>
+                              )}
+                              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setEditingTask(task)}>
+                                <p className={`text-xs font-medium text-gray-900 line-clamp-1 ${allSubtasksCompleted ? 'line-through' : ''}`}>{task.title}</p>
+                                <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                  {workflow && (
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded text-white ${workflow.color}`}>
+                                      {workflow.short}
+                                    </span>
+                                  )}
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded ${statusColors[task.status]}`}>
+                                    {statusLabels[task.status]}
+                                  </span>
+                                  {!isPrimaryAssignee && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">collab</span>
+                                  )}
+                                  <span className="text-[9px] text-gray-400 ml-auto">
+                                    {new Date(task.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                      {activeTasks.length === 0 && (
+                        <p className="text-[10px] text-gray-400 text-center py-2">No tasks</p>
+                      )}
+                      {activeTasks.length > 7 && (
+                        <button
+                          onClick={() => setExpandedMembers(prev => {
+                            const next = new Set(prev)
+                            if (next.has(member.id)) next.delete(member.id)
+                            else next.add(member.id)
+                            return next
+                          })}
+                          className="w-full text-[10px] text-steps-blue-600 hover:text-steps-blue-700 py-1"
+                        >
+                          {isExpanded ? 'Show less' : `+${activeTasks.length - 7} more`}
+                        </button>
+                      )}
+                    </div>
+                  </DroppableColumn>
+                )
+              })}
+                  </div>
+                </section>
+              )}
+            </div>
             )}
 
             {/* Comfortable View */}
             {teamViewMode === 'comfortable' && (
-            <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory -mx-3 px-3 sm:mx-0 sm:px-0">
+            <div className="space-y-5">
+              <section>
+                <div className="flex items-baseline gap-2 mb-2 px-1">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Core team</h3>
+                  <span className="text-[10px] text-gray-400">{teamMembers.filter(m => m.role === 'admin').length} {teamMembers.filter(m => m.role === 'admin').length === 1 ? 'member' : 'members'}</span>
+                </div>
+                <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory -mx-3 px-3 sm:mx-0 sm:px-0">
               {/* Unassigned Column */}
               <DroppableColumn
                 id="member-0"
@@ -6568,7 +6699,7 @@ export default function Home() {
                 </div>
               </DroppableColumn>
 
-              {teamMembers.map(member => {
+              {teamMembers.filter(m => m.role === 'admin').map(member => {
                 // Get tasks and apply filter
                 let activeTasks = getTasksByMember(member.id)
                 if (teamViewFilter === 'assigned') {
@@ -6638,6 +6769,88 @@ export default function Home() {
                   </DroppableColumn>
                 )
               })}
+            </div>
+              </section>
+              {teamMembers.filter(m => m.role !== 'admin').length > 0 && (
+                <section>
+                  <div className="flex items-baseline gap-2 mb-2 px-1">
+                    <h3 className="text-xs uppercase tracking-wider text-gray-500 font-semibold">Wider team</h3>
+                    <span className="text-[10px] text-gray-400">{teamMembers.filter(m => m.role !== 'admin').length} {teamMembers.filter(m => m.role !== 'admin').length === 1 ? 'member' : 'members'}</span>
+                  </div>
+                  <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory -mx-3 px-3 sm:mx-0 sm:px-0">
+              {teamMembers.filter(m => m.role !== 'admin').map(member => {
+                // Get tasks and apply filter
+                let activeTasks = getTasksByMember(member.id)
+                if (teamViewFilter === 'assigned') {
+                  activeTasks = activeTasks.filter(t => t.assignee === member.id)
+                } else if (teamViewFilter === 'collaborating') {
+                  activeTasks = activeTasks.filter(t => t.assignee !== member.id && t.collaborators.includes(member.id))
+                }
+                // Sort by due date (earliest first)
+                activeTasks = [...activeTasks].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+                const isExpanded = expandedMembers.has(member.id)
+                const displayTasks = isExpanded ? activeTasks : activeTasks.slice(0, 3)
+                
+                return (
+                  <DroppableColumn
+                    key={member.id}
+                    id={`member-${member.id}`}
+                    className="bg-gray-50 rounded-xl p-4 min-h-[300px] transition-colors w-[220px] sm:w-[260px] flex-shrink-0 snap-center"
+                  >
+                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-200">
+                      <div className="w-10 h-10 rounded-full bg-steps-blue-100 flex items-center justify-center text-steps-blue-700 font-bold text-sm">
+                        {member.avatar}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="font-semibold text-gray-700 text-sm truncate">{member.name.split(' ')[0]}</h2>
+                        <p className="text-xs text-gray-400">{activeTasks.length} active</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-3 mb-4">
+                      {displayTasks.map(task => (
+                        <DraggableTaskCard
+                          key={task.id}
+                          task={task}
+                          onClick={() => setEditingTask(task)}
+                          showStatus
+                          workflows={workflows}
+                          teamMembers={teamMembers}
+                          labels={labels}
+                          viewingMemberId={member.id}
+                          onToggleComplete={toggleSubtaskCompletion}
+                          onMoveToStatus={async (t, newStatus) => {
+                            let updatedTask = { ...t, status: newStatus }
+                            if (newStatus === 'done') {
+                              updatedTask.subtasks = updatedTask.subtasks.map(st => ({ ...st, completed: true }))
+                            }
+                            await updateTaskInDb(updatedTask)
+                          }}
+                        />
+                      ))}
+                      {activeTasks.length === 0 && (
+                        <p className="text-sm text-gray-400 text-center py-4">No active tasks</p>
+                      )}
+                      {activeTasks.length > 3 && (
+                        <button
+                          onClick={() => setExpandedMembers(prev => {
+                            const next = new Set(prev)
+                            if (next.has(member.id)) next.delete(member.id)
+                            else next.add(member.id)
+                            return next
+                          })}
+                          className="w-full text-xs text-steps-blue-600 hover:text-steps-blue-700 py-2"
+                        >
+                          {isExpanded ? 'Show less' : `+${activeTasks.length - 3} more`}
+                        </button>
+                      )}
+                    </div>
+                  </DroppableColumn>
+                )
+              })}
+                  </div>
+                </section>
+              )}
             </div>
             )}
           </div>
@@ -6863,7 +7076,7 @@ export default function Home() {
                   {/* Availability note - only editable by owner */}
                   <div className="mb-3">
                     {member.id === currentUserMemberId ? (
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <input
                           type="text"
                           value={getMemberNote(member.id, selectedWeek)}
