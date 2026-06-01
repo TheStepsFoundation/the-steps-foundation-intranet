@@ -1045,6 +1045,35 @@ export default function ApplyPage() {
     )
   }
 
+  // --- Application window closed / not yet open ---
+  // The hub hides events outside their window, but the public apply link is
+  // shareable and was previously ungated, so enforce it here too. Admin
+  // preview/test modes bypass so the form stays inspectable.
+  const winNow = Date.now()
+  const winOpenMs = event.applications_open_at ? Date.parse(event.applications_open_at) : null
+  const winCloseMs = event.applications_close_at ? Date.parse(event.applications_close_at) : null
+  const applyNotYetOpen = winOpenMs != null && winNow < winOpenMs
+  const applyClosed =
+    event.archived_at != null ||
+    event.status === 'draft' || event.status === 'cancelled' ||
+    event.status === 'completed' || event.status === 'closed' ||
+    (winCloseMs != null && winNow > winCloseMs)
+  if (!previewMode && !testMode && (applyNotYetOpen || applyClosed)) {
+    return (
+      <div className="flex items-center justify-center min-h-screen p-4">
+        <div className="text-center max-w-md">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">{event.name}</h1>
+          <p className="text-gray-600">
+            {applyNotYetOpen
+              ? 'Applications for this event have not opened yet. Please check back soon.'
+              : 'Applications for this event are now closed.'}
+          </p>
+          <a href="/my" className="inline-block mt-6 text-steps-blue-600 hover:text-steps-blue-800 font-medium">Go to your Student Hub</a>
+        </div>
+      </div>
+    )
+  }
+
   // --- Render ---
   return (
     <>

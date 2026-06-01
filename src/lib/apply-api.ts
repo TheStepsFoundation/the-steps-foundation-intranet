@@ -615,6 +615,37 @@ export async function submitEventApplication(
   stage2: Stage2Submission,
   options: { eligible: boolean; isTest?: boolean },
 ): Promise<{ error: string | null; applicationId?: string }> {
+  // Enforce the application window server-side. The public /apply/[slug] form
+  // is reachable by direct link (shared on socials), which bypasses the hub's
+  // open-events filtering, so the close date must be enforced here too. Admin
+  // test submissions are exempt so test mode keeps working.
+  if (!options.isTest) {
+    const { data: ev } = await supabase
+      .from('events')
+      .select('status, applications_open_at, applications_close_at, archived_at, deleted_at')
+      .eq('id', eventId)
+      .maybeSingle()
+    const e = ev as {
+      status: string
+      applications_open_at: string | null
+      applications_close_at: string | null
+      archived_at: string | null
+      deleted_at: string | null
+    } | null
+    if (e) {
+      const now = Date.now()
+      const openMs = e.applications_open_at ? Date.parse(e.applications_open_at) : null
+      const closeMs = e.applications_close_at ? Date.parse(e.applications_close_at) : null
+      const closed =
+        e.deleted_at != null || e.archived_at != null ||
+        e.status === 'draft' || e.status === 'cancelled' ||
+        e.status === 'completed' || e.status === 'closed' ||
+        (openMs != null && now < openMs) ||
+        (closeMs != null && now > closeMs)
+      if (closed) return { error: 'Applications for this event are closed.' }
+    }
+  }
+
   const attributionMap: Record<string, string> = {
     'email_invite': 'email',
     'school_teacher': 'teacher_newsletter',
