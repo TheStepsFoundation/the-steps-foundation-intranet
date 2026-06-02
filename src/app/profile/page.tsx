@@ -21,6 +21,11 @@ export default function ProfilePage() {
   const [initials, setInitials] = useState('')
   const [name, setName] = useState('')
   const [jobTitle, setJobTitle] = useState<string | null>(null)
+  const [phone, setPhone] = useState('')
+  const [phoneSaved, setPhoneSaved] = useState<string | null>(null)
+  const [savingPhone, setSavingPhone] = useState(false)
+  const [phoneError, setPhoneError] = useState<string | null>(null)
+  const [phoneNotice, setPhoneNotice] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -33,7 +38,7 @@ export default function ProfilePage() {
     ;(async () => {
       const { data } = await supabase
         .from('team_members')
-        .select('avatar, avatar_url, name, job_title')
+        .select('avatar, avatar_url, name, job_title, phone')
         .eq('email', email.toLowerCase())
         .maybeSingle()
       if (cancelled || !data) return
@@ -41,6 +46,8 @@ export default function ProfilePage() {
       setInitials(initialsFrom(data.name, data.avatar))
       setName(data.name ?? '')
       setJobTitle(data.job_title ?? null)
+      setPhone(data.phone ?? '')
+      setPhoneSaved(data.phone ?? null)
     })()
     return () => { cancelled = true }
   }, [user?.email])
@@ -87,6 +94,30 @@ export default function ProfilePage() {
       setError(err instanceof Error ? err.message : 'Could not remove photo')
     } finally {
       setUploading(false)
+    }
+  }
+
+  const savePhone = async () => {
+    setPhoneError(null); setPhoneNotice(null); setSavingPhone(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Your session has expired — please sign in again.')
+      const res = await fetch('/api/profile/update-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone: phone.trim() === '' ? null : phone }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || 'Could not save your phone number')
+      const saved = (json?.phone ?? null) as string | null
+      setPhone(saved ?? '')
+      setPhoneSaved(saved)
+      setPhoneNotice('Phone number saved.')
+    } catch (err: unknown) {
+      setPhoneError(err instanceof Error ? err.message : 'Could not save your phone number')
+    } finally {
+      setSavingPhone(false)
     }
   }
 
@@ -150,9 +181,30 @@ export default function ProfilePage() {
               <dd className="text-steps-dark dark:text-gray-100 font-medium">{jobTitle}</dd>
             </div>
           )}
-          <div className="flex justify-between gap-4 items-center">
+          <div className="flex flex-col gap-2 pt-1">
             <dt className="text-slate-500 dark:text-gray-400">Contact phone</dt>
-            <dd className="text-slate-400 dark:text-gray-500 italic">Coming soon</dd>
+            <dd>
+              <div className="flex items-center gap-2">
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => { setPhone(e.target.value); setPhoneNotice(null); setPhoneError(null) }}
+                  placeholder="e.g. +44 7700 900000"
+                  maxLength={32}
+                  className="flex-1 rounded-lg border border-slate-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2 text-sm text-steps-dark dark:text-gray-100 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={savePhone}
+                  disabled={savingPhone || phone === (phoneSaved ?? '')}
+                  className="rounded-lg bg-steps-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-steps-blue-700 disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2"
+                >
+                  {savingPhone ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+              {phoneError && <p className="mt-2 text-xs text-rose-600">{phoneError}</p>}
+              {phoneNotice && <p className="mt-2 text-xs text-emerald-600">{phoneNotice}</p>}
+            </dd>
           </div>
         </dl>
       </section>
