@@ -11,7 +11,9 @@ import {
   unarchiveEvent,
   deleteEvent,
   computeEventEffectiveStatus,
-  effectiveDecisionsDueMs,
+  eventDecisionPhase,
+  DECISION_PHASE_META,
+  type DecisionPhase,
   cloneEventFrom,
   CLONE_FIELD_LABELS,
   type CloneFieldKey,
@@ -208,15 +210,15 @@ function Inner() {
       const effective = computeEventEffectiveStatus(e)
       const eventMs = e.event_date ? new Date(e.event_date + 'T00:00:00').getTime() : null
       const isPastEvent = eventMs != null && eventMs < todayMs
-      // Decisions urgency keys off the internal decisions deadline (explicit
-      // decisions_due_at, else the default of 1.5 weeks before the event date),
-      // NOT the applications-close date — an event can be closed for
-      // applications while its decisions are not yet due.
-      const decisionsDueMs = effectiveDecisionsDueMs(e)
-      const decisionsUrgent = decisionsDueMs != null && decisionsDueMs >= todayMs && (decisionsDueMs - todayMs) < 7 * 86400000 && e.submitted_count > 0
-      const decisionsOverdue = decisionsDueMs != null && decisionsDueMs < todayMs && e.submitted_count > 0
+      // Decision phase keys off the internal decisions deadline (explicit
+      // decisions_due_at, else the default of 1.5 weeks before the event date)
+      // and only applies once applications have closed — an event can be
+      // closed for applications while its decisions are not yet due.
+      const decisionPhase = eventDecisionPhase(e, e.submitted_count, todayMs)
+      const decisionsUrgent = decisionPhase === 'due_soon'
+      const decisionsOverdue = decisionPhase === 'overdue'
       const owner = e.lead_team_member_id ? (members[e.lead_team_member_id] ?? null) : null
-      return { ...e, effective, isPastEvent, decisionsUrgent, decisionsOverdue, owner }
+      return { ...e, effective, isPastEvent, decisionPhase, decisionsUrgent, decisionsOverdue, owner }
     })
   }, [events, members])
 
@@ -548,6 +550,7 @@ function Inner() {
 type DecoratedEvent = EventWithStats & {
   effective: EffectiveStatus
   isPastEvent: boolean
+  decisionPhase: DecisionPhase | null
   decisionsUrgent: boolean
   decisionsOverdue: boolean
   owner: string | null
@@ -662,8 +665,9 @@ function EventCard({ event, busy, isSelected, onToggleSelected, onArchive, onDel
             </div>
             <div className="flex flex-col items-end gap-1.5 shrink-0">
               <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${meta.classes}`}>{meta.label}</span>
-              {event.decisionsOverdue && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700">{event.submitted_count} overdue</span>}
-              {!event.decisionsOverdue && event.decisionsUrgent && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800">decisions due soon</span>}
+              {event.decisionPhase === 'overdue' && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700">{event.submitted_count} overdue</span>}
+              {event.decisionPhase === 'due_soon' && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800">decisions due soon</span>}
+              {event.decisionPhase === 'ready' && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700">ready for decisions</span>}
             </div>
           </div>
 
@@ -829,7 +833,7 @@ function TableView({ rowsByBucket, selected, onToggle, onToggleAll, onArchive, o
                         <td className="px-3 py-2.5 text-slate-600">{date}</td>
                         <td className="px-3 py-2.5">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${meta.classes}`}>{meta.label}</span>
-                          {e.decisionsOverdue && <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-100 text-rose-700">overdue</span>}
+                          {e.decisionPhase && <span className={`ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${DECISION_PHASE_META[e.decisionPhase].classes}`}>{DECISION_PHASE_META[e.decisionPhase].short}</span>}
                         </td>
                         <td className={`px-3 py-2.5 text-right tabular-nums ${e.submitted_count > 0 ? 'text-sky-700 font-bold' : 'text-slate-400'}`}>{e.submitted_count}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">{e.accepted_count}</td>

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EventRow, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion, type EmailAutomationRow, type EmailAutomationType, EMAIL_AUTOMATION_TYPE_META } from '@/lib/events-api'
+import { EventRow, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, eventDecisionPhase, DECISION_PHASE_META, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion, type EmailAutomationRow, type EmailAutomationType, EMAIL_AUTOMATION_TYPE_META } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
@@ -3339,6 +3339,19 @@ export default function EventDetailPage() {
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${m.classes}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
                         {m.label}
+                      </span>
+                    )
+                  })()}
+                  {/* Ready-for-decisions phase — only shows once applications
+                      close and there are submitted applications awaiting a
+                      decision. Mirrors the events list and hub tiles. */}
+                  {(() => {
+                    const phase = eventDecisionPhase(event, statusCounts['submitted'] ?? 0)
+                    if (!phase) return null
+                    const meta = DECISION_PHASE_META[phase]
+                    return (
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${meta.classes}`}>
+                        {meta.label}
                       </span>
                     )
                   })()}

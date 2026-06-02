@@ -26,7 +26,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-provider'
 import ProfileAvatar from '@/components/ProfileAvatar'
 import AdminHeader from '@/components/AdminHeader'
-import { fetchEventsWithStats, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, type EventWithStats } from '@/lib/events-api'
+import { fetchEventsWithStats, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, eventDecisionPhase, DECISION_PHASE_META, type EventWithStats } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
 
 // ---------------------------------------------------------------------------
@@ -335,6 +335,14 @@ export default function HubPage() {
                       )
                     })()}
                   </div>
+                  {(() => {
+                    const phase = eventDecisionPhase(ev, ev.submitted_count)
+                    if (!phase) return null
+                    const meta = DECISION_PHASE_META[phase]
+                    return (
+                      <span className={`mt-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${meta.classes}`}>{meta.label}</span>
+                    )
+                  })()}
                 </Link>
               ))}
             </div>

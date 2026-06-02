@@ -917,6 +917,36 @@ export function effectiveDecisionsDueMs(e: Pick<EventRow, 'decisions_due_at' | '
   return defaultDecisionsDueMs(e.event_date)
 }
 
+export type DecisionPhase = 'ready' | 'due_soon' | 'overdue'
+
+/**
+ * Decision phase for an event whose applications have closed and which has
+ * submitted applications awaiting an accept/reject decision. Returns null when
+ * the event isn't in a decisions-relevant state (no submissions yet, or
+ * applications haven't closed). 'ready' = closed with submissions and no
+ * deadline pressure; 'due_soon' = within a week of the deadline; 'overdue' =
+ * past it.
+ */
+export function eventDecisionPhase(
+  e: Pick<EventRow, 'status' | 'applications_open_at' | 'applications_close_at' | 'event_date' | 'decisions_due_at'>,
+  submittedCount: number,
+  now: number = Date.now(),
+): DecisionPhase | null {
+  if (!(submittedCount > 0)) return null
+  if (computeEventEffectiveStatus(e) !== 'closed') return null   // only after apps close & before event runs
+  const dueMs = effectiveDecisionsDueMs(e)
+  if (dueMs == null) return 'ready'
+  if (dueMs < now) return 'overdue'
+  if (dueMs - now < 7 * 86400000) return 'due_soon'
+  return 'ready'
+}
+
+export const DECISION_PHASE_META: Record<DecisionPhase, { label: string; short: string; classes: string }> = {
+  ready:    { label: 'Ready for decisions', short: 'ready',    classes: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300' },
+  due_soon: { label: 'Decisions due soon',  short: 'due soon', classes: 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300' },
+  overdue:  { label: 'Decisions overdue',   short: 'overdue',  classes: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300' },
+}
+
 // ---------------------------------------------------------------------------
 // Event versions (edit-session restore points)
 // ---------------------------------------------------------------------------
