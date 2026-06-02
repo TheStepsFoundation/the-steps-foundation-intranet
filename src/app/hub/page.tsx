@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-provider'
 import ProfileAvatar from '@/components/ProfileAvatar'
-import { TopNav } from '@/components/TopNav'
+import AdminHeader from '@/components/AdminHeader'
 import { fetchEventsWithStats, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, type EventWithStats } from '@/lib/events-api'
 import { supabase } from '@/lib/supabase'
 
@@ -72,7 +72,7 @@ function formatEventDate(d: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export default function HubPage() {
-  const { user, loading, signOut, isTeamMember, teamMember } = useAuth()
+  const { user, loading, isTeamMember, teamMember } = useAuth()
   const router = useRouter()
 
   const [events, setEvents] = useState<EventWithStats[] | null>(null)
@@ -161,16 +161,7 @@ export default function HubPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <TopNav>
-        <ProfileAvatar />
-        <span className="hidden sm:block text-sm text-slate-600">{displayName}</span>
-        <button
-          onClick={() => signOut().then(() => router.push('/login'))}
-          className="text-sm px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 transition"
-        >
-          Sign out
-        </button>
-      </TopNav>
+      <AdminHeader />
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
         {/* ─────────────────────────────────────────────────────────────────
