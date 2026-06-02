@@ -167,6 +167,7 @@ export type EventRow = {
   status: 'draft' | 'open' | 'closed' | 'completed' | 'cancelled'
   applications_open_at: string | null
   applications_close_at: string | null
+  decisions_due_at: string | null
   interest_options: { value: string; label: string }[]
   form_config: { fields: FormFieldConfig[]; pages?: FormPage[]; standard_overrides?: StandardOverrides }
   banner_image_url: string | null
@@ -217,7 +218,7 @@ export type EventWithStats = EventRow & {
 // =============================================================================
 
 const EVENT_COLUMNS =
-  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,is_private,display_initials,archived_at,lead_team_member_id,collaborator_ids,created_at'
+  'id,name,slug,event_date,location,location_full,format,description,capacity,time_start,time_end,dress_code,status,applications_open_at,applications_close_at,decisions_due_at,interest_options,form_config,banner_image_url,hub_image_url,banner_focal_x,banner_focal_y,hub_focal_x,hub_focal_y,dashboard_columns,eligible_year_groups,open_to_gap_year,feedback_config,is_private,display_initials,archived_at,lead_team_member_id,collaborator_ids,created_at'
 
 /**
  * Fetch all events (non-deleted) ordered by date descending.
@@ -434,7 +435,7 @@ export async function updateEvent(
   id: string,
   patch: Partial<Pick<EventRow,
     'name' | 'slug' | 'location' | 'location_full' | 'format' | 'time_start' | 'time_end' | 'dress_code' |
-    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'interest_options' | 'form_config' | 'feedback_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year' | 'lead_team_member_id' | 'collaborator_ids' | 'email_automations' | 'is_private' | 'display_initials'
+    'status' | 'capacity' | 'description' | 'event_date' | 'applications_open_at' | 'applications_close_at' | 'decisions_due_at' | 'interest_options' | 'form_config' | 'feedback_config' | 'banner_image_url' | 'hub_image_url' | 'banner_focal_x' | 'banner_focal_y' | 'hub_focal_x' | 'hub_focal_y' | 'dashboard_columns' | 'eligible_year_groups' | 'open_to_gap_year' | 'lead_team_member_id' | 'collaborator_ids' | 'email_automations' | 'is_private' | 'display_initials'
   >>,
 ): Promise<EventRow> {
   // Guard against malformed form_config landing in the DB.
@@ -886,6 +887,34 @@ export const EFFECTIVE_STATUS_META: Record<EffectiveStatus, { label: string; cla
   closed:    { label: 'Closed',    tone: 'amber',   classes: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300' },
   completed: { label: 'Completed', tone: 'violet',  classes: 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300' },
   cancelled: { label: 'Cancelled', tone: 'slate',   classes: 'bg-slate-100 text-slate-700 border-slate-200 line-through dark:bg-slate-800 dark:text-slate-300' },
+}
+
+// ---------------------------------------------------------------------------
+// Decisions-due deadline
+//
+// The internal accept/reject decision deadline. When events.decisions_due_at is
+// set it wins; otherwise we default to 1.5 weeks (10.5 days) before event_date.
+// Keeping the default as a computed fallback (rather than backfilling the
+// column) means it keeps tracking the event date until an admin overrides it.
+// ---------------------------------------------------------------------------
+
+export const DECISIONS_DUE_DEFAULT_OFFSET_DAYS = 10.5
+
+/** Default decisions deadline (epoch ms) derived from an event date, or null. */
+export function defaultDecisionsDueMs(eventDate: string | null | undefined): number | null {
+  if (!eventDate) return null
+  const ev = new Date(eventDate + 'T00:00:00').getTime()
+  if (isNaN(ev)) return null
+  return ev - DECISIONS_DUE_DEFAULT_OFFSET_DAYS * 86400000
+}
+
+/** Effective decisions deadline (epoch ms): explicit value, else the default. */
+export function effectiveDecisionsDueMs(e: Pick<EventRow, 'decisions_due_at' | 'event_date'>): number | null {
+  if (e.decisions_due_at) {
+    const t = new Date(e.decisions_due_at).getTime()
+    if (!isNaN(t)) return t
+  }
+  return defaultDecisionsDueMs(e.event_date)
 }
 
 // ---------------------------------------------------------------------------

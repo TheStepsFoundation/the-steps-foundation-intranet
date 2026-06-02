@@ -11,6 +11,7 @@ import {
   unarchiveEvent,
   deleteEvent,
   computeEventEffectiveStatus,
+  effectiveDecisionsDueMs,
   cloneEventFrom,
   CLONE_FIELD_LABELS,
   type CloneFieldKey,
@@ -206,10 +207,14 @@ function Inner() {
     return events.map(e => {
       const effective = computeEventEffectiveStatus(e)
       const eventMs = e.event_date ? new Date(e.event_date + 'T00:00:00').getTime() : null
-      const closeMs = e.applications_close_at ? new Date(e.applications_close_at).getTime() : null
       const isPastEvent = eventMs != null && eventMs < todayMs
-      const decisionsUrgent = !!closeMs && closeMs >= todayMs && (closeMs - todayMs) < 7 * 86400000 && e.submitted_count > 0
-      const decisionsOverdue = !!closeMs && closeMs < todayMs && e.submitted_count > 0
+      // Decisions urgency keys off the internal decisions deadline (explicit
+      // decisions_due_at, else the default of 1.5 weeks before the event date),
+      // NOT the applications-close date — an event can be closed for
+      // applications while its decisions are not yet due.
+      const decisionsDueMs = effectiveDecisionsDueMs(e)
+      const decisionsUrgent = decisionsDueMs != null && decisionsDueMs >= todayMs && (decisionsDueMs - todayMs) < 7 * 86400000 && e.submitted_count > 0
+      const decisionsOverdue = decisionsDueMs != null && decisionsDueMs < todayMs && e.submitted_count > 0
       const owner = e.lead_team_member_id ? (members[e.lead_team_member_id] ?? null) : null
       return { ...e, effective, isPastEvent, decisionsUrgent, decisionsOverdue, owner }
     })

@@ -406,6 +406,15 @@ function toLocalDatetimeInputValue(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// Default decisions-due deadline (1.5 weeks before the event date) as an ISO
+// string, for the editor prefill/hint. Mirrors lib/events-api defaultDecisionsDueMs.
+function defaultDecisionsDueIso(eventDate: string | null | undefined): string | null {
+  if (!eventDate) return null
+  const ev = new Date(eventDate + 'T00:00:00').getTime()
+  if (isNaN(ev)) return null
+  return new Date(ev - 10.5 * 86400000).toISOString()
+}
+
 function Section({ id, title, subtitle, defaultOpen = false, children }: {
   id: string
   title: string
@@ -1169,7 +1178,7 @@ export default function EventDetailPage() {
     const restorable: (keyof EventRow)[] = [
       'name', 'slug', 'description', 'event_date', 'time_start', 'time_end',
       'location', 'location_full', 'format', 'capacity', 'dress_code',
-      'applications_open_at', 'applications_close_at', 'interest_options',
+      'applications_open_at', 'applications_close_at', 'decisions_due_at', 'interest_options',
       'form_config', 'feedback_config', 'banner_image_url', 'hub_image_url',
       'banner_focal_x', 'banner_focal_y', 'hub_focal_x', 'hub_focal_y',
       'dashboard_columns', 'eligible_year_groups', 'open_to_gap_year',
@@ -1271,6 +1280,8 @@ export default function EventDetailPage() {
     const closeAt = draft.applications_close_at ? new Date(draft.applications_close_at as string).toISOString() : null
     if (openAt !== (baseline.applications_open_at ?? null)) patch.applications_open_at = openAt
     if (closeAt !== (baseline.applications_close_at ?? null)) patch.applications_close_at = closeAt
+    const decAt = draft.decisions_due_at ? new Date(draft.decisions_due_at as string).toISOString() : null
+    if (decAt !== (baseline.decisions_due_at ?? null)) patch.decisions_due_at = decAt
 
     if ((draft.banner_image_url ?? null) !== (baseline.banner_image_url ?? null)) patch.banner_image_url = draft.banner_image_url ?? null
     if ((draft.hub_image_url ?? null) !== (baseline.hub_image_url ?? null)) patch.hub_image_url = draft.hub_image_url ?? null
@@ -1324,6 +1335,7 @@ export default function EventDetailPage() {
       status: event.status,
       applications_open_at: toLocalDatetimeInputValue(event.applications_open_at),
       applications_close_at: toLocalDatetimeInputValue(event.applications_close_at),
+      decisions_due_at: toLocalDatetimeInputValue(event.decisions_due_at),
       form_config: event.form_config ?? { fields: [] },
       banner_image_url: event.banner_image_url,
       hub_image_url: event.hub_image_url,
@@ -1368,6 +1380,7 @@ export default function EventDetailPage() {
         status: original.status,
         applications_open_at: toLocalDatetimeInputValue(original.applications_open_at),
         applications_close_at: toLocalDatetimeInputValue(original.applications_close_at),
+        decisions_due_at: toLocalDatetimeInputValue(original.decisions_due_at),
         form_config: original.form_config ?? { fields: [] },
         banner_image_url: original.banner_image_url,
         hub_image_url: original.hub_image_url,
@@ -3148,6 +3161,22 @@ export default function EventDetailPage() {
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Applications close at</label>
                 <input type="datetime-local" value={editDraft.applications_close_at ?? ''} onChange={e => setEditDraft(d => ({ ...d, applications_close_at: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
+            </div>
+
+            {/* Decisions due — internal accept/reject deadline. Defaults to 1.5
+                weeks before the event date; editable per event. */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Decisions due by <span className="font-normal text-gray-400">(internal)</span></label>
+              <input type="datetime-local" value={editDraft.decisions_due_at ?? ''} onChange={e => setEditDraft(d => ({ ...d, decisions_due_at: e.target.value }))} className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+              <p className="mt-1 text-[11px] text-gray-400">
+                {(() => {
+                  const defIso = defaultDecisionsDueIso(editDraft.event_date as string | null | undefined)
+                  if (editDraft.decisions_due_at) return 'Custom deadline set — clear the field to fall back to the default (1.5 weeks before the event date).'
+                  return defIso
+                    ? `Leave blank to use the default: 1.5 weeks before the event date (${new Date(defIso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}).`
+                    : 'Defaults to 1.5 weeks before the event date once an event date is set.'
+                })()}
+              </p>
             </div>
 
             {/* Row 5: Description (merged into Basics) */}
