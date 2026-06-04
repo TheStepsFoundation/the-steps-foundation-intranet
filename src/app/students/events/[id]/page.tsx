@@ -145,6 +145,21 @@ const NOTIFY_STATUSES = [
   { code: 'rejected',    label: 'Reject & Notify',    templateType: 'rejection',  color: 'bg-red-600 hover:bg-red-700' },
 ]
 
+// An applicant's effective decision status for the status-filter tabs + counts.
+// A committed decision (shortlisted/accepted/waitlist/rejected) always wins.
+// Otherwise, if they're still 'submitted' but carry an internal review mark,
+// surface them under the tab that mark corresponds to — e.g. someone marked
+// "Shortlist (internal)" shows under Shortlisted rather than being hidden in
+// Submitted. Mirrors the smart-shortlist counter, which already counts an
+// internal shortlist mark as shortlisted. Keeps tabs mutually exclusive so the
+// counts still sum to the total.
+function effectiveDecisionStatus(a: Pick<Applicant, 'status' | 'internal_review_status'>): string {
+  if (a.status === 'submitted' && a.internal_review_status) {
+    return INTERNAL_REVIEW_STATUSES[a.internal_review_status]?.correspondsTo ?? a.status
+  }
+  return a.status
+}
+
 
 // ---------------------------------------------------------------------------
 // Email signature — matches the real events@ Gmail signature
@@ -1798,7 +1813,7 @@ export default function EventDetailPage() {
   const filtered = useMemo(() => {
     let list = applicants
     if (statusFilter !== 'all') {
-      list = list.filter(a => a.status === statusFilter)
+      list = list.filter(a => effectiveDecisionStatus(a) === statusFilter)
     }
     if (yearGroupFilter !== 'all') {
       list = list.filter(a => String(a.year_group) === yearGroupFilter)
@@ -1852,7 +1867,10 @@ export default function EventDetailPage() {
 
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = { all: applicants.length }
-    for (const a of applicants) c[a.status] = (c[a.status] || 0) + 1
+    for (const a of applicants) {
+      const eff = effectiveDecisionStatus(a)
+      c[eff] = (c[eff] || 0) + 1
+    }
     return c
   }, [applicants])
 
