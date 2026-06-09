@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useParams, useSearchParams, useRouter } from 'next/navigation'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { EventRow, computeEventEffectiveStatus, EFFECTIVE_STATUS_META, eventDecisionPhase, DECISION_PHASE_META, fetchEvent, updateEvent, archiveEvent, unarchiveEvent, deleteEvent, formatOpenTo, validateForPublish, EventPublishValidationError, type PublishValidationError, saveEventVersion, listEventVersions, type EventVersion, type EmailAutomationRow, type EmailAutomationType, EMAIL_AUTOMATION_TYPE_META } from '@/lib/events-api'
 import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
@@ -801,7 +802,8 @@ export default function EventDetailPage() {
   const [appLoading, setAppLoading] = useState(true)
 
   // Pagination
-  const PAGE_SIZE = 50
+  const ALL_ROWS = 1000000
+  const [pageSize, setPageSize] = useState(50)
   const [page, setPage] = useState(0)
 
   // Filters
@@ -1887,11 +1889,11 @@ export default function EventDetailPage() {
     return Array.from(sts).sort()
   }, [applicants])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paged = useMemo(() => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE), [filtered, page])
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const paged = useMemo(() => filtered.slice(page * pageSize, (page + 1) * pageSize), [filtered, page, pageSize])
 
   // Reset page when filters change
-  useEffect(() => { setPage(0) }, [statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir])
+  useEffect(() => { setPage(0) }, [statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir, pageSize])
 
   // Full-screen toggle for the applicants/database card. Uses the native
   // Fullscreen API on just that card element (Esc exits). Tracked in state so
@@ -3533,19 +3535,17 @@ export default function EventDetailPage() {
               sheetTitle={`${event?.name ?? 'Event'} \u2014 applicants (${filtered.length})`}
             />
 
-            {/* Full screen toggle */}
-            <button
-              onClick={toggleApplicantsFullscreen}
-              className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5"
-              title={isApplicantsFullscreen ? 'Exit full screen (Esc)' : 'Full screen'}
-            >
-              {isApplicantsFullscreen ? (
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 9 3.75 3.75M9 9V4.5M9 9H4.5M15 9l5.25-5.25M15 9V4.5M15 9h4.5M9 15l-5.25 5.25M9 15v4.5M9 15H4.5M15 15l5.25 5.25M15 15v4.5M15 15h4.5" /></svg>
-              ) : (
+            {/* Full screen — enter only (exit lives on the right, next to Invite Students) */}
+            {!isApplicantsFullscreen && (
+              <button
+                onClick={toggleApplicantsFullscreen}
+                className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5"
+                title="Full screen"
+              >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9m11.25-5.25h-4.5m4.5 0v4.5m0-4.5L15 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15m11.25 5.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
-              )}
-              {isApplicantsFullscreen ? 'Exit full screen' : 'Full screen'}
-            </button>
+                Full screen
+              </button>
+            )}
 
             {/* Filter & Sort toggle */}
             <button
@@ -3635,6 +3635,16 @@ export default function EventDetailPage() {
             >
               Invite Students
             </button>
+            {isApplicantsFullscreen && (
+              <button
+                onClick={toggleApplicantsFullscreen}
+                className="ml-2 px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                title="Exit full screen (Esc)"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 9 3.75 3.75M9 9V4.5M9 9H4.5M15 9l5.25-5.25M15 9V4.5M15 9h4.5M9 15l-5.25 5.25M9 15v4.5M9 15H4.5M15 15l5.25 5.25M15 15v4.5M15 15h4.5" /></svg>
+                Exit full screen
+              </button>
+            )}
           </div>
 
           {/* Filter & Sort panel */}
@@ -4430,12 +4440,28 @@ export default function EventDetailPage() {
 
         {/* Footer with pagination */}
         <div className={`p-3 border-t border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between ${isApplicantsFullscreen ? 'shrink-0' : ''}`}>
+          <div className="flex items-center gap-3 flex-wrap">
           <span>
-            Showing {filtered.length > 0 ? page * PAGE_SIZE + 1 : 0}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+            Showing {filtered.length > 0 ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, filtered.length)} of {filtered.length}
             {filtered.length !== applicants.length && ` (${applicants.length} total)`}
             {' · '}{attendedCount} attended · {applicants.length - attendedCount} no-show
             {rsvpStats.accepted > 0 && ` · ${rsvpStats.confirmed}/${rsvpStats.accepted} RSVPs`}
           </span>
+            <label className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <span className="text-gray-500 dark:text-gray-400">Rows:</span>
+              <select
+                value={pageSize}
+                onChange={e => setPageSize(Number(e.target.value))}
+                className="px-1.5 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={200}>200</option>
+                <option value={ALL_ROWS}>All</option>
+              </select>
+            </label>
+          </div>
           {totalPages > 1 && (
             <div className="flex items-center gap-1">
               <button
@@ -4841,7 +4867,8 @@ export default function EventDetailPage() {
         </div>
       )}
 
-      {studentProfileId && (
+      {studentProfileId && (() => {
+        const profileOverlay = (
         <div role="dialog" aria-modal="true" aria-label="Student profile" onClick={() => setStudentProfileId(null)}
           className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-stretch justify-end p-0 animate-tsf-fade-in">
           <div onClick={e => e.stopPropagation()} className="relative w-full max-w-4xl h-full bg-white shadow-2xl border-l border-slate-200 overflow-hidden flex flex-col">
@@ -4860,7 +4887,11 @@ export default function EventDetailPage() {
             <iframe src={`/students/${studentProfileId}`} title="Student profile" className="flex-1 w-full bg-white" />
           </div>
         </div>
-      )}
+        )
+        return isApplicantsFullscreen && applicantsCardRef.current
+          ? createPortal(profileOverlay, applicantsCardRef.current)
+          : profileOverlay
+      })()}
 
       {testModeOpen && event && (
         <div role="dialog" aria-modal="true" aria-label="Test application" onClick={() => setTestModeOpen(false)} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8 animate-tsf-fade-in">
