@@ -3962,7 +3962,7 @@ export default function EventDetailPage() {
               can read the row tints at a glance. Solid tints = committed
               student-facing decisions. Pale tints = internal review drafts
               not yet sent to the student. */}
-          <div className="mb-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+          <div className="px-4 py-2.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[11px] text-gray-600 dark:text-gray-400">
             <span className="font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500">Row colours:</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-emerald-100/90 border border-emerald-200" /> Accepted</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-violet-100/90 border border-violet-200" /> Shortlisted</span>
