@@ -3566,7 +3566,7 @@ export default function EventDetailPage() {
             </button>
 
             {/* Show test applications toggle */}
-            <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10 cursor-pointer select-none" title="Test applications submitted via the Test mode link are hidden by default">
+            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10 cursor-pointer select-none" title="Test applications submitted via the Test mode link are hidden by default">
               <input
                 type="checkbox"
                 checked={showTestApplicants}
@@ -3578,7 +3578,7 @@ export default function EventDetailPage() {
 
             {/* Email queue status — shown when there's activity on this event, until admin dismisses */}
             {!queueDismissed && (queueStats.queued > 0 || queueStats.sending > 0 || queueStats.failed > 0) && (
-              <div className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs">
                 <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                 <span className="text-gray-500 dark:text-gray-400">Email queue:</span>
                 {queueStats.queued > 0 && (
@@ -3631,14 +3631,14 @@ export default function EventDetailPage() {
 
             <button
               onClick={() => setShowInvite(true)}
-              className={`${!queueDismissed && (queueStats.queued > 0 || queueStats.sending > 0 || queueStats.failed > 0) ? '' : 'ml-auto '}px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 whitespace-nowrap`}
+              className="px-4 py-1.5 text-sm rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 whitespace-nowrap"
             >
               Invite Students
             </button>
             {isApplicantsFullscreen && (
               <button
                 onClick={toggleApplicantsFullscreen}
-                className="ml-2 px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap"
                 title="Exit full screen (Esc)"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 9 3.75 3.75M9 9V4.5M9 9H4.5M15 9l5.25-5.25M15 9V4.5M15 9h4.5M9 15l-5.25 5.25M9 15v4.5M9 15H4.5M15 15l5.25 5.25M15 15v4.5M15 15h4.5" /></svg>
