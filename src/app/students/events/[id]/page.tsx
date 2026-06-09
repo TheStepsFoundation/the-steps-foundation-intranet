@@ -3760,9 +3760,11 @@ export default function EventDetailPage() {
 
               {/* Row 2: Columns — show/hide & reorder (shared across admins) */}
               <div className="p-3 border-t border-gray-200 dark:border-gray-700">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Columns</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Columns</div>
                   <ColumnPicker
+                    buttonLabel="Visible columns"
+                    menuAlign="left"
                     allColumns={allColumns.map<ColumnPickerItem>(c => ({
                       id: c.id,
                       label: c.label,
