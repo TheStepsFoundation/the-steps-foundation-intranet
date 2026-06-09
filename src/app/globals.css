@@ -165,6 +165,10 @@ html {
   animation: tsf-shimmer 1.4s ease-in-out infinite;
   border-radius: 0.5rem;
 }
+.dark .skeleton {
+  background: linear-gradient(90deg, rgb(31 41 55) 0%, rgb(55 65 81) 50%, rgb(31 41 55) 100%);
+  background-size: 200% 100%;
+}
 
 /* Timeline rail — a thin connector used between status steps on the
    /my application card and /my/events/[id]. Uses currentColor so it

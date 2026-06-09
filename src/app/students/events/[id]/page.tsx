@@ -3943,7 +3943,21 @@ export default function EventDetailPage() {
 
         {/* Table */}
         {appLoading ? (
-          <div className="p-10 text-center text-gray-500 dark:text-gray-400 text-sm">Loading applicants…</div>
+          <div className="p-4 space-y-3" role="status" aria-label="Loading applicants">
+            <span className="sr-only">Loading applicants…</span>
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <div className="skeleton h-4 w-4 shrink-0" />
+                <div className="skeleton h-4 w-44 shrink-0" />
+                <div className="skeleton h-4 w-24 shrink-0" />
+                <div className="skeleton h-6 w-20 rounded-full shrink-0" />
+                <div className="skeleton h-6 w-24 rounded-full shrink-0" />
+                <div className="skeleton h-4 w-28 shrink-0" />
+                <div className="skeleton h-4 w-10 shrink-0" />
+                <div className="skeleton h-4 w-16 ml-auto shrink-0" />
+              </div>
+            ))}
+          </div>
         ) : filtered.length === 0 ? (
           <div className="p-10 text-center text-gray-500 dark:text-gray-400 text-sm">
             {applicants.length === 0 ? 'No applications yet.' : 'No applicants match your filters.'}
