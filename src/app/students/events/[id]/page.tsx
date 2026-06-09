@@ -3658,7 +3658,7 @@ export default function EventDetailPage() {
                   <select
                     value={yearGroupFilter}
                     onChange={e => setYearGroupFilter(e.target.value)}
-                    className="px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    className="min-w-[10rem] px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                   >
                     <option value="all">All</option>
                     {uniqueYearGroups.map(yg => (
@@ -3673,7 +3673,7 @@ export default function EventDetailPage() {
                   <select
                     value={schoolTypeFilter}
                     onChange={e => setSchoolTypeFilter(e.target.value)}
-                    className="px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    className="min-w-[10rem] px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                   >
                     <option value="all">All</option>
                     {uniqueSchoolTypes.map(st => (
@@ -3718,7 +3718,7 @@ export default function EventDetailPage() {
                     <select
                       value={sortKey}
                       onChange={e => setSortKey(e.target.value as SortKey)}
-                      className="px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                      className="min-w-[10rem] px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     >
                       <option value="submitted_at">Date Applied</option>
                       <option value="name">Name</option>
@@ -3733,7 +3733,7 @@ export default function EventDetailPage() {
                     </select>
                     <button
                       onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                      className="p-1.5 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      className="p-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                       title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

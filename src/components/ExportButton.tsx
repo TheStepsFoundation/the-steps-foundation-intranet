@@ -31,7 +31,7 @@ type Props<T> = {
 }
 
 const DEFAULT_BTN =
-  'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+  'inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
 
 const FORMAT_META: { id: ExportFormat; label: string; hint: string }[] = [
   { id: 'csv', label: 'CSV', hint: 'Opens in Excel, Numbers & Google Sheets' },
