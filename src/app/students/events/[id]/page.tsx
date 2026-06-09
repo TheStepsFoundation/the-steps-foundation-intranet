@@ -1893,6 +1893,27 @@ export default function EventDetailPage() {
   // Reset page when filters change
   useEffect(() => { setPage(0) }, [statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir])
 
+  // Full-screen toggle for the applicants/database card. Uses the native
+  // Fullscreen API on just that card element (Esc exits). Tracked in state so
+  // the button label + the card's fullscreen layout classes can react.
+  const applicantsCardRef = useRef<HTMLDivElement | null>(null)
+  const [isApplicantsFullscreen, setIsApplicantsFullscreen] = useState(false)
+  useEffect(() => {
+    const onChange = () => setIsApplicantsFullscreen(document.fullscreenElement === applicantsCardRef.current)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+  const toggleApplicantsFullscreen = useCallback(() => {
+    const el = applicantsCardRef.current
+    if (!el) return
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.()
+    } else {
+      const p = el.requestFullscreen?.()
+      if (p) void p.catch(() => {})
+    }
+  }, [])
+
   // ---------------------------------------------------------------------------
   // Actions
   // ---------------------------------------------------------------------------
@@ -3469,9 +3490,12 @@ export default function EventDetailPage() {
       )}
 
       {/* Applicant Manager */}
-      <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-visible">
+      <div
+        ref={applicantsCardRef}
+        className={`rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 ${isApplicantsFullscreen ? 'flex flex-col overflow-hidden rounded-none' : 'overflow-visible'}`}
+      >
         {/* Toolbar */}
-        <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+        <div className={`p-4 border-b border-gray-200 dark:border-gray-800 ${isApplicantsFullscreen ? 'shrink-0' : ''}`}>
           <div className="flex flex-wrap items-center gap-3">
             {/* Status filter tabs */}
             <div className="flex items-center gap-1 flex-wrap">
@@ -3508,6 +3532,20 @@ export default function EventDetailPage() {
               filenameBase={`${event?.name ?? 'event'}-applicants`}
               sheetTitle={`${event?.name ?? 'Event'} \u2014 applicants (${filtered.length})`}
             />
+
+            {/* Full screen toggle */}
+            <button
+              onClick={toggleApplicantsFullscreen}
+              className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5"
+              title={isApplicantsFullscreen ? 'Exit full screen (Esc)' : 'Full screen'}
+            >
+              {isApplicantsFullscreen ? (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 9 3.75 3.75M9 9V4.5M9 9H4.5M15 9l5.25-5.25M15 9V4.5M15 9h4.5M9 15l-5.25 5.25M9 15v4.5M9 15H4.5M15 15l5.25 5.25M15 15v4.5M15 15h4.5" /></svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9m11.25-5.25h-4.5m4.5 0v4.5m0-4.5L15 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15m11.25 5.25h-4.5m4.5 0v-4.5m0 4.5L15 15" /></svg>
+              )}
+              {isApplicantsFullscreen ? 'Exit full screen' : 'Full screen'}
+            </button>
 
             {/* Filter & Sort toggle */}
             <button
@@ -3928,7 +3966,7 @@ export default function EventDetailPage() {
             <span className="text-gray-300 dark:text-gray-700" aria-hidden>·</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-red-50 border border-red-200" /> Ineligible</span>
           </div>
-          <div className="overflow-auto always-scrollbar rounded-lg border border-gray-200 dark:border-gray-800" style={{ maxHeight: 'calc(100vh - 280px)', minHeight: 360 }}>
+          <div className={`overflow-auto always-scrollbar rounded-lg border border-gray-200 dark:border-gray-800 ${isApplicantsFullscreen ? 'flex-1 min-h-0' : ''}`} style={{ maxHeight: isApplicantsFullscreen ? undefined : 'calc(100vh - 280px)', minHeight: isApplicantsFullscreen ? 0 : 360 }}>
             <table className="text-sm w-full border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -4391,7 +4429,7 @@ export default function EventDetailPage() {
         )}
 
         {/* Footer with pagination */}
-        <div className="p-3 border-t border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
+        <div className={`p-3 border-t border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-between ${isApplicantsFullscreen ? 'shrink-0' : ''}`}>
           <span>
             Showing {filtered.length > 0 ? page * PAGE_SIZE + 1 : 0}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
             {filtered.length !== applicants.length && ` (${applicants.length} total)`}
