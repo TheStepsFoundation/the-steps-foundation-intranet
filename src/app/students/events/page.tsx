@@ -482,9 +482,25 @@ function Inner() {
 
       {/* === List === */}
       {loading ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-          <div aria-hidden className="animate-spin w-7 h-7 border-2 border-steps-blue-600 border-t-transparent rounded-full mx-auto mb-3" />
-          <p className="text-sm text-slate-500">Loading events…</p>
+        <div className="space-y-3 skeleton-fade" role="status" aria-label="Loading events">
+          <span className="sr-only">Loading events…</span>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-slate-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 space-y-2.5">
+                  <div className="skeleton h-5 w-2/3 max-w-xs" />
+                  <div className="skeleton h-3.5 w-1/2 max-w-[16rem]" />
+                </div>
+                <div className="skeleton h-6 w-24 rounded-full shrink-0" />
+              </div>
+              <div className="mt-4 flex items-center gap-6">
+                <div className="skeleton h-8 w-12" />
+                <div className="skeleton h-8 w-12" />
+                <div className="skeleton h-8 w-12" />
+                <div className="skeleton h-8 w-12" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : error ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-10 text-center"><p className="font-semibold text-red-700">{error}</p></div>
