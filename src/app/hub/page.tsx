@@ -392,7 +392,7 @@ function KpiCard({
         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
       </div>
       {value == null ? (
-        <div aria-hidden="true" className="h-9 w-16 bg-slate-100 rounded animate-pulse" />
+        <div aria-hidden="true" className="h-9 w-16 skeleton" />
       ) : (
         <p className="font-display text-3xl sm:text-4xl font-black text-steps-dark tabular-nums leading-none">{value}</p>
       )}

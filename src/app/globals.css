@@ -169,6 +169,15 @@ html {
   background: linear-gradient(90deg, rgb(31 41 55) 0%, rgb(55 65 81) 50%, rgb(31 41 55) 100%);
   background-size: 200% 100%;
 }
+/* Anti-flash: defer the skeleton's appearance ~140ms so very fast loads never
+   flash a placeholder (the element unmounts before it becomes visible). */
+.skeleton-fade { animation: tsf-fade-in 240ms ease-out 140ms both; }
+/* Respect reduced-motion: drop the moving shimmer + deferral for a calm static placeholder. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: rgb(226 232 240); }
+  .dark .skeleton { background: rgb(55 65 81); }
+  .skeleton-fade { animation: none; }
+}
 
 /* Timeline rail — a thin connector used between status steps on the
    /my application card and /my/events/[id]. Uses currentColor so it

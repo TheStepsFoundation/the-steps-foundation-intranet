@@ -677,7 +677,20 @@ export default function StudentsDashboard() {
 
       <div className="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
         {loading ? (
-          <div className="p-10 text-center text-gray-500 dark:text-gray-400">Loading students…</div>
+          <div className="p-4 space-y-3 skeleton-fade" role="status" aria-label="Loading students">
+            <span className="sr-only">Loading students…</span>
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <div className="skeleton h-4 w-4 shrink-0" />
+                <div className="skeleton h-4 w-48 shrink-0" />
+                <div className="skeleton h-4 w-32 shrink-0" />
+                <div className="skeleton h-4 w-10 shrink-0" />
+                <div className="skeleton h-4 w-12 shrink-0" />
+                <div className="skeleton h-4 w-12 shrink-0" />
+                <div className="skeleton h-4 w-14 ml-auto shrink-0" />
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <div className="p-10 text-center text-red-600 dark:text-red-400">{error}</div>
         ) : filtered.length === 0 ? (

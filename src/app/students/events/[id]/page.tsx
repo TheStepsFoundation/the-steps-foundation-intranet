@@ -3943,7 +3943,7 @@ export default function EventDetailPage() {
 
         {/* Table */}
         {appLoading ? (
-          <div className="p-4 space-y-3" role="status" aria-label="Loading applicants">
+          <div className="p-4 space-y-3 skeleton-fade" role="status" aria-label="Loading applicants">
             <span className="sr-only">Loading applicants…</span>
             {Array.from({ length: 10 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4">
