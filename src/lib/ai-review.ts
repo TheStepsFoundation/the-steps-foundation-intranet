@@ -84,4 +84,4 @@ export const DEFAULT_REVIEW_RUBRIC = `Score each applicant on fit for this Steps
 3. Indicators of need: FSM, lower household income, first-generation, state/grammar school background.
 4. Effort and care in the application itself.
 
-Suggest "accept" or "reject" only when confident. Use "shortlist" for strong-but-not-certain, "waitlist" for plausible-but-weaker, and null when the application gives too little signal to judge.`
+Suggest "shortlist" only when confident this applicant should move on to the final stage; "reject" otherwise; leave null when there is too little signal to judge.`

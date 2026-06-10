@@ -115,14 +115,14 @@ function buildSystemPrompt(eventName: string, eventDescription: string | null, r
     '  "summary": "<max 2 sentences an admin can read in the table — concrete, specific to this applicant>",',
     '  "reason": "<1-3 sentences justifying the score and suggestion>",',
     '  "flags": [<zero or more of: "low_effort", "likely_ai_written", "exceptional", "inconsistent", "safeguarding_concern">],',
-    '  "suggested_internal": <"accept" | "shortlist" | "waitlist" | "reject" | null>',
+    '  "suggested_internal": <"shortlist" | "reject" | null>',
     '}',
     '',
     'Rules:',
     '- Judge free-text answers on substance and specificity, not polish — many applicants are 14-18 and writing quickly. Do not penalise informal writing.',
     '- "likely_ai_written" only for strong signals (generic chatbot cadence, em-dash-heavy boilerplate, no personal detail).',
     '- "safeguarding_concern" if an answer mentions harm, abuse, or distress a charity should act on — and explain in "reason".',
-    '- suggested_internal "accept"/"reject" ONLY when confident; "shortlist"/"waitlist" for the middle; null when there is too little signal.',
+    '- suggested_internal: "shortlist" only when confident they belong in the final-stage pool; "reject" when confident they do not; null when unsure. NEVER output "accept" or "waitlist" — committed decisions are made by humans.',
     '- Missing or empty free-text answers: score from what exists, flag "low_effort" only if questions were asked and dodged.',
   ].filter(Boolean).join('\n')
 }
