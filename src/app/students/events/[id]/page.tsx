@@ -9,7 +9,7 @@ import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
 import { useAuth } from '@/lib/auth-provider'
-import { parseAiReview, aiScoreBadgeClasses, AI_FLAG_LABELS, DEFAULT_REVIEW_RUBRIC, type AiReviewResult } from '@/lib/ai-review'
+import { parseAiReview, aiScoreBadgeClasses, AI_FLAG_LABELS, type AiReviewResult } from '@/lib/ai-review'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
@@ -2065,16 +2065,13 @@ export default function EventDetailPage() {
   }
 
   // ---------------------------------------------------------------------------
-  // AI review (Fable) — scores submitted applications against the event rubric.
-  // The model only ever annotates (applications.ai_review); writing internal
-  // marks is the explicit "Apply suggestions" action below, which skips anyone
-  // a human has already marked. Students never see any of this.
+  // AI suggestions — applications.ai_review is populated by Claude during
+  // Cowork review sessions (no in-app scoring; deliberately no paid-API path).
+  // This dialog only reads those scores and applies internal marks. Apply
+  // skips anyone a human has already marked. Students never see any of this.
   // ---------------------------------------------------------------------------
 
   const [showAiReview, setShowAiReview] = useState(false)
-  const [aiRubric, setAiRubric] = useState('')
-  const [aiRunning, setAiRunning] = useState(false)
-  const [aiProgress, setAiProgress] = useState<{ done: number; total: number } | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiApplying, setAiApplying] = useState(false)
   const [aiApplied, setAiApplied] = useState<number | null>(null)
@@ -2087,7 +2084,6 @@ export default function EventDetailPage() {
   // Seed the rubric editor each time the dialog opens (event is source of truth).
   useEffect(() => {
     if (showAiReview) {
-      setAiRubric((event?.review_rubric ?? '').trim() || DEFAULT_REVIEW_RUBRIC)
       setAiTarget(event?.capacity ? String(Math.ceil(event.capacity * 1.5 * 1.3)) : '')
       setAiApplied(null)
       setAiError(null)
@@ -2170,50 +2166,6 @@ export default function EventDetailPage() {
       setTimeout(() => setAiCopied(false), 2000)
     } catch {
       setAiError('Could not access the clipboard — copy from the export instead.')
-    }
-  }
-
-  const runAiReview = async () => {
-    if (aiRunning) return
-    setAiError(null)
-    setAiApplied(null)
-    setAiRunning(true)
-    setAiProgress(null)
-    try {
-      // Persist the rubric first so the route scores against what's on screen.
-      const trimmed = aiRubric.trim()
-      if ((event?.review_rubric ?? '').trim() !== trimmed) {
-        const updated = await updateEvent(eventId, { review_rubric: trimmed || null })
-        setEvent(updated)
-      }
-      const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.access_token
-      if (!token) throw new Error('Not signed in')
-
-      let total: number | null = null
-      let done = 0
-      // Hard iteration cap so a wedged backend can't loop forever.
-      for (let i = 0; i < 400; i++) {
-        const res = await fetch(`/api/events/${eventId}/ai-review`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        const body = await res.json().catch(() => ({} as Record<string, unknown>)) as { processed?: number; failed?: number; remaining?: number; done?: boolean; error?: string }
-        if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
-        done += body.processed ?? 0
-        if (total === null) total = (body.processed ?? 0) + (body.failed ?? 0) + (body.remaining ?? 0)
-        setAiProgress({ done, total: Math.max(total ?? done, done) })
-        if (body.done) break
-        if ((body.processed ?? 0) === 0) {
-          throw new Error(body?.error ? `Scoring stalled: ${body.error}` : 'Scoring stalled — no progress in the last batch.')
-        }
-      }
-    } catch (e) {
-      setAiError(e instanceof Error ? e.message : String(e))
-    } finally {
-      // Reload either way so partially-scored runs still show up.
-      await loadApplicants()
-      setAiRunning(false)
     }
   }
 
@@ -3826,19 +3778,14 @@ export default function EventDetailPage() {
               )}
             </button>
 
-            {/* AI review */}
+            {/* AI suggestions (scores come from Claude review sessions — no in-app scoring) */}
             <button
               onClick={() => setShowAiReview(true)}
-              className={`px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-1.5 ${
-                aiRunning
-                  ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-600 dark:bg-violet-900/20 dark:text-violet-400'
-                  : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-              }`}
-              title="Score applicants against a rubric with AI (internal only — never notifies students)"
+              className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5"
+              title="Review AI scores and apply suggested internal marks (internal only — never notifies students)"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9.5 16.938l-.313-1.034a3.75 3.75 0 0 0-2.466-2.466L5.687 13.5l1.034-.313a3.75 3.75 0 0 0 2.466-2.466L9.5 9.687l.313 1.034a3.75 3.75 0 0 0 2.466 2.466l1.034.313-1.034.313a3.75 3.75 0 0 0-2.466 2.466ZM18.259 8.715 18 9.75l-.259-1.035a2.625 2.625 0 0 0-1.706-1.706L15 6.75l1.035-.259a2.625 2.625 0 0 0 1.706-1.706L18 3.75l.259 1.035a2.625 2.625 0 0 0 1.706 1.706L21 6.75l-1.035.259a2.625 2.625 0 0 0-1.706 1.706Z" /></svg>
-              AI review
-              {aiRunning && <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />}
+              AI suggestions
             </button>
 
             {/* Show test applications toggle */}
@@ -5319,7 +5266,7 @@ export default function EventDetailPage() {
       {showAiReview && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => { if (!aiRunning && !aiApplying) setShowAiReview(false) }}
+          onClick={() => { if (!aiApplying) setShowAiReview(false) }}
         >
           <div
             className="w-full max-w-xl rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-800 p-6 max-h-[90vh] overflow-y-auto"
@@ -5327,13 +5274,13 @@ export default function EventDetailPage() {
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">AI review</h3>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">AI suggestions</h3>
                 <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  Scores submitted applicants against the rubric below. Internal only — nothing is shown or sent to students, and no decision is committed without you.
+                  Scores are generated by Claude during review sessions and saved here — this dialog makes no AI calls. Internal only: nothing is shown or sent to students, and no decision is committed without you.
                 </p>
               </div>
               <button
-                onClick={() => { if (!aiRunning && !aiApplying) setShowAiReview(false) }}
+                onClick={() => { if (!aiApplying) setShowAiReview(false) }}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 aria-label="Close"
               >
@@ -5341,38 +5288,11 @@ export default function EventDetailPage() {
               </button>
             </div>
 
-            <label className="mt-4 block text-xs font-medium text-gray-700 dark:text-gray-300">
-              Rubric <span className="font-normal text-gray-400">(saved on this event)</span>
-            </label>
-            <textarea
-              value={aiRubric}
-              onChange={e => setAiRubric(e.target.value)}
-              disabled={aiRunning}
-              rows={9}
-              className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs leading-relaxed text-gray-900 dark:text-gray-100 disabled:opacity-60"
-            />
-
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
               <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.undecided}</span> undecided <span className="text-gray-400">(no internal mark yet)</span></span>
               <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.scored}</span> scored</span>
-              <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.unscored}</span> to score</span>
+              <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.unscored}</span> not yet scored{aiStats.unscored > 0 ? ' — ask Claude to score them in a review session' : ''}</span>
             </div>
-
-            {aiRunning && (
-              <div className="mt-3">
-                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-                  <span>Scoring…</span>
-                  <span className="tabular-nums">{aiProgress ? `${aiProgress.done}/${aiProgress.total}` : 'starting'}</span>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-violet-500 transition-all"
-                    style={{ width: aiProgress && aiProgress.total > 0 ? `${Math.round((aiProgress.done / aiProgress.total) * 100)}%` : '4%' }}
-                  />
-                </div>
-                <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">Keep this tab open — scoring runs in batches while the dialog works.</p>
-              </div>
-            )}
 
             {aiError && (
               <div className="mt-3 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 px-3 py-2 text-xs text-red-700 dark:text-red-400">
@@ -5381,7 +5301,7 @@ export default function EventDetailPage() {
             )}
 
             {/* Apply suggestions — only touches rows a human hasn't marked yet */}
-            {!aiRunning && aiRankedUndecided.length > 0 && (
+            {aiRankedUndecided.length > 0 && (
               <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 p-3">
                 <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Apply suggested internal marks</div>
                 <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
@@ -5431,7 +5351,7 @@ export default function EventDetailPage() {
                 </div>
               </div>
             )}
-            {!aiRunning && aiApplied !== null && (
+            {aiApplied !== null && (
               <div className="mt-3 rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-900/40 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
                 Applied {aiApplied} internal mark{aiApplied === 1 ? '' : 's'}. Commit them from the table as usual (e.g. Accept &amp; Notify) when you're ready.
               </div>
@@ -5439,19 +5359,11 @@ export default function EventDetailPage() {
 
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
-                onClick={() => { if (!aiRunning && !aiApplying) setShowAiReview(false) }}
-                disabled={aiRunning || aiApplying}
+                onClick={() => { if (!aiApplying) setShowAiReview(false) }}
+                disabled={aiApplying}
                 className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
               >
                 Close
-              </button>
-              <button
-                onClick={runAiReview}
-                disabled={aiRunning || aiStats.unscored === 0}
-                title={aiStats.unscored === 0 ? 'Every submitted applicant already has a score' : undefined}
-                className="px-4 py-1.5 text-sm rounded-md bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
-              >
-                {aiRunning ? 'Scoring…' : `Score ${aiStats.unscored} applicant${aiStats.unscored === 1 ? '' : 's'}`}
               </button>
             </div>
           </div>
