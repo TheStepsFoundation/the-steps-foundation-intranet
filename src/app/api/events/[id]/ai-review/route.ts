@@ -233,9 +233,13 @@ async function scoreOne(systemPrompt: string, userPrompt: string, apiKey: string
 // --- Route ------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// "Undecided" = still submitted AND no internal draft mark. Internally
+// rejected/shortlisted/etc. applicants are already triaged — scoring them
+// would waste tokens and re-litigate decisions the team has made.
 const CANDIDATE_FILTERS = (q: any, eventId: string) =>
   q.eq('event_id', eventId)
     .eq('status', 'submitted')
+    .is('internal_review_status', null)
     .is('deleted_at', null)
     .is('ai_review', null)
     .or('is_test.is.null,is_test.eq.false')
