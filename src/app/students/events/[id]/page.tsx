@@ -2078,11 +2078,17 @@ export default function EventDetailPage() {
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiApplying, setAiApplying] = useState(false)
   const [aiApplied, setAiApplied] = useState<number | null>(null)
+  // Shortlist target: spaces × 1.5 (team shortlist policy) × 1.3 (AI suggests
+  // ~30% extra so humans make the final cut). Editable; blank = use the
+  // model's own per-applicant suggestions instead of a ranked cutoff.
+  const [aiTarget, setAiTarget] = useState('')
+  const [aiCopied, setAiCopied] = useState(false)
 
   // Seed the rubric editor each time the dialog opens (event is source of truth).
   useEffect(() => {
     if (showAiReview) {
       setAiRubric((event?.review_rubric ?? '').trim() || DEFAULT_REVIEW_RUBRIC)
+      setAiTarget(event?.capacity ? String(Math.ceil(event.capacity * 1.5 * 1.3)) : '')
       setAiApplied(null)
       setAiError(null)
     }
@@ -2101,18 +2107,71 @@ export default function EventDetailPage() {
     }
   }, [applicants])
 
-  // Suggestion groups that "Apply suggestions" would write: still submitted,
-  // no human internal mark yet, model made a call.
-  const aiSuggestionGroups = useMemo(() => {
-    const groups: Record<InternalReviewStatusCode, string[]> = { accept: [], shortlist: [], waitlist: [], reject: [] }
-    for (const a of applicants) {
-      const code = a.aiReview?.suggested_internal
-      if (!code || a.status !== 'submitted' || a.internal_review_status) continue
-      groups[code].push(a.id)
-    }
-    return groups
+  // Scored, undecided applicants ranked best-first: AI score, then the
+  // model's own shortlist nod, then engagement, then earlier submission.
+  const aiRankedUndecided = useMemo(() => {
+    return applicants
+      .filter(a => a.status === 'submitted' && !a.internal_review_status && a.aiReview)
+      .sort((a, b) => {
+        const d = b.aiReview!.score - a.aiReview!.score
+        if (d !== 0) return d
+        const sb = b.aiReview!.suggested_internal === 'shortlist' ? 1 : 0
+        const sa = a.aiReview!.suggested_internal === 'shortlist' ? 1 : 0
+        if (sb !== sa) return sb - sa
+        const e = b.engagementScore - a.engagementScore
+        if (e !== 0) return e
+        return a.submitted_at.localeCompare(b.submitted_at)
+      })
   }, [applicants])
-  const aiApplicableCount = aiSuggestionGroups.accept.length + aiSuggestionGroups.shortlist.length + aiSuggestionGroups.waitlist.length + aiSuggestionGroups.reject.length
+
+  const aiTargetN = (() => {
+    const n = parseInt(aiTarget, 10)
+    return Number.isFinite(n) && n > 0 ? n : null
+  })()
+
+  // What "Apply" will write. With a target: exactly the top-N ranked become
+  // internal shortlist, the rest internal reject (the model can't count to N
+  // because it scores applicants independently — the rank cutoff can).
+  // Without a target: the model's own per-applicant suggestions.
+  const aiPlan = useMemo(() => {
+    if (aiTargetN !== null) {
+      const shortlisted = aiRankedUndecided.slice(0, aiTargetN)
+      return {
+        mode: 'target' as const,
+        shortlist: shortlisted.map(a => a.id),
+        reject: aiRankedUndecided.slice(aiTargetN).map(a => a.id),
+        cutoffScore: shortlisted.length > 0 ? shortlisted[shortlisted.length - 1].aiReview!.score : null,
+      }
+    }
+    return {
+      mode: 'model' as const,
+      shortlist: aiRankedUndecided.filter(a => a.aiReview!.suggested_internal === 'shortlist').map(a => a.id),
+      reject: aiRankedUndecided.filter(a => a.aiReview!.suggested_internal === 'reject').map(a => a.id),
+      cutoffScore: null,
+    }
+  }, [aiRankedUndecided, aiTargetN])
+  const aiApplicableCount = aiPlan.shortlist.length + aiPlan.reject.length
+
+  // Plain-text digest of the proposed shortlist — for pasting into Slack /
+  // email when discussing the cut with the team.
+  const copyAiShortlistSummary = async () => {
+    const byId = new Map(applicants.map(a => [a.id, a]))
+    const lines = aiPlan.shortlist.map((id, i) => {
+      const a = byId.get(id)
+      if (!a) return `${i + 1}. (unknown)`
+      const name = `${(a.preferred_name ?? a.first_name) ?? ''} ${a.last_name ?? ''}`.trim()
+      const yg = a.year_group != null ? (a.year_group === 14 ? 'Gap' : `Y${a.year_group}`) : '?'
+      return `${i + 1}. ${name} (${yg}, ${a.school_name ?? 'unknown school'}) — AI ${a.aiReview?.score ?? '?'}/5 — ${a.aiReview?.summary ?? ''}`
+    })
+    try {
+      const header = `AI shortlist suggestions — ${event?.name ?? 'event'} (${lines.length})`
+      await navigator.clipboard.writeText(header + '\n\n' + lines.join('\n'))
+      setAiCopied(true)
+      setTimeout(() => setAiCopied(false), 2000)
+    } catch {
+      setAiError('Could not access the clipboard — copy from the export instead.')
+    }
+  }
 
   const runAiReview = async () => {
     if (aiRunning) return
@@ -2165,8 +2224,9 @@ export default function EventDetailPage() {
     try {
       const now = new Date().toISOString()
       const applied = new Map<string, InternalReviewStatusCode>()
-      for (const code of Object.keys(aiSuggestionGroups) as InternalReviewStatusCode[]) {
-        const ids = aiSuggestionGroups[code]
+      const planGroups: Record<'shortlist' | 'reject', string[]> = { shortlist: aiPlan.shortlist, reject: aiPlan.reject }
+      for (const code of Object.keys(planGroups) as Array<'shortlist' | 'reject'>) {
+        const ids = planGroups[code]
         for (let i = 0; i < ids.length; i += 200) {
           const slice = ids.slice(i, i + 200)
           const { error } = await supabase
@@ -5320,27 +5380,55 @@ export default function EventDetailPage() {
               </div>
             )}
 
-            {/* Apply suggestions — only counts rows a human hasn't marked yet */}
-            {!aiRunning && aiApplicableCount > 0 && (
+            {/* Apply suggestions — only touches rows a human hasn't marked yet */}
+            {!aiRunning && aiRankedUndecided.length > 0 && (
               <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 p-3">
                 <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Apply suggested internal marks</div>
                 <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-                  Writes the internal mark only — students are not notified, and anyone already marked by a person is skipped. Convey decisions via the usual Accept/Reject &amp; Notify flow.
+                  Internal shortlist/reject only — students are not notified, anyone already marked by a person is skipped, and final decisions stay with you (Accept/Reject &amp; Notify as usual).
                 </p>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  {(Object.keys(aiSuggestionGroups) as InternalReviewStatusCode[]).filter(c => aiSuggestionGroups[c].length > 0).map(c => (
-                    <span key={c} className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${INTERNAL_REVIEW_STATUSES[c].badgeClasses}`}>
-                      {aiSuggestionGroups[c].length} × {INTERNAL_REVIEW_STATUSES[c].adminLabel.replace(' (internal)', '')}
-                    </span>
-                  ))}
+                <div className="mt-2.5 flex items-center gap-2">
+                  <label className="text-[11px] text-gray-500 dark:text-gray-400">Shortlist target</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={aiTarget}
+                    onChange={e => setAiTarget(e.target.value)}
+                    placeholder="—"
+                    className="w-20 px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 tabular-nums"
+                  />
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">
+                    {event?.capacity ? `default ${Math.ceil(event.capacity * 1.5 * 1.3)} = ${event.capacity} spaces × 1.5 × 1.3` : 'blank = use the model\u2019s own calls'}
+                  </span>
                 </div>
-                <button
-                  onClick={applyAiSuggestions}
-                  disabled={aiApplying}
-                  className="mt-3 px-3 py-1.5 text-xs font-medium rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50"
-                >
-                  {aiApplying ? 'Applying…' : `Apply ${aiApplicableCount} internal mark${aiApplicableCount === 1 ? '' : 's'}`}
-                </button>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${INTERNAL_REVIEW_STATUSES.shortlist.badgeClasses}`}>
+                    {aiPlan.shortlist.length} × Shortlist
+                  </span>
+                  <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${INTERNAL_REVIEW_STATUSES.reject.badgeClasses}`}>
+                    {aiPlan.reject.length} × Reject
+                  </span>
+                  {aiPlan.mode === 'target' && aiPlan.cutoffScore !== null && (
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">top {aiPlan.shortlist.length} by AI score (cutoff {aiPlan.cutoffScore}/5)</span>
+                  )}
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={applyAiSuggestions}
+                    disabled={aiApplying || aiApplicableCount === 0}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50"
+                  >
+                    {aiApplying ? 'Applying…' : `Apply ${aiApplicableCount} internal mark${aiApplicableCount === 1 ? '' : 's'}`}
+                  </button>
+                  <button
+                    onClick={copyAiShortlistSummary}
+                    disabled={aiPlan.shortlist.length === 0}
+                    className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                    title="Copy a name + summary digest of the proposed shortlist for Slack/email"
+                  >
+                    {aiCopied ? 'Copied ✓' : 'Copy shortlist summary'}
+                  </button>
+                </div>
               </div>
             )}
             {!aiRunning && aiApplied !== null && (
