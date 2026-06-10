@@ -30,11 +30,14 @@ import {
 type Phase = 'loading' | 'blocked' | 'intro' | 'running' | 'done'
 type TeamResult = { score: number | null; correct: number | null; answered: number; reached: number; total: number }
 
-export default function TestRunner({ slug, mode, getToken }: {
+export default function TestRunner({ slug, mode, getToken, studentView = false }: {
   slug: string
   mode: TestMode
   /** Returns the caller's Supabase access token (student or admin session). */
   getToken: () => Promise<string | null>
+  /** Admin preview: run as mode='team' but DISPLAY exactly what a student
+   *  sees — no totals, no score, student done-screen copy. */
+  studentView?: boolean
 }) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [blockedMsg, setBlockedMsg] = useState('')
@@ -265,9 +268,9 @@ export default function TestRunner({ slug, mode, getToken }: {
             <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
           </div>
           <h2 className="font-display text-xl font-bold text-steps-dark mb-2">
-            {mode === 'team' ? 'Practice run complete' : 'Your test is complete'}
+            {mode === 'team' && !studentView ? 'Practice run complete' : 'Your test is complete'}
           </h2>
-          {mode === 'team' && result ? (
+          {mode === 'team' && result && !studentView ? (
             <div className="mt-4 inline-grid grid-cols-3 gap-6 text-center">
               <Stat label="Score" value={String(result.score ?? 0)} />
               <Stat label="Answered" value={`${result.answered}/${result.total}`} />
@@ -285,7 +288,7 @@ export default function TestRunner({ slug, mode, getToken }: {
               onClick={() => { setArmed(false); setFinishArmed(false); setResult(null); setPhase('intro') }}
               className="mt-6 inline-flex items-center px-4 py-2 rounded-lg bg-steps-blue-600 text-white text-sm font-medium hover:bg-steps-blue-700 transition-colors"
             >
-              Run it again
+              {studentView ? 'Run the preview again' : 'Run it again'}
             </button>
           )}
         </div>
@@ -301,7 +304,7 @@ export default function TestRunner({ slug, mode, getToken }: {
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-medium text-slate-500">
             Question {q ? q.number : minNumberRef.current}
-            {q?.total != null && <span className="text-slate-400"> of {q.total}</span>}
+            {q?.total != null && !studentView && <span className="text-slate-400"> of {q.total}</span>}
           </span>
           <span
             className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold tabular-nums ${urgent ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}
@@ -427,7 +430,7 @@ export default function TestRunner({ slug, mode, getToken }: {
         <p className="text-sm text-slate-500 mb-4">
           The {Math.round(test.durationSeconds / 60)}-minute timer starts the moment you press the button and cannot be paused.
           You can finish early once you&apos;ve done as much as you can.
-          {mode === 'student' ? ' You get one attempt.' : ' (Practice mode — you can rerun this as often as you like.)'}
+          {mode === 'student' ? ' You get one attempt.' : studentView ? ' Students get one attempt; this preview can be rerun.' : ' (Practice mode — you can rerun this as often as you like.)'}
         </p>
         {!armed ? (
           <button
