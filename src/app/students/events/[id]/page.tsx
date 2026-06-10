@@ -9,6 +9,7 @@ import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
 import { useAuth } from '@/lib/auth-provider'
+import { parseAiReview, aiScoreBadgeClasses, AI_FLAG_LABELS, DEFAULT_REVIEW_RUBRIC, type AiReviewResult } from '@/lib/ai-review'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
@@ -101,6 +102,8 @@ type Applicant = {
   testAccuracy: number | null
   /** Questions actually answered (skips excluded); null = no attempt / in progress. */
   testAnswered: number | null
+  /** AI reviewer output (admin-only annotation; suggestion is applied separately). */
+  aiReview: AiReviewResult | null
 }
 
 // Grade scoring: A-Level, IB, BTEC on a common 0-12 scale
@@ -186,21 +189,21 @@ const ORDINAL: Record<string, string> = {
 }
 
 // Available sortable columns
-type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'test_score' | 'test_accuracy' | 'test_answered'
+type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'test_score' | 'test_accuracy' | 'test_answered' | 'ai_score'
 type SortDir = 'asc' | 'desc'
 
 
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'ai_score' | 'ai_suggestion' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
 // `internal_review` sits right after `status` so admins read "where are we
 // actually planning to land" next to "what the student can see".
-const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
+const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
 // Every built-in column the picker should expose. The ones not in
 // DEFAULT_BUILTIN_COLS are off by default; admins opt-in via ColumnPicker.
 const ALL_BUILTIN_COLS: BuiltInColId[] = [
-  'name', 'school_type', 'status', 'internal_review', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'engagement',
+  'name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'engagement',
   'past_events', 'rsvp', 'attended', 'submitted_at', 'school', 'email',
   'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at',
 ]
@@ -209,6 +212,8 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   school_type: 'School Type',
   status: 'Status',
   internal_review: 'Internal mark',
+  ai_score: 'AI score',
+  ai_suggestion: 'AI suggestion',
   grades: 'Grades (Score)',
   test_score: 'Test score',
   test_accuracy: 'Test accuracy',
@@ -1662,7 +1667,7 @@ export default function EventDetailPage() {
       const { data: batch, error } = await supabase
         .from('applications')
         .select(`
-          id, student_id, status, internal_review_status, submitted_at, attended, reviewed_by, reviewed_at, raw_response,
+          id, student_id, status, internal_review_status, ai_review, submitted_at, attended, reviewed_by, reviewed_at, raw_response,
           attribution_source, channel,
           students!inner(first_name, last_name, preferred_name, personal_email, year_group, school_id,
             school_type, bursary_90plus, free_school_meals, parental_income_band,
@@ -1797,6 +1802,7 @@ export default function EventDetailPage() {
         year_group: s.year_group,
         status: row.status,
         internal_review_status: (row.internal_review_status ?? null) as InternalReviewStatusCode | null,
+        aiReview: parseAiReview(row.ai_review),
         submitted_at: row.submitted_at,
         attended: row.attended ?? false,
         reviewed_by: row.reviewed_by,
@@ -1889,6 +1895,7 @@ export default function EventDetailPage() {
         case 'submitted_at': return dir * (a.submitted_at ?? '').localeCompare(b.submitted_at ?? '')
         case 'engagement': return dir * (a.engagementScore - b.engagementScore)
         case 'test_score': return dir * ((a.testScore ?? -1) - (b.testScore ?? -1))
+        case 'ai_score': return dir * ((a.aiReview?.score ?? -1) - (b.aiReview?.score ?? -1))
         case 'test_accuracy': return dir * ((a.testAccuracy ?? -1) - (b.testAccuracy ?? -1))
         case 'test_answered': return dir * ((a.testAnswered ?? -1) - (b.testAnswered ?? -1))
         // Past events: rank by attended count (the most meaningful engagement signal), breaking ties by accepted then submitted.
@@ -2055,6 +2062,131 @@ export default function EventDetailPage() {
     setApplicants(prev => prev.map(a =>
       ids.includes(a.id) ? { ...a, internal_review_status: newInternal } : a
     ))
+  }
+
+  // ---------------------------------------------------------------------------
+  // AI review (Fable) — scores submitted applications against the event rubric.
+  // The model only ever annotates (applications.ai_review); writing internal
+  // marks is the explicit "Apply suggestions" action below, which skips anyone
+  // a human has already marked. Students never see any of this.
+  // ---------------------------------------------------------------------------
+
+  const [showAiReview, setShowAiReview] = useState(false)
+  const [aiRubric, setAiRubric] = useState('')
+  const [aiRunning, setAiRunning] = useState(false)
+  const [aiProgress, setAiProgress] = useState<{ done: number; total: number } | null>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [aiApplying, setAiApplying] = useState(false)
+  const [aiApplied, setAiApplied] = useState<number | null>(null)
+
+  // Seed the rubric editor each time the dialog opens (event is source of truth).
+  useEffect(() => {
+    if (showAiReview) {
+      setAiRubric((event?.review_rubric ?? '').trim() || DEFAULT_REVIEW_RUBRIC)
+      setAiApplied(null)
+      setAiError(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAiReview])
+
+  const aiStats = useMemo(() => {
+    const submitted = applicants.filter(a => a.status === 'submitted')
+    return {
+      submitted: submitted.length,
+      scored: applicants.filter(a => a.aiReview).length,
+      unscored: submitted.filter(a => !a.aiReview).length,
+    }
+  }, [applicants])
+
+  // Suggestion groups that "Apply suggestions" would write: still submitted,
+  // no human internal mark yet, model made a call.
+  const aiSuggestionGroups = useMemo(() => {
+    const groups: Record<InternalReviewStatusCode, string[]> = { accept: [], shortlist: [], waitlist: [], reject: [] }
+    for (const a of applicants) {
+      const code = a.aiReview?.suggested_internal
+      if (!code || a.status !== 'submitted' || a.internal_review_status) continue
+      groups[code].push(a.id)
+    }
+    return groups
+  }, [applicants])
+  const aiApplicableCount = aiSuggestionGroups.accept.length + aiSuggestionGroups.shortlist.length + aiSuggestionGroups.waitlist.length + aiSuggestionGroups.reject.length
+
+  const runAiReview = async () => {
+    if (aiRunning) return
+    setAiError(null)
+    setAiApplied(null)
+    setAiRunning(true)
+    setAiProgress(null)
+    try {
+      // Persist the rubric first so the route scores against what's on screen.
+      const trimmed = aiRubric.trim()
+      if ((event?.review_rubric ?? '').trim() !== trimmed) {
+        const updated = await updateEvent(eventId, { review_rubric: trimmed || null })
+        setEvent(updated)
+      }
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) throw new Error('Not signed in')
+
+      let total: number | null = null
+      let done = 0
+      // Hard iteration cap so a wedged backend can't loop forever.
+      for (let i = 0; i < 400; i++) {
+        const res = await fetch(`/api/events/${eventId}/ai-review`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        const body = await res.json().catch(() => ({} as Record<string, unknown>)) as { processed?: number; failed?: number; remaining?: number; done?: boolean; error?: string }
+        if (!res.ok) throw new Error(body?.error ?? `HTTP ${res.status}`)
+        done += body.processed ?? 0
+        if (total === null) total = (body.processed ?? 0) + (body.failed ?? 0) + (body.remaining ?? 0)
+        setAiProgress({ done, total: Math.max(total ?? done, done) })
+        if (body.done) break
+        if ((body.processed ?? 0) === 0) {
+          throw new Error(body?.error ? `Scoring stalled: ${body.error}` : 'Scoring stalled — no progress in the last batch.')
+        }
+      }
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e))
+    } finally {
+      // Reload either way so partially-scored runs still show up.
+      await loadApplicants()
+      setAiRunning(false)
+    }
+  }
+
+  const applyAiSuggestions = async () => {
+    if (aiApplying || aiApplicableCount === 0) return
+    setAiApplying(true)
+    setAiError(null)
+    try {
+      const now = new Date().toISOString()
+      const applied = new Map<string, InternalReviewStatusCode>()
+      for (const code of Object.keys(aiSuggestionGroups) as InternalReviewStatusCode[]) {
+        const ids = aiSuggestionGroups[code]
+        for (let i = 0; i < ids.length; i += 200) {
+          const slice = ids.slice(i, i + 200)
+          const { error } = await supabase
+            .from('applications')
+            .update({
+              internal_review_status: code,
+              internal_review_at: now,
+              internal_review_by: teamMember?.auth_uuid ?? null,
+              updated_by: teamMember?.auth_uuid ?? null,
+              updated_at: now,
+            } as any)
+            .in('id', slice)
+          if (error) throw new Error(error.message)
+          slice.forEach(id => applied.set(id, code))
+        }
+      }
+      setApplicants(prev => prev.map(a => applied.has(a.id) ? { ...a, internal_review_status: applied.get(a.id)! } : a))
+      setAiApplied(applied.size)
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAiApplying(false)
+    }
   }
 
   const toggleAttended = async (appId: string) => {
@@ -2706,6 +2838,7 @@ export default function EventDetailPage() {
     school_type: 'school_type',
     status: 'status',
     grades: 'gradeScore',
+    ai_score: 'ai_score',
     test_score: 'test_score',
     test_accuracy: 'test_accuracy',
     test_answered: 'test_answered',
@@ -2725,6 +2858,7 @@ export default function EventDetailPage() {
     year_group: 'asc',
     status: 'asc',
     gradeScore: 'desc',
+    ai_score: 'desc',
     test_score: 'desc',
     test_accuracy: 'desc',
     test_answered: 'desc',
@@ -2780,6 +2914,12 @@ export default function EventDetailPage() {
         case 'test_score': return app.testStatus === 'in_progress' ? 'in progress' : (app.testScore ?? '')
         case 'test_accuracy': return app.testAccuracy !== null ? `${Math.round(app.testAccuracy * 100)}%` : ''
         case 'test_answered': return app.testAnswered ?? ''
+        case 'ai_score': return app.aiReview?.score ?? ''
+        case 'ai_suggestion': {
+          const r = app.aiReview
+          if (!r) return ''
+          return [r.suggested_internal ?? '', ...r.flags.map(f => AI_FLAG_LABELS[f])].filter(Boolean).join('; ')
+        }
         case 'past_events': {
           const sub = Math.max(0, (app.totalApplications ?? 0) - 1)
           const acc = Math.max(0, (app.acceptedCount ?? 0) - (app.status === 'accepted' ? 1 : 0))
@@ -3623,6 +3763,21 @@ export default function EventDetailPage() {
               )}
             </button>
 
+            {/* AI review */}
+            <button
+              onClick={() => setShowAiReview(true)}
+              className={`px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-1.5 ${
+                aiRunning
+                  ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-600 dark:bg-violet-900/20 dark:text-violet-400'
+                  : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+              title="Score applicants against a rubric with AI (internal only — never notifies students)"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904 9.5 16.938l-.313-1.034a3.75 3.75 0 0 0-2.466-2.466L5.687 13.5l1.034-.313a3.75 3.75 0 0 0 2.466-2.466L9.5 9.687l.313 1.034a3.75 3.75 0 0 0 2.466 2.466l1.034.313-1.034.313a3.75 3.75 0 0 0-2.466 2.466ZM18.259 8.715 18 9.75l-.259-1.035a2.625 2.625 0 0 0-1.706-1.706L15 6.75l1.035-.259a2.625 2.625 0 0 0 1.706-1.706L18 3.75l.259 1.035a2.625 2.625 0 0 0 1.706 1.706L21 6.75l-1.035.259a2.625 2.625 0 0 0-1.706 1.706Z" /></svg>
+              AI review
+              {aiRunning && <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" />}
+            </button>
+
             {/* Show test applications toggle */}
             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10 cursor-pointer select-none" title="Test applications submitted via the Test mode link are hidden by default">
               <input
@@ -4227,6 +4382,58 @@ export default function EventDetailPage() {
                                   <option key={o.code} value={o.code}>{o.label}</option>
                                 ))}
                               </select>
+                            </td>
+                          )
+                        }
+                        // Built-in: AI score (hover for summary/reason/flags)
+                        if (col.id === 'ai_score') {
+                          const r = app.aiReview
+                          return (
+                            <td key={col.id} className="p-3 whitespace-nowrap">
+                              {r ? (
+                                <div className="group relative inline-block">
+                                  <span className={`inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2.5 py-0.5 cursor-default tabular-nums ${aiScoreBadgeClasses(r.score)}`}>
+                                    {r.score}
+                                    {r.flags.includes('safeguarding_concern') && <span className="w-1.5 h-1.5 rounded-full bg-red-500" title="Safeguarding flag — read the AI notes" />}
+                                  </span>
+                                  <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 w-72 whitespace-normal">
+                                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5 uppercase">AI review</div>
+                                    {r.summary && <p className="text-xs text-gray-700 dark:text-gray-300">{r.summary}</p>}
+                                    {r.reason && <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{r.reason}</p>}
+                                    {r.flags.length > 0 && (
+                                      <div className="mt-1.5 flex flex-wrap gap-1">
+                                        {r.flags.map(f => (
+                                          <span key={f} className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                                            f === 'safeguarding_concern' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                            : f === 'exceptional' ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                                          }`}>{AI_FLAG_LABELS[f]}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 dark:text-gray-600">—</span>
+                              )}
+                            </td>
+                          )
+                        }
+                        // Built-in: AI suggested internal mark (applied via the AI review dialog)
+                        if (col.id === 'ai_suggestion') {
+                          const r = app.aiReview
+                          const sugMeta = r?.suggested_internal ? INTERNAL_REVIEW_STATUSES[r.suggested_internal] : null
+                          return (
+                            <td key={col.id} className="p-3 whitespace-nowrap">
+                              {sugMeta ? (
+                                <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${sugMeta.badgeClasses}`} title="AI suggestion — apply via the AI review dialog (never auto-committed)">
+                                  {sugMeta.adminLabel.replace(' (internal)', '')}
+                                </span>
+                              ) : r ? (
+                                <span className="text-xs italic text-gray-400 dark:text-gray-500" title="The model declined to suggest — needs a human read">needs human</span>
+                              ) : (
+                                <span className="text-gray-400 dark:text-gray-600">—</span>
+                              )}
                             </td>
                           )
                         }
@@ -5041,6 +5248,121 @@ export default function EventDetailPage() {
               title="Form preview"
               className="flex-1 w-full bg-white"
             />
+          </div>
+        </div>
+      )}
+
+      {/* AI review dialog */}
+      {showAiReview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => { if (!aiRunning && !aiApplying) setShowAiReview(false) }}
+        >
+          <div
+            className="w-full max-w-xl rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-800 p-6 max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">AI review</h3>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  Scores submitted applicants against the rubric below. Internal only — nothing is shown or sent to students, and no decision is committed without you.
+                </p>
+              </div>
+              <button
+                onClick={() => { if (!aiRunning && !aiApplying) setShowAiReview(false) }}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <label className="mt-4 block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Rubric <span className="font-normal text-gray-400">(saved on this event)</span>
+            </label>
+            <textarea
+              value={aiRubric}
+              onChange={e => setAiRubric(e.target.value)}
+              disabled={aiRunning}
+              rows={9}
+              className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs leading-relaxed text-gray-900 dark:text-gray-100 disabled:opacity-60"
+            />
+
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+              <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.submitted}</span> submitted</span>
+              <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.scored}</span> scored</span>
+              <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.unscored}</span> to score</span>
+            </div>
+
+            {aiRunning && (
+              <div className="mt-3">
+                <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <span>Scoring…</span>
+                  <span className="tabular-nums">{aiProgress ? `${aiProgress.done}/${aiProgress.total}` : 'starting'}</span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-violet-500 transition-all"
+                    style={{ width: aiProgress && aiProgress.total > 0 ? `${Math.round((aiProgress.done / aiProgress.total) * 100)}%` : '4%' }}
+                  />
+                </div>
+                <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">Keep this tab open — scoring runs in batches while the dialog works.</p>
+              </div>
+            )}
+
+            {aiError && (
+              <div className="mt-3 rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/40 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+                {aiError}
+              </div>
+            )}
+
+            {/* Apply suggestions — only counts rows a human hasn't marked yet */}
+            {!aiRunning && aiApplicableCount > 0 && (
+              <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 p-3">
+                <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Apply suggested internal marks</div>
+                <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                  Writes the internal mark only — students are not notified. Skips the {aiStats.submitted - aiApplicableCount > 0 ? 'applicants' : 'applicant'} already marked by a person.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {(Object.keys(aiSuggestionGroups) as InternalReviewStatusCode[]).filter(c => aiSuggestionGroups[c].length > 0).map(c => (
+                    <span key={c} className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${INTERNAL_REVIEW_STATUSES[c].badgeClasses}`}>
+                      {aiSuggestionGroups[c].length} × {INTERNAL_REVIEW_STATUSES[c].adminLabel.replace(' (internal)', '')}
+                    </span>
+                  ))}
+                </div>
+                <button
+                  onClick={applyAiSuggestions}
+                  disabled={aiApplying}
+                  className="mt-3 px-3 py-1.5 text-xs font-medium rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50"
+                >
+                  {aiApplying ? 'Applying…' : `Apply ${aiApplicableCount} internal mark${aiApplicableCount === 1 ? '' : 's'}`}
+                </button>
+              </div>
+            )}
+            {!aiRunning && aiApplied !== null && (
+              <div className="mt-3 rounded-md bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-900/40 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400">
+                Applied {aiApplied} internal mark{aiApplied === 1 ? '' : 's'}. Commit them from the table as usual (e.g. Accept &amp; Notify) when you're ready.
+              </div>
+            )}
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => { if (!aiRunning && !aiApplying) setShowAiReview(false) }}
+                disabled={aiRunning || aiApplying}
+                className="px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+              >
+                Close
+              </button>
+              <button
+                onClick={runAiReview}
+                disabled={aiRunning || aiStats.unscored === 0}
+                title={aiStats.unscored === 0 ? 'Every submitted applicant already has a score' : undefined}
+                className="px-4 py-1.5 text-sm rounded-md bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+              >
+                {aiRunning ? 'Scoring…' : `Score ${aiStats.unscored} applicant${aiStats.unscored === 1 ? '' : 's'}`}
+              </button>
+            </div>
           </div>
         </div>
       )}
