@@ -97,6 +97,10 @@ type Applicant = {
   /** Selection-test result: number-right score (null = no attempt / still in progress). */
   testScore: number | null
   testStatus: 'in_progress' | 'submitted' | 'expired' | null
+  /** Fraction correct of questions answered (0–1); null until finished / no answers. */
+  testAccuracy: number | null
+  /** Questions actually answered (skips excluded); null = no attempt / in progress. */
+  testAnswered: number | null
 }
 
 // Grade scoring: A-Level, IB, BTEC on a common 0-12 scale
@@ -182,21 +186,21 @@ const ORDINAL: Record<string, string> = {
 }
 
 // Available sortable columns
-type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'test_score'
+type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'test_score' | 'test_accuracy' | 'test_answered'
 type SortDir = 'asc' | 'desc'
 
 
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'test_score' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
 // `internal_review` sits right after `status` so admins read "where are we
 // actually planning to land" next to "what the student can see".
 const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
 // Every built-in column the picker should expose. The ones not in
 // DEFAULT_BUILTIN_COLS are off by default; admins opt-in via ColumnPicker.
 const ALL_BUILTIN_COLS: BuiltInColId[] = [
-  'name', 'school_type', 'status', 'internal_review', 'grades', 'test_score', 'engagement',
+  'name', 'school_type', 'status', 'internal_review', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'engagement',
   'past_events', 'rsvp', 'attended', 'submitted_at', 'school', 'email',
   'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at',
 ]
@@ -207,6 +211,8 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   internal_review: 'Internal mark',
   grades: 'Grades (Score)',
   test_score: 'Test score',
+  test_accuracy: 'Test accuracy',
+  test_answered: 'Test answered',
   engagement: 'Engagement',
   past_events: 'Past Events',
   rsvp: 'RSVP',
@@ -1733,18 +1739,18 @@ export default function EventDetailPage() {
 
     // Selection-test scores (if this event has a test). Admin-only RLS — for
     // wider members this comes back empty and the column just shows dashes.
-    const testMap: Record<string, { score: number | null; status: string }> = {}
+    const testMap: Record<string, { score: number | null; status: string; correct: number | null; answered: number | null }> = {}
     {
       const { data: testRow } = await supabase.from('tests').select('id').eq('event_id', eventId).maybeSingle()
       if (testRow) {
         const { data: tAtts } = await supabase
           .from('test_attempts')
-          .select('student_id, score, status')
+          .select('student_id, score, status, correct_count, answered_count')
           .eq('test_id', testRow.id)
           .eq('kind', 'student')
           .neq('status', 'voided')
         for (const a of tAtts ?? []) {
-          if (a.student_id) testMap[a.student_id] = { score: a.score, status: a.status }
+          if (a.student_id) testMap[a.student_id] = { score: a.score, status: a.status, correct: a.correct_count, answered: a.answered_count }
         }
       }
     }
@@ -1821,6 +1827,16 @@ export default function EventDetailPage() {
         gradeScore: scoreGrades(quals),
         testScore: testMap[row.student_id]?.status === 'in_progress' ? null : (testMap[row.student_id]?.score ?? null),
         testStatus: (testMap[row.student_id]?.status as Applicant['testStatus']) ?? null,
+        testAccuracy: (() => {
+          const t = testMap[row.student_id]
+          if (!t || t.status === 'in_progress' || !t.answered || t.correct === null) return null
+          return t.answered > 0 ? t.correct / t.answered : null
+        })(),
+        testAnswered: (() => {
+          const t = testMap[row.student_id]
+          if (!t || t.status === 'in_progress') return null
+          return t.answered ?? null
+        })(),
       }
     })
 
@@ -1873,6 +1889,8 @@ export default function EventDetailPage() {
         case 'submitted_at': return dir * (a.submitted_at ?? '').localeCompare(b.submitted_at ?? '')
         case 'engagement': return dir * (a.engagementScore - b.engagementScore)
         case 'test_score': return dir * ((a.testScore ?? -1) - (b.testScore ?? -1))
+        case 'test_accuracy': return dir * ((a.testAccuracy ?? -1) - (b.testAccuracy ?? -1))
+        case 'test_answered': return dir * ((a.testAnswered ?? -1) - (b.testAnswered ?? -1))
         // Past events: rank by attended count (the most meaningful engagement signal), breaking ties by accepted then submitted.
         case 'past_events': {
           const ap = (a.attendedCount ?? 0) - (a.attended ? 1 : 0)
@@ -2689,6 +2707,8 @@ export default function EventDetailPage() {
     status: 'status',
     grades: 'gradeScore',
     test_score: 'test_score',
+    test_accuracy: 'test_accuracy',
+    test_answered: 'test_answered',
     engagement: 'engagement',
     past_events: 'past_events',
     rsvp: 'rsvp',
@@ -2706,6 +2726,8 @@ export default function EventDetailPage() {
     status: 'asc',
     gradeScore: 'desc',
     test_score: 'desc',
+    test_accuracy: 'desc',
+    test_answered: 'desc',
     submitted_at: 'desc',
     engagement: 'desc',
     past_events: 'desc',
@@ -2756,6 +2778,8 @@ export default function EventDetailPage() {
         }
         case 'engagement': return app.engagementScore
         case 'test_score': return app.testStatus === 'in_progress' ? 'in progress' : (app.testScore ?? '')
+        case 'test_accuracy': return app.testAccuracy !== null ? `${Math.round(app.testAccuracy * 100)}%` : ''
+        case 'test_answered': return app.testAnswered ?? ''
         case 'past_events': {
           const sub = Math.max(0, (app.totalApplications ?? 0) - 1)
           const acc = Math.max(0, (app.acceptedCount ?? 0) - (app.status === 'accepted' ? 1 : 0))
@@ -4241,6 +4265,26 @@ export default function EventDetailPage() {
                               <span className="text-xs font-medium text-blue-600 dark:text-blue-400">taking now…</span>
                             ) : app.testScore !== null ? (
                               <span className="font-medium tabular-nums text-gray-900 dark:text-gray-100">{app.testScore}</span>
+                            ) : (
+                              <span className="text-gray-400 dark:text-gray-600">—</span>
+                            )}
+                          </td>
+                        )
+                        // Built-in: selection-test accuracy (% correct of answered)
+                        if (col.id === 'test_accuracy') return (
+                          <td key={col.id} className="p-3 whitespace-nowrap">
+                            {app.testAccuracy !== null ? (
+                              <span className="tabular-nums text-gray-700 dark:text-gray-300">{Math.round(app.testAccuracy * 100)}%</span>
+                            ) : (
+                              <span className="text-gray-400 dark:text-gray-600">—</span>
+                            )}
+                          </td>
+                        )
+                        // Built-in: selection-test questions answered (skips excluded)
+                        if (col.id === 'test_answered') return (
+                          <td key={col.id} className="p-3 whitespace-nowrap">
+                            {app.testAnswered !== null ? (
+                              <span className="tabular-nums text-gray-700 dark:text-gray-300">{app.testAnswered}</span>
                             ) : (
                               <span className="text-gray-400 dark:text-gray-600">—</span>
                             )}

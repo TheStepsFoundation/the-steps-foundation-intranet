@@ -24,7 +24,8 @@ export type AttemptState = {
   deadlineAt: string
   secondsLeft: number
   questionNumber: number
-  totalQuestions: number
+  /** null for students — they never learn the size of the bank. */
+  totalQuestions: number | null
 }
 
 export type LiveQuestion = {
@@ -32,7 +33,8 @@ export type LiveQuestion = {
   prompt: string
   options: string[]
   number: number
-  total: number
+  /** null for students. */
+  total: number | null
 }
 
 export type PracticeQuestion = {
@@ -47,13 +49,15 @@ export type InfoResponse = {
   test: TestInfo
   invited: boolean
   attempt: AttemptState | null
-  question: LiveQuestion | null
+  /** Prefetch buffer: the current question plus a couple of lookaheads. */
+  questions: LiveQuestion[]
   practice: PracticeQuestion[]
 }
 
 export type StepResponse = {
   attempt: AttemptState
-  question: LiveQuestion | null
+  /** Refreshed prefetch buffer from the server's current position. */
+  questions: LiveQuestion[]
   done?: boolean
   alreadyAttempted?: boolean
   result?: { score: number | null; correct: number | null; answered: number; reached: number; total: number }

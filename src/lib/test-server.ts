@@ -193,42 +193,49 @@ export async function expireIfOverdue(svc: ServiceClient, attempt: AttemptRow): 
   return finalizeAttempt(svc, attempt, 'expired')
 }
 
-/** What the student's browser is allowed to know about a live question. */
-export function publicQuestion(q: Pick<QuestionRow, 'id' | 'prompt' | 'options'>, number: number, total: number) {
+/** What the test-taker's browser is allowed to know about a live question.
+ *  `total` is null for students — they never learn the size of the bank
+ *  (or anything that lets them infer a score). Team practice sees totals. */
+export function publicQuestion(q: Pick<QuestionRow, 'id' | 'prompt' | 'options'>, number: number, total: number | null) {
   return { id: q.id, prompt: q.prompt, options: q.options, number, total }
 }
 
-/** Serve the current question of an in-progress attempt (sans answer). */
-export async function currentQuestion(svc: ServiceClient, attempt: AttemptRow) {
+/** The next `count` questions from the attempt's current position (answers
+ *  stripped). Used to keep a small client-side buffer so advancing to the
+ *  next question is instant — the lookahead never includes correct_index. */
+export async function upcomingQuestions(
+  svc: ServiceClient, attempt: AttemptRow, count: number, includeTotals: boolean,
+) {
   const total = attempt.question_order.length
-  if (attempt.current_index >= total) return null
-  const qid = attempt.question_order[attempt.current_index]
+  const ids = attempt.question_order.slice(attempt.current_index, attempt.current_index + count)
+  if (ids.length === 0) return []
   const { data } = await svc
     .from('test_questions')
     .select('id, prompt, options')
-    .eq('id', qid)
-    .maybeSingle()
-  if (!data) return null
-  return publicQuestion(data as Pick<QuestionRow, 'id' | 'prompt' | 'options'>, attempt.current_index + 1, total)
+    .in('id', ids)
+  const byId = new Map((data ?? []).map((q: { id: string }) => [q.id, q]))
+  const out: ReturnType<typeof publicQuestion>[] = []
+  ids.forEach((qid, i) => {
+    const q = byId.get(qid)
+    if (q) out.push(publicQuestion(q as Pick<QuestionRow, 'id' | 'prompt' | 'options'>, attempt.current_index + i + 1, includeTotals ? total : null))
+  })
+  return out
 }
 
-/** Banded shuffle: easy block first, then medium, then hard — shuffled within
- *  each band so candidates face comparable difficulty ramps but cannot share
- *  a simple answer key ("first one is B"). */
-export function bandedShuffle(questions: Array<Pick<QuestionRow, 'id' | 'difficulty'>>): string[] {
-  const bands: Record<number, string[]> = { 1: [], 2: [], 3: [] }
-  for (const q of questions) (bands[q.difficulty] ?? bands[2]).push(q.id)
-  const shuffle = (arr: string[]) => {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1))
-      ;[arr[i], arr[j]] = [arr[j], arr[i]]
-    }
-    return arr
-  }
-  return [...shuffle(bands[1]), ...shuffle(bands[2]), ...shuffle(bands[3])]
+/** Curved order: questions trend easy → hard as the attempt progresses, but
+ *  with random jitter (key = difficulty + U(0, 1.2)) so adjacent difficulty
+ *  bands blend into a smooth ramp rather than abrupt steps, and no two
+ *  candidates share an order (so answer keys can't be passed around). */
+export function curvedOrder(questions: Array<Pick<QuestionRow, 'id' | 'difficulty'>>): string[] {
+  return questions
+    .map(q => ({ id: q.id, key: q.difficulty + Math.random() * 1.2 }))
+    .sort((a, b) => a.key - b.key)
+    .map(q => q.id)
 }
 
-export function attemptStatePayload(attempt: AttemptRow) {
+/** Attempt state for the browser. Students never receive totals, scores or
+ *  correct-counts — only team practice mode does (and only via /submit). */
+export function attemptStatePayload(attempt: AttemptRow, includeTotals: boolean) {
   const deadlineMs = new Date(attempt.deadline_at).getTime()
   return {
     id: attempt.id,
@@ -237,7 +244,7 @@ export function attemptStatePayload(attempt: AttemptRow) {
     deadlineAt: attempt.deadline_at,
     secondsLeft: attempt.status === 'in_progress' ? Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000)) : 0,
     questionNumber: Math.min(attempt.current_index + 1, attempt.question_order.length),
-    totalQuestions: attempt.question_order.length,
+    totalQuestions: includeTotals ? attempt.question_order.length : null,
   }
 }
 

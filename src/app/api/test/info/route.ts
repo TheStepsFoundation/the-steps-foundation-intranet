@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   getServiceClient, getBearerEmail, resolveStudentId, isTeamMember,
   fetchTestBySlug, testOpenNow, isInvited, findAttempt, expireIfOverdue,
-  currentQuestion, attemptStatePayload, jsonError,
+  upcomingQuestions, attemptStatePayload, jsonError,
 } from '@/lib/test-server'
 
 export const runtime = 'nodejs'
@@ -12,9 +12,12 @@ export const dynamic = 'force-dynamic'
 // POST /api/test/info  { slug, mode: 'student' | 'team' }
 //
 // Pre-flight + resume endpoint for the test page. Returns the test metadata,
-// whether the caller may take it, their attempt state (resuming the current
-// question if one is in flight), and the practice questions (these DO include
-// the answer + explanation — they are practice-only by definition).
+// whether the caller may take it, their attempt state (with a small buffer of
+// upcoming questions when one is in flight, so the runner can advance
+// instantly), and the practice questions (these DO include the answer +
+// explanation — they are practice-only by definition).
+//
+// Students never receive question totals or anything score-shaped.
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
   const svc = getServiceClient()
@@ -30,6 +33,7 @@ export async function POST(req: NextRequest) {
   const found = await fetchTestBySlug(svc, slug)
   if (!found) return jsonError('No test for this event', 404)
   const { test, eventName } = found
+  const includeTotals = mode === 'team'
 
   let who: { studentId: string } | { teamEmail: string }
   let invited = false
@@ -66,7 +70,7 @@ export async function POST(req: NextRequest) {
     }))
   }
 
-  const inProgress = attempt && attempt.status === 'in_progress'
+  const inProgress = !!attempt && attempt.status === 'in_progress'
   return NextResponse.json({
     test: {
       title: test.title,
@@ -78,8 +82,8 @@ export async function POST(req: NextRequest) {
       status: mode === 'team' ? 'open' : test.status,
     },
     invited,
-    attempt: attempt ? attemptStatePayload(attempt) : null,
-    question: inProgress && attempt ? await currentQuestion(svc, attempt) : null,
+    attempt: attempt ? attemptStatePayload(attempt, includeTotals) : null,
+    questions: inProgress && attempt ? await upcomingQuestions(svc, attempt, 3, includeTotals) : [],
     practice,
   })
 }

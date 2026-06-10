@@ -10,8 +10,10 @@ export const dynamic = 'force-dynamic'
 // ---------------------------------------------------------------------------
 // POST /api/test/submit  { attemptId }
 //
-// Explicit finish (the timer hitting zero also lands here from the client,
-// and the server independently expires overdue attempts on any touch).
+// Explicit finish — the "Finish now" button and the timer hitting zero both
+// land here (and the server independently expires overdue attempts on any
+// touch). Finishing early is always allowed. Students get a bare
+// confirmation; only team practice receives its result.
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
   const svc = getServiceClient()
@@ -43,7 +45,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Team practice gets its result back; students just get confirmation.
-  const payload: Record<string, unknown> = { attempt: attemptStatePayload(attempt), done: true }
+  const includeTotals = attempt.kind === 'team'
+  const payload: Record<string, unknown> = { attempt: attemptStatePayload(attempt, includeTotals), done: true }
   if (attempt.kind === 'team') {
     payload.result = {
       score: attempt.score,

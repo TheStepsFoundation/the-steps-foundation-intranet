@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   getServiceClient, getBearerEmail, resolveStudentId, isTeamMember,
-  expireIfOverdue, finalizeAttempt, currentQuestion,
-  attemptStatePayload, jsonError, ANSWER_GRACE_MS, type AttemptRow,
+  expireIfOverdue, finalizeAttempt, upcomingQuestions,
+  attemptStatePayload, jsonError, type AttemptRow,
 } from '@/lib/test-server'
 
 export const runtime = 'nodejs'
@@ -12,10 +12,10 @@ export const dynamic = 'force-dynamic'
 // POST /api/test/answer  { attemptId, questionId, selectedIndex | null }
 //
 // Records the answer to the CURRENT question only (no going back, no skipping
-// ahead) and returns the next question. selectedIndex null = explicit skip.
-// Server-side timing: past deadline (+3s network grace) nothing is recorded
-// and the attempt is finalised as expired. Answering the final question
-// auto-submits.
+// ahead) and returns a refreshed buffer of upcoming questions so the runner
+// can advance instantly. selectedIndex null = explicit skip. Server-side
+// timing: past deadline (+3s network grace) nothing is recorded and the
+// attempt is finalised as expired. Answering the final question auto-submits.
 // ---------------------------------------------------------------------------
 export async function POST(req: NextRequest) {
   const svc = getServiceClient()
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
   if (!attemptRaw) return jsonError('Attempt not found', 404)
   let attempt = attemptRaw as AttemptRow
+  const includeTotals = attempt.kind === 'team'
 
   // Ownership — the attempt must belong to the caller.
   if (attempt.kind === 'student') {
@@ -45,20 +46,20 @@ export async function POST(req: NextRequest) {
   }
 
   if (attempt.status !== 'in_progress') {
-    return NextResponse.json({ attempt: attemptStatePayload(attempt), question: null, done: true })
+    return NextResponse.json({ attempt: attemptStatePayload(attempt, includeTotals), questions: [], done: true })
   }
   attempt = await expireIfOverdue(svc, attempt)
   if (attempt.status !== 'in_progress') {
-    return NextResponse.json({ attempt: attemptStatePayload(attempt), question: null, done: true })
+    return NextResponse.json({ attempt: attemptStatePayload(attempt, includeTotals), questions: [], done: true })
   }
 
   // Only the current question is answerable.
   const expectedQid = attempt.question_order[attempt.current_index]
   if (questionId !== expectedQid) {
-    // Stale/duplicate click — serve the real current question instead.
+    // Stale/duplicate click — resync the runner with the real buffer.
     return NextResponse.json({
-      attempt: attemptStatePayload(attempt),
-      question: await currentQuestion(svc, attempt),
+      attempt: attemptStatePayload(attempt, includeTotals),
+      questions: await upcomingQuestions(svc, attempt, 3, includeTotals),
       done: false,
     })
   }
@@ -108,12 +109,12 @@ export async function POST(req: NextRequest) {
   // Finished the whole bank — auto-submit.
   if (attempt.current_index >= attempt.question_order.length) {
     attempt = await finalizeAttempt(svc, attempt, 'submitted')
-    return NextResponse.json({ attempt: attemptStatePayload(attempt), question: null, done: true })
+    return NextResponse.json({ attempt: attemptStatePayload(attempt, includeTotals), questions: [], done: true })
   }
 
   return NextResponse.json({
-    attempt: attemptStatePayload(attempt),
-    question: await currentQuestion(svc, attempt),
+    attempt: attemptStatePayload(attempt, includeTotals),
+    questions: await upcomingQuestions(svc, attempt, 3, includeTotals),
     done: false,
   })
 }
