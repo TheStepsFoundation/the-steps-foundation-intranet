@@ -2090,11 +2090,14 @@ export default function EventDetailPage() {
   }, [showAiReview])
 
   const aiStats = useMemo(() => {
-    const submitted = applicants.filter(a => a.status === 'submitted')
+    // "Undecided" = submitted with no internal mark. Internal marks ARE the
+    // in-progress decision (status only changes when the student is notified),
+    // so anyone internally rejected/shortlisted/etc. is out of scope here.
+    const undecided = applicants.filter(a => a.status === 'submitted' && !a.internal_review_status)
     return {
-      submitted: submitted.length,
+      undecided: undecided.length,
       scored: applicants.filter(a => a.aiReview).length,
-      unscored: submitted.filter(a => !a.aiReview).length,
+      unscored: undecided.filter(a => !a.aiReview).length,
     }
   }, [applicants])
 
@@ -5290,7 +5293,7 @@ export default function EventDetailPage() {
             />
 
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
-              <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.submitted}</span> submitted</span>
+              <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.undecided}</span> undecided <span className="text-gray-400">(no internal mark yet)</span></span>
               <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.scored}</span> scored</span>
               <span><span className="font-semibold text-gray-900 dark:text-gray-100">{aiStats.unscored}</span> to score</span>
             </div>
@@ -5322,7 +5325,7 @@ export default function EventDetailPage() {
               <div className="mt-4 rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 p-3">
                 <div className="text-xs font-medium text-gray-700 dark:text-gray-300">Apply suggested internal marks</div>
                 <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-                  Writes the internal mark only — students are not notified. Skips the {aiStats.submitted - aiApplicableCount > 0 ? 'applicants' : 'applicant'} already marked by a person.
+                  Writes the internal mark only — students are not notified, and anyone already marked by a person is skipped. Convey decisions via the usual Accept/Reject &amp; Notify flow.
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   {(Object.keys(aiSuggestionGroups) as InternalReviewStatusCode[]).filter(c => aiSuggestionGroups[c].length > 0).map(c => (
