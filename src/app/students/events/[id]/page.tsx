@@ -2084,7 +2084,10 @@ export default function EventDetailPage() {
   // Seed the rubric editor each time the dialog opens (event is source of truth).
   useEffect(() => {
     if (showAiReview) {
-      setAiTarget(event?.capacity ? String(Math.ceil(event.capacity * 1.5 * 1.3)) : '')
+      // Allowance = capacity × 1.5 (shortlist policy) × 1.3 (AI headroom),
+      // minus students already shortlisted (internal mark or committed).
+      const alreadyShortlisted = applicants.filter(a => a.internal_review_status === 'shortlist' || a.status === 'shortlisted').length
+      setAiTarget(event?.capacity ? String(Math.max(0, Math.ceil(event.capacity * 1.5 * 1.3) - alreadyShortlisted)) : '')
       setAiApplied(null)
       setAiError(null)
     }
@@ -2111,6 +2114,11 @@ export default function EventDetailPage() {
       .sort((a, b) => {
         const d = b.aiReview!.score - a.aiReview!.score
         if (d !== 0) return d
+        // Policy: independent_bursary is the lowest-priority eligible group —
+        // a top independent school provides resources regardless of bursary.
+        // Within the same score they rank below everyone else.
+        const ib = (a.school_type === 'independent_bursary' ? 1 : 0) - (b.school_type === 'independent_bursary' ? 1 : 0)
+        if (ib !== 0) return ib
         const sb = b.aiReview!.suggested_internal === 'shortlist' ? 1 : 0
         const sa = a.aiReview!.suggested_internal === 'shortlist' ? 1 : 0
         if (sb !== sa) return sb - sa
@@ -2129,20 +2137,28 @@ export default function EventDetailPage() {
   // internal shortlist, the rest internal reject (the model can't count to N
   // because it scores applicants independently — the rank cutoff can).
   // Without a target: the model's own per-applicant suggestions.
+  // Policy: with ~49 spaces total only 4s and 5s are worth human review time,
+  // so every 3-and-below gets an automatic internal-reject suggestion. The
+  // shortlist is drawn only from 4-5s; 4-5s that miss the cutoff are left
+  // unmarked for human review rather than machine-rejected.
   const aiPlan = useMemo(() => {
+    const strong = aiRankedUndecided.filter(a => a.aiReview!.score >= 4)
+    const weak = aiRankedUndecided.filter(a => a.aiReview!.score <= 3)
     if (aiTargetN !== null) {
-      const shortlisted = aiRankedUndecided.slice(0, aiTargetN)
+      const shortlisted = strong.slice(0, aiTargetN)
       return {
         mode: 'target' as const,
         shortlist: shortlisted.map(a => a.id),
-        reject: aiRankedUndecided.slice(aiTargetN).map(a => a.id),
+        reject: weak.map(a => a.id),
+        review: strong.slice(aiTargetN).map(a => a.id),
         cutoffScore: shortlisted.length > 0 ? shortlisted[shortlisted.length - 1].aiReview!.score : null,
       }
     }
     return {
       mode: 'model' as const,
-      shortlist: aiRankedUndecided.filter(a => a.aiReview!.suggested_internal === 'shortlist').map(a => a.id),
-      reject: aiRankedUndecided.filter(a => a.aiReview!.suggested_internal === 'reject').map(a => a.id),
+      shortlist: strong.filter(a => a.aiReview!.suggested_internal === 'shortlist').map(a => a.id),
+      reject: weak.map(a => a.id),
+      review: strong.filter(a => a.aiReview!.suggested_internal !== 'shortlist').map(a => a.id),
       cutoffScore: null,
     }
   }, [aiRankedUndecided, aiTargetN])
@@ -5318,7 +5334,9 @@ export default function EventDetailPage() {
                     className="w-20 px-2 py-1 text-xs rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 tabular-nums"
                   />
                   <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                    {event?.capacity ? `default ${Math.ceil(event.capacity * 1.5 * 1.3)} = ${event.capacity} spaces × 1.5 × 1.3` : 'blank = use the model\u2019s own calls'}
+                    {event?.capacity
+                      ? `${event.capacity} spaces × 1.5 × 1.3 = ${Math.ceil(event.capacity * 1.5 * 1.3)}, minus ${applicants.filter(a => a.internal_review_status === 'shortlist' || a.status === 'shortlisted').length} already shortlisted`
+                      : 'blank = use the model\u2019s own calls'}
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -5326,12 +5344,37 @@ export default function EventDetailPage() {
                     {aiPlan.shortlist.length} × Shortlist
                   </span>
                   <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${INTERNAL_REVIEW_STATUSES.reject.badgeClasses}`}>
-                    {aiPlan.reject.length} × Reject
+                    {aiPlan.reject.length} × Reject (all 3s and below)
                   </span>
+                  {aiPlan.review.length > 0 && (
+                    <span className="text-xs font-medium rounded-full px-2.5 py-0.5 bg-gray-100 text-gray-600 ring-1 ring-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700">
+                      {aiPlan.review.length} × left for human review (4-5s past cutoff)
+                    </span>
+                  )}
                   {aiPlan.mode === 'target' && aiPlan.cutoffScore !== null && (
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500">top {aiPlan.shortlist.length} by AI score (cutoff {aiPlan.cutoffScore}/5)</span>
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500">shortlist = top {aiPlan.shortlist.length} of the 4-5s</span>
                   )}
                 </div>
+                {aiPlan.shortlist.length > 0 && (
+                  <div className="mt-3 max-h-64 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 divide-y divide-gray-100 dark:divide-gray-800">
+                    {aiPlan.shortlist.map((id, i) => {
+                      const a = applicants.find(x => x.id === id)
+                      if (!a) return null
+                      const r = a.aiReview!
+                      return (
+                        <div key={id} className="px-3 py-2">
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-gray-400 tabular-nums w-5 shrink-0">{i + 1}.</span>
+                            <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{(a.preferred_name ?? a.first_name) ?? ''} {a.last_name ?? ''}</span>
+                            <span className="text-gray-400 truncate">{a.year_group != null ? (a.year_group === 14 ? 'Gap' : `Y${a.year_group}`) : '?'} · {a.school_name ?? 'unknown school'}</span>
+                            <span className={`ml-auto shrink-0 inline-flex items-center text-[11px] font-semibold rounded-full px-2 py-0.5 tabular-nums ${aiScoreBadgeClasses(r.score)}`}>{r.score}</span>
+                          </div>
+                          <p className="mt-1 pl-7 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">{r.summary}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
                 <div className="mt-3 flex items-center gap-2">
                   <button
                     onClick={applyAiSuggestions}
