@@ -94,6 +94,9 @@ type Applicant = {
   noShowCount: number
   eligibility: 'eligible' | 'ineligible' | 'unknown'
   gradeScore: number
+  /** Selection-test result: number-right score (null = no attempt / still in progress). */
+  testScore: number | null
+  testStatus: 'in_progress' | 'submitted' | 'expired' | null
 }
 
 // Grade scoring: A-Level, IB, BTEC on a common 0-12 scale
@@ -179,21 +182,21 @@ const ORDINAL: Record<string, string> = {
 }
 
 // Available sortable columns
-type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at' | 'engagement' | 'past_events' | 'rsvp' | 'attended'
+type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'test_score'
 type SortDir = 'asc' | 'desc'
 
 
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'grades' | 'test_score' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
 // `internal_review` sits right after `status` so admins read "where are we
 // actually planning to land" next to "what the student can see".
 const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
 // Every built-in column the picker should expose. The ones not in
 // DEFAULT_BUILTIN_COLS are off by default; admins opt-in via ColumnPicker.
 const ALL_BUILTIN_COLS: BuiltInColId[] = [
-  'name', 'school_type', 'status', 'internal_review', 'grades', 'engagement',
+  'name', 'school_type', 'status', 'internal_review', 'grades', 'test_score', 'engagement',
   'past_events', 'rsvp', 'attended', 'submitted_at', 'school', 'email',
   'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at',
 ]
@@ -203,6 +206,7 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   status: 'Status',
   internal_review: 'Internal mark',
   grades: 'Grades (Score)',
+  test_score: 'Test score',
   engagement: 'Engagement',
   past_events: 'Past Events',
   rsvp: 'RSVP',
@@ -1727,6 +1731,24 @@ export default function EventDetailPage() {
       }
     }
 
+    // Selection-test scores (if this event has a test). Admin-only RLS — for
+    // wider members this comes back empty and the column just shows dashes.
+    const testMap: Record<string, { score: number | null; status: string }> = {}
+    {
+      const { data: testRow } = await supabase.from('tests').select('id').eq('event_id', eventId).maybeSingle()
+      if (testRow) {
+        const { data: tAtts } = await supabase
+          .from('test_attempts')
+          .select('student_id, score, status')
+          .eq('test_id', testRow.id)
+          .eq('kind', 'student')
+          .neq('status', 'voided')
+        for (const a of tAtts ?? []) {
+          if (a.student_id) testMap[a.student_id] = { score: a.score, status: a.status }
+        }
+      }
+    }
+
     const mapped: Applicant[] = (data ?? []).map((row: any) => {
       const s = row.students
       const rsvp = row.application_rsvp
@@ -1797,6 +1819,8 @@ export default function EventDetailPage() {
         noShowCount: enrichedMap[row.student_id]?.no_show_count ?? 0,
         eligibility,
         gradeScore: scoreGrades(quals),
+        testScore: testMap[row.student_id]?.status === 'in_progress' ? null : (testMap[row.student_id]?.score ?? null),
+        testStatus: (testMap[row.student_id]?.status as Applicant['testStatus']) ?? null,
       }
     })
 
@@ -1848,6 +1872,7 @@ export default function EventDetailPage() {
         case 'gradeScore': return dir * (a.gradeScore - b.gradeScore)
         case 'submitted_at': return dir * (a.submitted_at ?? '').localeCompare(b.submitted_at ?? '')
         case 'engagement': return dir * (a.engagementScore - b.engagementScore)
+        case 'test_score': return dir * ((a.testScore ?? -1) - (b.testScore ?? -1))
         // Past events: rank by attended count (the most meaningful engagement signal), breaking ties by accepted then submitted.
         case 'past_events': {
           const ap = (a.attendedCount ?? 0) - (a.attended ? 1 : 0)
@@ -2663,6 +2688,7 @@ export default function EventDetailPage() {
     school_type: 'school_type',
     status: 'status',
     grades: 'gradeScore',
+    test_score: 'test_score',
     engagement: 'engagement',
     past_events: 'past_events',
     rsvp: 'rsvp',
@@ -2679,6 +2705,7 @@ export default function EventDetailPage() {
     year_group: 'asc',
     status: 'asc',
     gradeScore: 'desc',
+    test_score: 'desc',
     submitted_at: 'desc',
     engagement: 'desc',
     past_events: 'desc',
@@ -2728,6 +2755,7 @@ export default function EventDetailPage() {
           return post16.length > 0 ? `${letters} (${app.gradeScore})` : ''
         }
         case 'engagement': return app.engagementScore
+        case 'test_score': return app.testStatus === 'in_progress' ? 'in progress' : (app.testScore ?? '')
         case 'past_events': {
           const sub = Math.max(0, (app.totalApplications ?? 0) - 1)
           const acc = Math.max(0, (app.acceptedCount ?? 0) - (app.status === 'accepted' ? 1 : 0))
@@ -3338,6 +3366,12 @@ export default function EventDetailPage() {
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                     Application overview
                   </a>
+                  <a href={`/students/events/${event.id}/test`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 dark:hover:bg-violet-900/30 transition-colors"
+                    title="Timed selection test: settings, invitations and results">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                    Selection test
+                  </a>
                   {event.id && (eventFeedbackByEventId[event.id] || event.feedback_config) && (
                     <a href={`/students/events/${event.id}/feedback`}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/30 transition-colors"
@@ -3726,6 +3760,7 @@ export default function EventDetailPage() {
                       <option value="year_group">Year Group</option>
                       <option value="status">Status</option>
                       <option value="gradeScore">Grade Score</option>
+                      <option value="test_score">Test score</option>
                       <option value="engagement">Engagement</option>
                       <option value="past_events">Past Events</option>
                       <option value="rsvp">RSVP</option>
@@ -4194,6 +4229,18 @@ export default function EventDetailPage() {
                                   </div>
                                 </div>
                               </div>
+                            ) : (
+                              <span className="text-gray-400 dark:text-gray-600">—</span>
+                            )}
+                          </td>
+                        )
+                        // Built-in: selection-test score (number-right; see /students/events/[id]/test)
+                        if (col.id === 'test_score') return (
+                          <td key={col.id} className="p-3 whitespace-nowrap">
+                            {app.testStatus === 'in_progress' ? (
+                              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">taking now…</span>
+                            ) : app.testScore !== null ? (
+                              <span className="font-medium tabular-nums text-gray-900 dark:text-gray-100">{app.testScore}</span>
                             ) : (
                               <span className="text-gray-400 dark:text-gray-600">—</span>
                             )}

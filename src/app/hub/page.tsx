@@ -87,6 +87,19 @@ const MODULES = [
     ),
   },
   {
+    name: 'Selection tests',
+    href: '/hub/test',
+    description: 'Try an event\u2019s timed test yourself \u2014 practice mode, nothing recorded against applicants.',
+    accent: 'bg-emerald-600',
+    softBg: 'bg-emerald-50/70',
+    softBorder: 'border-emerald-100',
+    icon: (
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0" />
+      </svg>
+    ),
+  },
+  {
     name: 'Globals',
     href: '/students/settings',
     description: 'Intranet-wide settings.',
