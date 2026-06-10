@@ -81,7 +81,9 @@ export function aiScoreBadgeClasses(score: number): string {
 export const DEFAULT_REVIEW_RUBRIC = `Score each applicant on fit for this Steps Foundation event. Prioritise, in order:
 1. Genuine, specific motivation — answers that engage with what THIS event offers (not generic "good opportunity" boilerplate).
 2. Evidence of initiative or resilience despite limited opportunity (school context, family circumstances, things they have built or pushed for themselves).
-3. Indicators of need: FSM, lower household income, first-generation, state/grammar school background.
+3. Indicators of need: FSM, lower household income, first-generation, state school background. independent_bursary (fee-paying school on a 90%+ bursary) is eligible but the LOWEST priority — a top independent school provides excellent resources regardless of who pays, so these applicants must clear a higher bar.
 4. Effort and care in the application itself.
 
-Suggest "shortlist" only when confident this applicant should move on to the final stage; "reject" otherwise; leave null when there is too little signal to judge.`
+Actively assess whether answers were AI-written: jargon-dense, hyper-polished prose with no personal grounding, chatbot cadence, or research that reads pasted rather than understood. Flag "likely_ai_written" on reasonable suspicion and discount the polish — an AI-written answer tells you nothing about the applicant.
+
+Only 4s and 5s merit human review time. Suggest "shortlist" only when confident the applicant should move on to the final stage (4-5); suggest "reject" for every application scoring 3 or below; null only for genuinely borderline 4s.`
