@@ -189,7 +189,10 @@ const ORDINAL: Record<string, string> = {
 }
 
 // Available sortable columns
-type SortKey = 'name' | 'school_type' | 'year_group' | 'status' | 'gradeScore' | 'submitted_at' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'test_score' | 'test_accuracy' | 'test_answered' | 'ai_score'
+// Any column id can be a sort key. The named keys below have dedicated
+// comparators in the sort switch; everything else (standard questions,
+// custom cf_ fields, school, email, …) falls through to fallbackSortValue.
+type SortKey = string
 type SortDir = 'asc' | 'desc'
 
 
@@ -210,7 +213,7 @@ const ALL_BUILTIN_COLS: BuiltInColId[] = [
 const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   name: 'Name',
   school_type: 'School Type',
-  status: 'Status',
+  status: 'External status',
   internal_review: 'Internal mark',
   ai_score: 'AI score',
   ai_suggestion: 'AI suggestion',
@@ -233,6 +236,70 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
 }
 
 type StatusFilter = 'all' | string
+
+// ---------------------------------------------------------------------------
+// Universal header sort + resize helpers.
+// ---------------------------------------------------------------------------
+
+const INCOME_SORT_RANK: Record<string, number> = { under_25k: 1, under_40k: 2, under_60k: 3, over_60k: 4 }
+const INTERNAL_SORT_RANK: Record<string, number> = { reject: 1, waitlist: 2, shortlist: 3, accept: 4 }
+
+/** Sort value for every column without a dedicated comparator. Numbers sort
+ *  numerically, everything else case-insensitively as text. */
+function fallbackSortValue(app: Applicant, key: string): string | number {
+  switch (key) {
+    case 'internal_review': return INTERNAL_SORT_RANK[app.internal_review_status ?? ''] ?? 0
+    case 'ai_suggestion': return app.aiReview?.suggested_internal ?? ''
+    case 'school': return (app.school_name ?? '').toLowerCase()
+    case 'email': return (app.personal_email ?? '').toLowerCase()
+    case 'parental_income': return INCOME_SORT_RANK[app.parental_income_band ?? ''] ?? 0
+    case 'fsm': return app.free_school_meals === true ? 1 : 0
+    case 'attribution': return (app.attributionSource ?? app.attributionChannel ?? '').toLowerCase()
+    case 'reviewed_at': return app.reviewed_at ?? ''
+    case 'std_additional': return (app.additionalContext ?? '').toLowerCase()
+    case 'std_anything_else': return (app.anythingElse ?? '').toLowerCase()
+    case 'std_attribution': return (app.attributionSource ?? app.attributionChannel ?? '').toLowerCase()
+    default: {
+      if (key.startsWith('cf_')) {
+        const v = app.customFields[key.slice(3)]
+        if (typeof v === 'number') return v
+        if (Array.isArray(v)) return v.join(', ').toLowerCase()
+        return String(v ?? '').toLowerCase()
+      }
+      return ''
+    }
+  }
+}
+
+/** The one sort indicator every header uses (dimmed when inactive). */
+function SortGlyph({ active, dir }: { active: boolean; dir: SortDir }) {
+  return (
+    <svg className={`w-3 h-3 flex-shrink-0 ${active ? '' : 'opacity-40'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+      {active
+        ? (dir === 'asc'
+            ? <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            : <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />)
+        : <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />}
+    </svg>
+  )
+}
+
+/** Drag handle on a header's right edge. Double-click resets the column. */
+function ColResizeHandle({ onMouseDown, onDoubleClick }: { onMouseDown: (e: React.MouseEvent) => void; onDoubleClick: () => void }) {
+  return (
+    <span
+      role="separator"
+      aria-orientation="vertical"
+      onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
+      onClick={e => e.stopPropagation()}
+      title="Drag to resize · double-click to reset"
+      className="group absolute top-0 right-0 h-full w-2 cursor-col-resize flex items-center justify-end"
+    >
+      <span className="h-2/3 w-px bg-gray-200 dark:bg-gray-700 group-hover:bg-steps-blue-500 group-hover:w-[3px] transition-all" />
+    </span>
+  )
+}
 
 // Rich-text editor, chip serialisation, and text-conversion helpers now live
 // in src/components/RichTextEmailEditor.tsx so both the templates page and
@@ -841,6 +908,38 @@ export default function EventDetailPage() {
 
   // Column visibility & ordering
   const [hiddenCols, setHiddenCols] = useState<Set<string>>(new Set(['submitted_at', 'school', 'email', 'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at']))
+
+  // Per-admin column widths (px), persisted locally (not shared — unlike
+  // dashboard_columns, width preferences are personal/screen-dependent).
+  const colWidthsKey = `steps:event-col-widths:${eventId}`
+  const [colWidths, setColWidths] = useState<Record<string, number>>(() => {
+    if (typeof window === 'undefined') return {}
+    try { return JSON.parse(window.localStorage.getItem(colWidthsKey) ?? '{}') as Record<string, number> } catch { return {} }
+  })
+  useEffect(() => {
+    try { window.localStorage.setItem(colWidthsKey, JSON.stringify(colWidths)) } catch {}
+  }, [colWidthsKey, colWidths])
+  const colWidthStyle = (id: string): React.CSSProperties =>
+    colWidths[id] ? { width: colWidths[id], minWidth: colWidths[id], maxWidth: colWidths[id] } : {}
+  const startColResize = (id: string) => (e: React.MouseEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    const th = (e.currentTarget as HTMLElement).closest('th')
+    const startX = e.clientX
+    const startW = colWidths[id] ?? th?.offsetWidth ?? 140
+    const move = (ev: MouseEvent) => {
+      const w = Math.max(64, Math.min(640, Math.round(startW + ev.clientX - startX)))
+      setColWidths(prev => (prev[id] === w ? prev : { ...prev, [id]: w }))
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      document.body.style.cursor = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+  }
+  const resetColWidth = (id: string) => setColWidths(prev => { const next = { ...prev }; delete next[id]; return next })
   const [colOrder, setColOrder] = useState<string[]>([])  // empty = default order
 
   // View state persistence — filters & sort live in localStorage (per-admin),
@@ -1911,7 +2010,14 @@ export default function EventDetailPage() {
         // Boolean sort — confirmed/yes first when desc.
         case 'rsvp': return dir * (Number(b.rsvp_confirmed === true) - Number(a.rsvp_confirmed === true))
         case 'attended': return dir * (Number(b.attended ? 1 : 0) - Number(a.attended ? 1 : 0))
-        default: return 0
+        // Every other column (standard questions, custom cf_ fields, school,
+        // email, income, internal mark, AI suggestion, …) sorts generically.
+        default: {
+          const av = fallbackSortValue(a, sortKey)
+          const bv = fallbackSortValue(b, sortKey)
+          if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
+          return dir * String(av).localeCompare(String(bv))
+        }
       }
     })
     return list
@@ -2866,10 +2972,9 @@ export default function EventDetailPage() {
     return all
   }, [customFieldCols, standardCols, colOrder])
 
-  // Which column ids are click-to-sort eligible in the table header. We only
-  // wire inline sort for columns that expose an unambiguous numeric/sortable
-  // signal (the existing Sort-by dropdown still handles everything — this is
-  // additive, not a replacement).
+  // Header→sort-key mapping for columns whose key differs from their id.
+  // EVERY column is click-sortable: anything not listed sorts under its own
+  // id via fallbackSortValue.
   const COL_SORT_KEY: Record<string, SortKey> = {
     name: 'name',
     school_type: 'school_type',
@@ -2904,15 +3009,18 @@ export default function EventDetailPage() {
     past_events: 'desc',
     rsvp: 'desc',
     attended: 'desc',
+    internal_review: 'desc',
+    fsm: 'desc',
+    reviewed_at: 'desc',
   }
   const handleHeaderSort = (colId: string) => {
-    const key = COL_SORT_KEY[colId]
-    if (!key) return
+    const key = COL_SORT_KEY[colId] ?? colId
     if (sortKey === key) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     } else {
       setSortKey(key)
-      setSortDir(DEFAULT_SORT_DIR[key] ?? 'desc')
+      // Unlisted keys are text-like — A→Z reads as the natural first click.
+      setSortDir(DEFAULT_SORT_DIR[key] ?? 'asc')
     }
   }
 
@@ -3969,7 +4077,7 @@ export default function EventDetailPage() {
                       <option value="name">Name</option>
                       <option value="school_type">School Type</option>
                       <option value="year_group">Year Group</option>
-                      <option value="status">Status</option>
+                      <option value="status">External status</option>
                       <option value="gradeScore">Grade Score</option>
                       <option value="test_score">Test score</option>
                       <option value="engagement">Engagement</option>
@@ -4241,7 +4349,7 @@ export default function EventDetailPage() {
           <div className={`overflow-auto always-scrollbar rounded-lg border border-gray-200 dark:border-gray-800 ${isApplicantsFullscreen ? 'flex-1 min-h-0' : ''}`} style={{ maxHeight: isApplicantsFullscreen ? undefined : 'calc(100vh - 280px)', minHeight: isApplicantsFullscreen ? 0 : 360 }}>
             <table className="text-sm w-full border-collapse">
               <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
                   <th className="p-3 w-8 sticky left-0 z-20 bg-white dark:bg-gray-900">
                     <input
                       type="checkbox"
@@ -4251,7 +4359,10 @@ export default function EventDetailPage() {
                     />
                   </th>
                   {!hiddenCols.has('name') && (
-                    <th className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900" style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)' }}>
+                    <th
+                      className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900 select-none"
+                      style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)', ...colWidthStyle('name') }}
+                    >
                       <button
                         type="button"
                         onClick={() => handleHeaderSort('name')}
@@ -4261,49 +4372,36 @@ export default function EventDetailPage() {
                         title="Click to sort by Name"
                       >
                         <span>Name</span>
-                        <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-                          {sortKey === 'name'
-                            ? (sortDir === 'asc'
-                                ? <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                                : <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />)
-                            : <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />}
-                        </svg>
+                        <SortGlyph active={sortKey === 'name'} dir={sortDir} />
                       </button>
+                      <ColResizeHandle onMouseDown={startColResize('name')} onDoubleClick={() => resetColWidth('name')} />
                     </th>
                   )}
                   {visibleColumns.filter(c => c.id !== 'name').map(col => {
-                    const sortable = COL_SORT_KEY[col.id] != null
-                    const isActive = sortable && sortKey === COL_SORT_KEY[col.id]
+                    const key = COL_SORT_KEY[col.id] ?? col.id
+                    const isActive = sortKey === key
                     return (
                       <th
                         key={col.id}
-                        className={
+                        className={`p-3 relative select-none align-bottom ${
                           col.id.startsWith('cf_')
-                            ? 'p-3 align-bottom min-w-[260px] max-w-[320px] leading-snug'
-                            : 'p-3 whitespace-nowrap max-w-[200px] truncate'
-                        }
-                        title={sortable ? `Click to sort by ${col.label}` : col.label}
+                            ? 'min-w-[260px] max-w-[320px] leading-snug'
+                            : 'whitespace-nowrap max-w-[200px]'
+                        }`}
+                        style={colWidthStyle(col.id)}
+                        title={`Click to sort by ${col.label} · drag the edge to resize`}
                       >
-                        {sortable ? (
-                          <button
-                            type="button"
-                            onClick={() => handleHeaderSort(col.id)}
-                            className={`inline-flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${
-                              isActive ? 'text-steps-blue-700 dark:text-steps-blue-400' : ''
-                            }`}
-                          >
-                            <span className="truncate">{col.label}</span>
-                            <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-                              {isActive
-                                ? (sortDir === 'asc'
-                                    ? <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                                    : <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />)
-                                : <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />}
-                            </svg>
-                          </button>
-                        ) : (
-                          col.label
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleHeaderSort(col.id)}
+                          className={`inline-flex max-w-full items-center gap-1 text-left hover:text-gray-700 dark:hover:text-gray-200 transition-colors ${
+                            isActive ? 'text-steps-blue-700 dark:text-steps-blue-400' : ''
+                          }`}
+                        >
+                          <span className={col.id.startsWith('cf_') ? '' : 'truncate'}>{col.label}</span>
+                          <SortGlyph active={isActive} dir={sortDir} />
+                        </button>
+                        <ColResizeHandle onMouseDown={startColResize(col.id)} onDoubleClick={() => resetColWidth(col.id)} />
                       </th>
                     )
                   })}
