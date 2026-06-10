@@ -2080,6 +2080,9 @@ export default function EventDetailPage() {
   // model's own per-applicant suggestions instead of a ranked cutoff.
   const [aiTarget, setAiTarget] = useState('')
   const [aiCopied, setAiCopied] = useState(false)
+  // Rows the admin has unticked in the digest: excluded from the shortlist
+  // write and left unmarked for human review (never auto-rejected).
+  const [aiExcluded, setAiExcluded] = useState<Set<string>>(new Set())
 
   // Seed the rubric editor each time the dialog opens (event is source of truth).
   useEffect(() => {
@@ -2088,6 +2091,7 @@ export default function EventDetailPage() {
       // minus students already shortlisted (internal mark or committed).
       const alreadyShortlisted = applicants.filter(a => a.internal_review_status === 'shortlist' || a.status === 'shortlisted').length
       setAiTarget(event?.capacity ? String(Math.max(0, Math.ceil(event.capacity * 1.5 * 1.3) - alreadyShortlisted)) : '')
+      setAiExcluded(new Set())
       setAiApplied(null)
       setAiError(null)
     }
@@ -2162,13 +2166,15 @@ export default function EventDetailPage() {
       cutoffScore: null,
     }
   }, [aiRankedUndecided, aiTargetN])
-  const aiApplicableCount = aiPlan.shortlist.length + aiPlan.reject.length
+  const aiShortlistFinal = useMemo(() => aiPlan.shortlist.filter(id => !aiExcluded.has(id)), [aiPlan, aiExcluded])
+  const aiExcludedCount = aiPlan.shortlist.length - aiShortlistFinal.length
+  const aiApplicableCount = aiShortlistFinal.length + aiPlan.reject.length
 
   // Plain-text digest of the proposed shortlist — for pasting into Slack /
   // email when discussing the cut with the team.
   const copyAiShortlistSummary = async () => {
     const byId = new Map(applicants.map(a => [a.id, a]))
-    const lines = aiPlan.shortlist.map((id, i) => {
+    const lines = aiShortlistFinal.map((id, i) => {
       const a = byId.get(id)
       if (!a) return `${i + 1}. (unknown)`
       const name = `${(a.preferred_name ?? a.first_name) ?? ''} ${a.last_name ?? ''}`.trim()
@@ -2192,7 +2198,7 @@ export default function EventDetailPage() {
     try {
       const now = new Date().toISOString()
       const applied = new Map<string, InternalReviewStatusCode>()
-      const planGroups: Record<'shortlist' | 'reject', string[]> = { shortlist: aiPlan.shortlist, reject: aiPlan.reject }
+      const planGroups: Record<'shortlist' | 'reject', string[]> = { shortlist: aiShortlistFinal, reject: aiPlan.reject }
       for (const code of Object.keys(planGroups) as Array<'shortlist' | 'reject'>) {
         const ids = planGroups[code]
         for (let i = 0; i < ids.length; i += 200) {
@@ -5341,7 +5347,7 @@ export default function EventDetailPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${INTERNAL_REVIEW_STATUSES.shortlist.badgeClasses}`}>
-                    {aiPlan.shortlist.length} × Shortlist
+                    {aiShortlistFinal.length} × Shortlist{aiExcludedCount > 0 ? ` (${aiExcludedCount} unticked)` : ''}
                   </span>
                   <span className={`text-xs font-medium rounded-full px-2.5 py-0.5 ${INTERNAL_REVIEW_STATUSES.reject.badgeClasses}`}>
                     {aiPlan.reject.length} × Reject (all 3s and below)
@@ -5361,11 +5367,23 @@ export default function EventDetailPage() {
                       const a = applicants.find(x => x.id === id)
                       if (!a) return null
                       const r = a.aiReview!
+                      const excluded = aiExcluded.has(id)
                       return (
-                        <div key={id} className="px-3 py-2">
+                        <div key={id} className={`px-3 py-2 ${excluded ? 'opacity-50' : ''}`}>
                           <div className="flex items-center gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={!excluded}
+                              onChange={() => setAiExcluded(prev => {
+                                const n = new Set(prev)
+                                if (n.has(id)) n.delete(id); else n.add(id)
+                                return n
+                              })}
+                              className="w-3.5 h-3.5 shrink-0 rounded border-gray-300 dark:border-gray-600 text-steps-blue-600 focus:ring-steps-blue-500"
+                              title={excluded ? 'Excluded — will be left unmarked for your review' : 'Included in the shortlist write'}
+                            />
                             <span className="text-gray-400 tabular-nums w-5 shrink-0">{i + 1}.</span>
-                            <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{(a.preferred_name ?? a.first_name) ?? ''} {a.last_name ?? ''}</span>
+                            <span className={`font-medium text-gray-900 dark:text-gray-100 truncate ${excluded ? 'line-through' : ''}`}>{(a.preferred_name ?? a.first_name) ?? ''} {a.last_name ?? ''}</span>
                             <span className="text-gray-400 truncate">{a.year_group != null ? (a.year_group === 14 ? 'Gap' : `Y${a.year_group}`) : '?'} · {a.school_name ?? 'unknown school'}</span>
                             <span className={`ml-auto shrink-0 inline-flex items-center text-[11px] font-semibold rounded-full px-2 py-0.5 tabular-nums ${aiScoreBadgeClasses(r.score)}`}>{r.score}</span>
                           </div>
@@ -5374,6 +5392,11 @@ export default function EventDetailPage() {
                       )
                     })}
                   </div>
+                )}
+                {aiExcludedCount > 0 && (
+                  <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+                    Unticked applicants are left unmarked for your review (not rejected). Raise the target if you want the next-ranked 4s pulled in to replace them.
+                  </p>
                 )}
                 <div className="mt-3 flex items-center gap-2">
                   <button
