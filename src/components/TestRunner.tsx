@@ -7,6 +7,30 @@ import {
 } from '@/lib/test-client'
 
 // ---------------------------------------------------------------------------
+// Nonverbal questions: a prompt/option string may carry an inline SVG figure
+// (contains '<svg'). Text before the SVG renders as the label. These strings
+// are admin-seeded via migrations — never student input — so injection here
+// is trusted content, same trust level as the prompt itself.
+// ---------------------------------------------------------------------------
+function PromptContent({ text, className }: { text: string; className?: string }) {
+  const i = text.indexOf('<svg')
+  if (i === -1) return <p className={className}>{text}</p>
+  const label = text.slice(0, i).trim()
+  const svg = text.slice(i)
+  return (
+    <div className={className}>
+      {label && <p className="mb-3">{label}</p>}
+      <div className="overflow-x-auto [&_svg]:max-w-full [&_svg]:h-auto" dangerouslySetInnerHTML={{ __html: svg }} />
+    </div>
+  )
+}
+function OptionContent({ opt }: { opt: string }) {
+  if (!opt.includes('<svg')) return <>{opt}</>
+  return <span className="inline-block align-middle [&_svg]:max-w-full [&_svg]:h-auto" dangerouslySetInnerHTML={{ __html: opt.slice(opt.indexOf('<svg')) }} />
+}
+
+
+// ---------------------------------------------------------------------------
 // TestRunner — the complete take-the-test experience, shared by the student
 // page (/my/test/[slug]) and the team practice page (/hub/test).
 //
@@ -316,7 +340,7 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
         </div>
         {q ? (
           <Card>
-            <p className="text-lg font-medium text-steps-dark leading-snug mb-5">{q.prompt}</p>
+            <PromptContent text={q.prompt} className="text-lg font-medium text-steps-dark leading-snug mb-5" />
             <div className="grid gap-2.5">
               {q.options.map((opt, i) => (
                 <button
@@ -326,7 +350,7 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
                   className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white hover:border-steps-blue-400 hover:bg-steps-blue-50/50 active:bg-steps-blue-50 transition-colors text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500"
                 >
                   <span className="inline-block w-6 font-semibold text-slate-400">{String.fromCharCode(65 + i)}</span>
-                  {opt}
+                  <OptionContent opt={opt} />
                 </button>
               ))}
             </div>
@@ -497,7 +521,7 @@ function PracticeBlock({ questions }: { questions: PracticeQuestion[] }) {
         <h2 className="font-semibold text-steps-dark">Warm-up questions <span className="text-slate-400 font-normal">(not scored)</span></h2>
         <span className="text-xs text-slate-400">{idx + 1} / {questions.length}</span>
       </div>
-      <p className="font-medium text-steps-dark mb-4">{q.prompt}</p>
+      <PromptContent text={q.prompt} className="font-medium text-steps-dark mb-4" />
       <div className="grid gap-2">
         {q.options.map((opt, i) => {
           const revealed = picked !== null
@@ -516,7 +540,7 @@ function PracticeBlock({ questions }: { questions: PracticeQuestion[] }) {
               className={`w-full text-left px-4 py-2.5 rounded-xl border transition-colors text-slate-800 ${cls}`}
             >
               <span className="inline-block w-6 font-semibold text-slate-400">{String.fromCharCode(65 + i)}</span>
-              {opt}
+              <OptionContent opt={opt} />
             </button>
           )
         })}
