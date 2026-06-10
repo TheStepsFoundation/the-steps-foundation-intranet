@@ -12,7 +12,7 @@ import {
 // are admin-seeded via migrations — never student input — so injection here
 // is trusted content, same trust level as the prompt itself.
 // ---------------------------------------------------------------------------
-function PromptContent({ text, className }: { text: string; className?: string }) {
+export function PromptContent({ text, className }: { text: string; className?: string }) {
   const i = text.indexOf('<svg')
   if (i === -1) return <p className={className}>{text}</p>
   const label = text.slice(0, i).trim()
@@ -24,7 +24,7 @@ function PromptContent({ text, className }: { text: string; className?: string }
     </div>
   )
 }
-function OptionContent({ opt }: { opt: string }) {
+export function OptionContent({ opt }: { opt: string }) {
   if (!opt.includes('<svg')) return <>{opt}</>
   return <span className="inline-block align-middle [&_svg]:max-w-full [&_svg]:h-auto" dangerouslySetInnerHTML={{ __html: opt.slice(opt.indexOf('<svg')) }} />
 }

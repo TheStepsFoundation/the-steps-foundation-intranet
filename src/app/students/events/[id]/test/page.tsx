@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { PromptContent, OptionContent } from '@/components/TestRunner'
 
 // ---------------------------------------------------------------------------
 // /students/events/[id]/test — admin view for an event's selection test.
@@ -621,15 +622,15 @@ export default function EventTestAdminPage() {
                       {q.is_practice && <span className="text-steps-blue-600 font-medium">practice</span>}
                       {!q.active && <span className="text-red-500 font-medium">inactive</span>}
                     </div>
-                    <p className="text-sm text-gray-900 dark:text-gray-100 mb-1.5">{q.prompt}</p>
+                    <PromptContent text={q.prompt} className="text-sm text-gray-900 dark:text-gray-100 mb-1.5" />
                     <div className="flex flex-wrap gap-1.5">
                       {q.options.map((opt, i) => (
-                        <span key={i} className={`text-xs px-2 py-0.5 rounded-full border ${
+                        <span key={i} className={`text-xs px-2 py-0.5 border ${opt.includes('<svg') ? 'rounded-lg' : 'rounded-full'} ${
                           i === q.correct_index
                             ? 'border-emerald-300 bg-emerald-50 text-emerald-700 font-medium'
                             : 'border-gray-200 dark:border-gray-700 text-gray-500'
                         }`}>
-                          {String.fromCharCode(65 + i)}. {opt}
+                          {String.fromCharCode(65 + i)}. <OptionContent opt={opt} />
                         </span>
                       ))}
                     </div>

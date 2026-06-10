@@ -2,15 +2,32 @@
 """Generate the nonverbal-reasoning question bank for migration 0049.
 
 Three families, mirroring standard online-test formats:
-  A. Sequence completion  - a dial figure evolves by rotation/toggle rules
+  A. Sequence completion  - a dial figure evolves by rotation/toggle rules;
+                            3 frames shown, pick the 4th
   B. Set A / Set B        - infer the rule uniting each set, place the test panel
   C. Analogy A:B :: C:?   - apply the A->B transformation to C
 
 Every question's correct answer is COMPUTED from the generating rule (never
 hand-judged), keeping the bank programmatically verifiable like rounds 1-2.
 Deterministic via fixed seed. Output: supabase/migrations/0049_nonverbal_revamp.sql
+
+Design notes (fixes to the first WIP draft):
+- Dial: every rule is periodic mod 4 (discs, corner tick) or mod 2 (centre), so
+  frame 5 ALWAYS equals frame 1 -> the old "5 distinct frames" check could never
+  pass and gen_dial looped forever. We now show frames t=0..2 and ask for t=3:
+  the black disc visits 4 distinct positions, so the answer never duplicates a
+  shown frame and no rejection loop is needed at all.
+- Dial: the old collision rule (bump gray when black lands on it) visibly broke
+  the movement pattern mid-sequence. Now: difficulty 1 has no gray disc, and
+  difficulties 2-3 give gray an odd offset from black so the two discs (moving
+  in opposite directions, relative step parity even) can never collide.
+- Sets: black_majority's negation must be a STRICT white majority - ties matched
+  "not pred" but contradicted the Set B explanation and made the test panel
+  ambiguous. Panels are also deduped across the whole question.
+- Analogy: squares are visually invariant under 90-degree rotation, which made
+  rotation questions ambiguous; rotation questions now use triangle/arrow only.
 """
-import json, random, xml.etree.ElementTree as ET
+import json, random, time, xml.etree.ElementTree as ET
 
 rng = random.Random(20260610)
 EVENT_ID = "b5e7f8a1-3c9d-4b2e-8f1a-6d7c8e9f0a1b"
@@ -22,12 +39,14 @@ def frame_rect():
     return f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
 
 def wrap(inner, vw, vh, w=None):
+    # opaque white backing so #111 labels/figures stay legible on dark-mode cards
     w = w or vw
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {vw} {vh}" '
-            f'width="{w}" height="{vh * w // vw}" role="img">{inner}</svg>')
+            f'width="{w}" height="{vh * w // vw}" role="img">'
+            f'<rect x="0" y="0" width="{vw}" height="{vh}" fill="{WHITE}"/>{inner}</svg>')
 
 # ---------- Family A: dial sequence -------------------------------------------
-# Satellites N,E,S,W around a centre square; black marker, gray marker, centre
+# Satellites N,E,S,W around a centre square; black marker, (gray marker), centre
 # fill and a corner tick each move (or not) by simple modular rules.
 
 SAT = [(55, 16), (94, 55), (55, 94), (16, 55)]            # N E S W
@@ -49,51 +68,60 @@ def dial_frame(black_pos, gray_pos, center_black, corner):
 
 def dial_state(t, p):
     black = (p["b0"] + p["db"] * t) % 4
-    gray = (p["g0"] + p["dg"] * t) % 4
-    if gray == black:
-        gray = (gray + 1) % 4
-    centre = (p["c0"] + (p["dc"] * t)) % 2 == 1
+    gray = None if p["dg"] is None else (p["g0"] + p["dg"] * t) % 4
+    centre = (p["c0"] + p["dc"] * t) % 2 == 1
     corner = (p["k0"] + p["dk"] * t) % 4
     return black, gray, centre, corner
 
 def gen_dial(difficulty):
-    while True:
-        p = {"b0": rng.randrange(4), "g0": rng.randrange(4), "c0": rng.randrange(2),
-             "k0": rng.randrange(4), "db": rng.choice([1, -1]), "dg": 0, "dc": 0, "dk": 0}
-        if difficulty >= 2:
-            p["dg"] = -p["db"]
-        if difficulty == 3:
-            p["dc"] = 1
-            p["dk"] = rng.choice([1, -1])
-        states = [dial_state(t, p) for t in range(5)]
-        if len({s for s in states}) < 5:
-            continue
-        seq = "".join(f'<g transform="translate({i * 118},0)">{dial_frame(*states[i])}</g>' for i in range(4))
-        prompt = "Which figure comes next in the sequence?\n" + wrap(seq, 470, 110, 470)
-        correct = states[4]
-        # distractors: wrong black direction / gray frozen / centre-corner wrong
-        b, g, c, k = correct
-        cands = [((b - 2 * p["db"]) % 4, g, c, k),
-                 (b, (g + 1) % 4 if (g + 1) % 4 != b else (g + 2) % 4, c, k),
+    p = {"b0": rng.randrange(4), "c0": rng.randrange(2), "k0": rng.randrange(4),
+         "db": rng.choice([1, -1]), "dg": None, "g0": 0, "dc": 0, "dk": 0}
+    if difficulty >= 2:
+        # gray orbits opposite to black; odd initial offset means the relative
+        # offset stays odd (changes by 2 each step) so the discs never collide
+        p["dg"] = -p["db"]
+        p["g0"] = (p["b0"] + rng.choice([1, 3])) % 4
+    if difficulty == 3:
+        p["dc"] = 1
+        p["dk"] = rng.choice([1, -1])
+    states = [dial_state(t, p) for t in range(4)]
+    assert len(set(states)) == 4, "shown frames + answer must all be distinct"
+    seq = "".join(f'<g transform="translate({i * 118},0)">{dial_frame(*states[i])}</g>' for i in range(3))
+    seq += ('<g transform="translate(354,0)">'
+            f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+            f'<text x="46" y="68" font-family="sans-serif" font-size="34" font-weight="bold" fill="{BLACK}">?</text></g>')
+    prompt = "Which figure comes next in the sequence?\n" + wrap(seq, 470, 110, 470)
+    correct = states[3]
+    b, g, c, k = correct
+    if difficulty == 1:
+        cands = [((b - p["db"]) % 4, None, c, k),     # disc stays put (= frame 3)
+                 ((b + p["db"]) % 4, None, c, k),     # overshoots one step
+                 ((b + 2) % 4, None, c, k)]           # opposite position
+    else:
+        nb = (b - 2 * p["db"]) % 4                    # black went the wrong way
+        gw = (g + p["db"]) % 4                        # gray displaced
+        if gw == b:
+            gw = (g + 2 * p["db"]) % 4
+        cands = [(nb, g, c, k),
+                 (b, gw, c, k),
                  (b, g, (not c) if difficulty == 3 else c, (k + 2) % 4)]
-        opts_states, seen = [correct], {correct}
-        for st in cands:
-            if st not in seen:
-                opts_states.append(st); seen.add(st)
-            if len(opts_states) == 4:
-                break
-        while len(opts_states) < 4:
-            st = (rng.randrange(4), rng.randrange(4), rng.random() < .5, rng.randrange(4))
-            if st[0] != st[1] and st not in seen:
-                opts_states.append(st); seen.add(st)
-        rng.shuffle(opts_states)
-        options = [wrap(dial_frame(*st), 110, 110, 104) for st in opts_states]
-        ci = opts_states.index(correct)
-        moves = ["the black disc moves one step " + ("clockwise" if p["db"] == 1 else "anticlockwise")]
-        if p["dg"]: moves.append("the grey disc moves one step the opposite way")
-        if p["dc"]: moves.append("the centre square alternates black/white")
-        if p["dk"]: moves.append("the corner tick advances one corner " + ("clockwise" if p["dk"] == 1 else "anticlockwise"))
-        return prompt, options, ci, "Each step: " + "; ".join(moves) + "."
+    opts_states, seen = [correct], {correct}
+    for st in cands:
+        if st not in seen:
+            opts_states.append(st); seen.add(st)
+    while len(opts_states) < 4:   # safety net; cands are distinct by construction
+        st = (rng.randrange(4), None if difficulty == 1 else rng.randrange(4),
+              rng.random() < .5, rng.randrange(4))
+        if st[0] != st[1] and st not in seen:
+            opts_states.append(st); seen.add(st)
+    rng.shuffle(opts_states)
+    options = [wrap(dial_frame(*st), 110, 110, 104) for st in opts_states]
+    ci = opts_states.index(correct)
+    moves = ["the black disc moves one step " + ("clockwise" if p["db"] == 1 else "anticlockwise")]
+    if p["dg"]: moves.append("the grey disc moves one step the opposite way")
+    if p["dc"]: moves.append("the centre square alternates black/white")
+    if p["dk"]: moves.append("the corner tick advances one corner " + ("clockwise" if p["dk"] == 1 else "anticlockwise"))
+    return prompt, options, ci, "Each step: " + "; ".join(moves) + "."
 
 # ---------- Family B: Set A / Set B -------------------------------------------
 
@@ -114,12 +142,12 @@ def panel(shapes):  # shapes: list of (kind, black?)
         parts.append(shape_svg(kind, x, y, 15, BLACK if blk else WHITE))
     return "".join(parts)
 
-RULES = [  # (name, predicate, explanation-A, explanation-B uses negation pair)
+RULES = [  # (name, predicate, explanation-A, explanation-B)
     ("has_black_circle", lambda sh: any(k == "circle" and b for k, b in sh), "every panel contains a black circle", "no panel contains a black circle"),
     ("count3", lambda sh: len(sh) == 3, "every panel has exactly 3 shapes", "every panel has exactly 4 shapes"),
     ("has_triangle", lambda sh: any(k == "triangle" for k, b in sh), "every panel contains a triangle", "no panel contains a triangle"),
     ("blacks_odd", lambda sh: sum(1 for k, b in sh if b) % 2 == 1, "every panel has an odd number of black shapes", "every panel has an even number of black shapes"),
-    ("black_majority", lambda sh: sum(1 for k, b in sh if b) > len(sh) / 2, "black shapes outnumber white in every panel", "white shapes outnumber black in every panel"),
+    ("black_majority", lambda sh: sum(1 for k, b in sh if b) * 2 > len(sh), "black shapes outnumber white in every panel", "white shapes outnumber black in every panel"),
 ]
 
 def rand_panel(n=None):
@@ -129,14 +157,21 @@ def rand_panel(n=None):
 def gen_sets(difficulty):
     idx = {1: [0, 1, 2], 2: [3], 3: [4]}[difficulty]
     name, pred, expA, expB = RULES[rng.choice(idx)]
-    def sample(want, forbid_other=None):
+    if name == "black_majority":
+        # strict negation: ties belong to NEITHER set, so exclude them everywhere
+        negpred = lambda sh: sum(1 for k, b in sh if b) * 2 < len(sh)
+    else:
+        negpred = lambda sh: not pred(sh)
+    used = set()
+    def sample(want):
         for _ in range(4000):
-            sh = rand_panel(3 if name == "count3" and want else (4 if name == "count3" else None))
-            if name == "count3":
-                sh = rand_panel(3) if want else rand_panel(4)
-            if pred(sh) == want:
+            sh = rand_panel(3) if (name == "count3" and want) else (rand_panel(4) if name == "count3" else rand_panel())
+            if tuple(sh) in used:
+                continue
+            if (pred(sh) if want else negpred(sh)):
+                used.add(tuple(sh))
                 return sh
-        raise RuntimeError("sampling failed")
+        raise RuntimeError(f"sampling failed: {name} want={want}")
     setA = [sample(True) for _ in range(4)]
     setB = [sample(False) for _ in range(4)]
     answer = rng.choice(["Set A", "Set B"])
@@ -181,19 +216,22 @@ TRANSFORMS = {
 }
 
 def gen_analogy(difficulty):
-    while True:
+    for _attempt in range(1000):
         keys = {1: 1, 2: 2, 3: 2}[difficulty]
         pool = list(TRANSFORMS) if difficulty < 3 else ["rot90ccw", "resize", "dotflip", "invert"]
         chosen = rng.sample(pool, keys)
+        # squares look identical under 90° rotation -> ambiguous; exclude them
+        # from rotation questions (triangle and arrow are both 90°-asymmetric)
+        shapes = ["triangle", "arrow"] if any(key.startswith("rot") for key in chosen) else ["triangle", "square", "arrow"]
         def T(f):
             for k in chosen:
                 f = TRANSFORMS[k][0](f)
             return f
-        A = {"shape": rng.choice(["triangle", "square", "arrow"]), "size": rng.choice(["large", "small"]),
+        A = {"shape": rng.choice(shapes), "size": rng.choice(["large", "small"]),
              "black": rng.random() < .5, "rot": rng.choice([0, 90, 180, 270]), "dot": rng.randrange(4)}
         B = T(dict(A))
         C = dict(A)
-        C["shape"] = rng.choice([s for s in ["triangle", "square", "arrow"] if s != A["shape"]])
+        C["shape"] = rng.choice([s for s in shapes if s != A["shape"]])
         C["rot"] = rng.choice([0, 90, 180, 270]); C["dot"] = rng.randrange(4); C["black"] = rng.random() < .5
         ans = T(dict(C))
         def render(f): return fig(f["shape"], f["size"], f["black"], f["rot"], f["dot"])
@@ -229,18 +267,15 @@ def gen_analogy(difficulty):
         ci = next(i for i, f in enumerate(opts) if render(f) == render(ans))
         rule = " then ".join(TRANSFORMS[k][1] for k in chosen)
         return prompt, options, ci, f"The transformation is: {rule}. Applying it to the third figure gives the answer."
+    raise RuntimeError("analogy generation failed after 1000 attempts")
 
 # ---------- assemble -----------------------------------------------------------
 
 def sql_str(s): return "'" + s.replace("'", "''") + "'"
 
+t0 = time.time()
 rows = []          # (position, difficulty, prompt, options, ci, explanation, practice)
 pos = 91
-plan = [("dial", gen_dial), ("sets", gen_sets), ("analogy", gen_analogy)]
-for difficulty in (1, 2, 3):
-    for fam, gen in plan:
-        for _ in range(3 if not (difficulty == 2 and fam == "sets") else 4):
-            pass
 # exact mix: 10 per family, 10 per difficulty
 mix = [("dial", 1, 3), ("sets", 1, 4), ("analogy", 1, 3),
        ("dial", 2, 4), ("sets", 2, 3), ("analogy", 2, 3),
@@ -248,15 +283,26 @@ mix = [("dial", 1, 3), ("sets", 1, 4), ("analogy", 1, 3),
 gens = {"dial": gen_dial, "sets": gen_sets, "analogy": gen_analogy}
 generated = []
 for fam, diff, n in mix:
+    print(f"[gen] {fam} d{diff} x{n} ... ", end="", flush=True)
     for _ in range(n):
         generated.append((diff, *gens[fam](diff)))
-# interleave by difficulty so positions 91-120 ramp easy->hard like the rest
-generated.sort(key=lambda r: r[0])
+    print(f"ok ({time.time() - t0:.2f}s)", flush=True)
+# ramp easy->hard across positions 91-120, families shuffled within each band
+by_diff = {1: [], 2: [], 3: []}
+for r in generated:
+    by_diff[r[0]].append(r)
+generated = []
+for d in (1, 2, 3):
+    rng.shuffle(by_diff[d])
+    generated.extend(by_diff[d])
 for diff, prompt, options, ci, expl in generated:
     rows.append((pos, diff, prompt, options, ci, expl, False))
     pos += 1
-# two practice questions so the warm-up teaches the format
-practice = [(7, 1, *gen_dial(1)[0:4]), (8, 1, *gen_analogy(1)[0:4])]
+# two practice questions so the warm-up teaches the format; existing warm-ups
+# sit at positions 101-106, so these append at 107-108
+print("[gen] practice x2 ... ", end="", flush=True)
+practice = [(107, 1, *gen_dial(1)), (108, 1, *gen_analogy(1))]
+print(f"ok ({time.time() - t0:.2f}s)", flush=True)
 
 # validation: every svg parses, options unique, correct index sane
 def validate(prompt, options, ci):
@@ -270,14 +316,17 @@ for r in rows: validate(r[2], r[3], r[4])
 for r in practice: validate(r[2], r[3], r[4])
 print(f"validated {len(rows)} live + {len(practice)} practice questions")
 
-RETIRE = [41, 44, 46, 49, 51, 53, 54, 56, 57, 59, 60, 81, 83, 86, 90]
+# retire list per Favour 2026-06-11: keep 41, 57, 60 (genuinely challenging);
+# retire the rest of the original fake-hard list. Net bank 90 -> 108.
+RETIRE = [44, 46, 49, 51, 53, 54, 56, 59, 81, 83, 86, 90]
 
 out = []
 out.append("""-- 0049: nonverbal reasoning revamp (round 3)
 -- +30 generated shape/pattern questions (sequence completion, Set A/B,
 -- analogy) with SVG figures rendered by TestRunner's PromptContent /
--- OptionContent convention; -15 retired questions that were labelled hard
--- but are calculator-trivial or logically thin (net bank 90 -> 105).
+-- OptionContent convention; -12 retired questions that were labelled hard
+-- but are calculator-trivial or logically thin (net bank 90 -> 108;
+-- 41, 57 and 60 kept after manual review on 2026-06-11).
 -- Answers computed from generating rules (scripts/generate_nvr_questions.py,
 -- deterministic seed). Practice gains 2 NVR warm-ups so the format is taught.
 
