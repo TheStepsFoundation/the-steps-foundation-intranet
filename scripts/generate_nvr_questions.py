@@ -15,7 +15,7 @@ features, medium = 3, hard = 4 - plus red herrings at medium/hard. Every
 answer is COMPUTED from generating rules; code questions are checked for
 unique deducibility by exhaustive hypothesis search, and every nets option is
 checked against the full 24-orientation legality set. Deterministic seed.
-Output: supabase/migrations/0051_nonverbal_tune.sql
+Output: supabase/migrations/0052_pyramid_chirality_fix.sql
 """
 import itertools, json, random, time, xml.etree.ElementTree as ET
 
@@ -622,7 +622,7 @@ def gen_cube_net(level):
                        + "; ".join(f"one option {r}" for r in reasons)
                        + ". The remaining cube is consistent with the net.")
         return prompt, options, ci, explanation
-    raise RuntimeError("gen_nets failed")
+    raise RuntimeError("gen_cube_net failed")
 
 
 # ---------- Family D (easy): square-based pyramid nets ---------------------------
@@ -630,12 +630,32 @@ def gen_cube_net(level):
 # once folded). Adjacent triangles share a slant edge; opposite triangles only
 # ever meet at the apex, so a view showing them side by side is impossible.
 
-PYR_CCW = ["N", "W", "S", "E"]          # base order seen from above
+# CHIRALITY (bug caught by Favour on the first preview): unfolding a
+# paint-outside pyramid into a paint-up net requires flipping it apex-down,
+# and that flip MIRRORS the net's cyclic order. So for an outside viewer of
+# the assembled pyramid, (left, right) is legal iff right is the CLOCKWISE
+# neighbour of left AS DRAWN ON THE NET: order N -> E -> S -> W.
+PYR_ORDER = ["N", "E", "S", "W"]
 PYR_OPP = {"N": "S", "S": "N", "E": "W", "W": "E"}
 PYR_NET_ROT = {"N": 0, "E": 90, "S": 180, "W": 270}
 
-def pyr_ccw_next(f):
-    return PYR_CCW[(PYR_CCW.index(f) + 1) % 4]
+def pyr_right_of(f):
+    return PYR_ORDER[(PYR_ORDER.index(f) + 1) % 4]
+
+def _verify_pyramid_order():
+    """Numeric tripwire for the chirality above. Net N becomes the final
+    SOUTH face after the apex-up flip (180 about the E-W axis); E/W stay.
+    A ground-level viewer at the corner between two faces sees the face on
+    the +left side of their view axis on the left."""
+    final_dir = {"N": (0, -1), "S": (0, 1), "E": (1, 0), "W": (-1, 0)}
+    for lf in PYR_ORDER:
+        rf = pyr_right_of(lf)
+        ld, rd = final_dir[lf], final_dir[rf]
+        fx, fy = -(ld[0] + rd[0]), -(ld[1] + rd[1])   # facing the pyramid
+        lx, ly = -fy, fx                              # viewer's left (ccw 90 from facing)
+        assert ld[0] * lx + ld[1] * ly > 0 and rd[0] * lx + rd[1] * ly < 0, \
+            f"pyramid pair ({lf},{rf}) is not a physically visible left/right pair"
+_verify_pyramid_order()
 
 def pyramid_net_svg(tris, base_sym):
     c, h, half = 88, 50, 28
@@ -683,24 +703,24 @@ def gen_pyramid():
     pool = ["arrow", "flag", "L", "half", "T", "wedge"]
     for _ in range(300):
         chosen = rng.sample(pool, 5)
-        tris = {f: (chosen[i], rng.choice([WHITE, BLACK])) for i, f in enumerate(PYR_CCW)}
+        tris = {f: (chosen[i], rng.choice([WHITE, BLACK])) for i, f in enumerate(PYR_ORDER)}
         base_sym = (chosen[4], rng.choice([WHITE, BLACK]))
         unused = [x for x in SYMS if x not in chosen]
-        cf = rng.choice(PYR_CCW)
-        correct = ("ok", cf, 0, pyr_ccw_next(cf), 0, None)
+        cf = rng.choice(PYR_ORDER)
+        correct = ("ok", cf, 0, pyr_right_of(cf), 0, None)
         wrongs, reasons = [], []
-        f1 = rng.choice(PYR_CCW)
+        f1 = rng.choice(PYR_ORDER)
         wrongs.append(("opp", f1, 0, PYR_OPP[f1], 0, None))
         reasons.append(f"shows the {SYM_NAME[tris[f1][0]]} and the {SYM_NAME[tris[PYR_OPP[f1]][0]]} side by side, "
                        f"but they sit on opposite sides of the square and can only meet at the apex")
-        f2 = rng.choice(PYR_CCW)
+        f2 = rng.choice(PYR_ORDER)
         side = rng.randrange(2)
-        wrongs.append(("flip", f2, 180 if side == 0 else 0, pyr_ccw_next(f2), 0 if side == 0 else 180, None))
-        flipped = tris[f2][0] if side == 0 else tris[pyr_ccw_next(f2)][0]
+        wrongs.append(("flip", f2, 180 if side == 0 else 0, pyr_right_of(f2), 0 if side == 0 else 180, None))
+        flipped = tris[f2][0] if side == 0 else tris[pyr_right_of(f2)][0]
         reasons.append(f"the {SYM_NAME[flipped]} points to the base, but every shape on the net points away from the square")
-        f3 = rng.choice(PYR_CCW)
+        f3 = rng.choice(PYR_ORDER)
         dud = rng.choice(unused)
-        wrongs.append(("dud", f3, 0, pyr_ccw_next(f3), 0, dud))
+        wrongs.append(("dud", f3, 0, pyr_right_of(f3), 0, dud))
         reasons.append(f"shows a {SYM_NAME[dud]}, which is not on the net")
 
         def render(t):
@@ -785,7 +805,16 @@ from collections import Counter
 print("family mix:", Counter(fam_at.values()))
 
 out = []
-out.append("""-- 0051: nonverbal difficulty tune (round 5)
+out.append("""-- 0052: pyramid chirality fix (round 6)
+-- Favour spot-checked #94 and flagged it. The marked answer was a MIRROR
+-- IMAGE pyramid: unfolding a paint-outside pyramid into a paint-up net flips
+-- it apex-down, which reverses the net's cyclic order - so legal (left,right)
+-- view pairs are the CLOCKWISE net neighbours, the exact opposite of what
+-- rounds 5 generated. Pair rule fixed + numeric self-check added at import.
+-- Cubes unaffected (fold-sim guarded). Same full-replace pattern as 0050/51.
+--
+-- (superseded header below, kept for context)
+-- 0051: nonverbal difficulty tune (round 5)
 -- Per Favour 2026-06-11 (round 2): easy nets become square-based pyramid nets
 -- (one less face to track), medium nets = old easy cubes, hard nets = old
 -- medium cubes (the old hard tier invited screenshot-the-question-into-an-LLM
@@ -825,6 +854,6 @@ out.append(",\n".join(vals))
 out.append(") as v(position, difficulty, prompt, options, correct_index, explanation, is_practice);\n")
 
 sql = "\n".join(out)
-with open("supabase/migrations/0051_nonverbal_tune.sql", "w", encoding="utf-8") as f:
+with open("supabase/migrations/0052_pyramid_chirality_fix.sql", "w", encoding="utf-8") as f:
     f.write(sql)
 print(f"wrote migration: {len(sql)//1024} KB, {len(rows)} live rows + {len(practice)} practice")
