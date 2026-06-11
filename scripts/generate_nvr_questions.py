@@ -1,293 +1,641 @@
 #!/usr/bin/env python3
-"""Generate the nonverbal-reasoning question bank for migration 0049.
+"""Generate the nonverbal-reasoning question bank for migration 0050.
 
-Three families, mirroring standard online-test formats:
-  A. Sequence completion  - a dial figure evolves by rotation/toggle rules;
-                            3 frames shown, pick the 4th
-  B. Set A / Set B        - infer the rule uniting each set, place the test panel
-  C. Analogy A:B :: C:?   - apply the A->B transformation to C
+Four families modelled on standard 11+ NVR formats (per Favour's source PDFs,
+Atom Learning style), replacing the 0049 set he judged too easy:
+  A. Code questions     - letters code figure features; deduce the mapping from
+                          labelled examples, pick the code for the test figure
+  B. Matrix completion  - 3x3 grid governed by simultaneous row/column rules
+  C. Odd one out        - three rotations of one figure plus one reflection
+  D. Nets and cubes     - which cube can be made from the net; wrong options
+                          violate the dud / opposites / orientation rules
 
-Every question's correct answer is COMPUTED from the generating rule (never
-hand-judged), keeping the bank programmatically verifiable like rounds 1-2.
-Deterministic via fixed seed. Output: supabase/migrations/0049_nonverbal_revamp.sql
-
-Design notes (fixes to the first WIP draft):
-- Dial: every rule is periodic mod 4 (discs, corner tick) or mod 2 (centre), so
-  frame 5 ALWAYS equals frame 1 -> the old "5 distinct frames" check could never
-  pass and gen_dial looped forever. We now show frames t=0..2 and ask for t=3:
-  the black disc visits 4 distinct positions, so the answer never duplicates a
-  shown frame and no rejection loop is needed at all.
-- Dial: the old collision rule (bump gray when black lands on it) visibly broke
-  the movement pattern mid-sequence. Now: difficulty 1 has no gray disc, and
-  difficulties 2-3 give gray an odd offset from black so the two discs (moving
-  in opposite directions, relative step parity even) can never collide.
-- Sets: black_majority's negation must be a STRICT white majority - ties matched
-  "not pred" but contradicted the Set B explanation and made the test panel
-  ambiguous. Panels are also deduped across the whole question.
-- Analogy: squares are visually invariant under 90-degree rotation, which made
-  rotation questions ambiguous; rotation questions now use triangle/arrow only.
+Difficulty model (Favour 2026-06-11): easy = 2 simultaneous rules/coded
+features, medium = 3, hard = 4 - plus red herrings at medium/hard. Every
+answer is COMPUTED from generating rules; code questions are checked for
+unique deducibility by exhaustive hypothesis search, and every nets option is
+checked against the full 24-orientation legality set. Deterministic seed.
+Output: supabase/migrations/0050_nonverbal_rebuild.sql
 """
-import json, random, time, xml.etree.ElementTree as ET
+import itertools, json, random, time, xml.etree.ElementTree as ET
 
-rng = random.Random(20260610)
+rng = random.Random(20260611)
 EVENT_ID = "b5e7f8a1-3c9d-4b2e-8f1a-6d7c8e9f0a1b"
 BLACK, WHITE, GRAY = "#111111", "#ffffff", "#bbbbbb"
-
-# ---------- shared drawing ----------------------------------------------------
-
-def frame_rect():
-    return f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+FILLS = {"white": WHITE, "grey": GRAY, "black": BLACK}
 
 def wrap(inner, vw, vh, w=None):
-    # opaque white backing so #111 labels/figures stay legible on dark-mode cards
+    # opaque white backing so figures stay legible on dark-mode cards
     w = w or vw
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {vw} {vh}" '
             f'width="{w}" height="{vh * w // vw}" role="img">'
             f'<rect x="0" y="0" width="{vw}" height="{vh}" fill="{WHITE}"/>{inner}</svg>')
 
-# ---------- Family A: dial sequence -------------------------------------------
-# Satellites N,E,S,W around a centre square; black marker, (gray marker), centre
-# fill and a corner tick each move (or not) by simple modular rules.
+# ---------- symbol library (local coords ~[-20,20], north = -y) ----------------
+def s_arrow(fill):
+    return f'<polygon points="0,-17 13,1 6,1 6,17 -6,17 -6,1 -13,1" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
+def s_flag(fill):
+    return (f'<line x1="-2" y1="-17" x2="-2" y2="17" stroke="{BLACK}" stroke-width="3"/>'
+            f'<polygon points="-2,-17 16,-9 -2,-1" fill="{fill}" stroke="{BLACK}" stroke-width="2"/>')
+def s_L(fill):
+    return f'<polygon points="-12,-17 -4,-17 -4,9 14,9 14,17 -12,17" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
+def s_half(fill):
+    return (f'<circle cx="0" cy="0" r="15" fill="{WHITE}" stroke="{BLACK}" stroke-width="2.5"/>'
+            f'<path d="M -15 0 A 15 15 0 0 1 15 0 Z" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>')
+def s_T(fill):
+    return f'<polygon points="-14,-17 14,-17 14,-9 5,-9 5,17 -5,17 -5,-9 -14,-9" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
+def s_S(fill):
+    return f'<polyline points="13,-14 -8,-14 -8,0 8,0 8,14 -13,14" fill="none" stroke="{BLACK}" stroke-width="4.5"/>'
+def s_wedge(fill):
+    return f'<path d="M -3 3 L -3 -15 A 18 18 0 0 1 15 3 Z" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
+def s_ring(fill):
+    return f'<circle cx="0" cy="0" r="12" fill="{fill}" stroke="{BLACK}" stroke-width="3.5"/>'
+def s_cross(fill):
+    return f'<polygon points="-4,-16 4,-16 4,-4 16,-4 16,4 4,4 4,16 -4,16 -4,4 -16,4 -16,-4 -4,-4" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
+def s_diamond(fill):
+    return f'<polygon points="0,-16 16,0 0,16 -16,0" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
 
-SAT = [(55, 16), (94, 55), (55, 94), (16, 55)]            # N E S W
-CORN = [((74, 36), (102, 8)), ((74, 74), (102, 102)),     # TR BR
-        ((36, 74), (8, 102)), ((36, 36), (8, 8))]         # BL TL
+SYMS = {"arrow": s_arrow, "flag": s_flag, "L": s_L, "half": s_half, "T": s_T,
+        "S": s_S, "wedge": s_wedge, "ring": s_ring, "cross": s_cross, "diamond": s_diamond}
+SYM_NAME = {"arrow": "arrow", "flag": "flag", "L": "L-shape", "half": "half-shaded circle",
+            "T": "T-shape", "S": "S-shape", "wedge": "quarter-wedge", "ring": "ring",
+            "cross": "cross", "diamond": "diamond"}
+# extra rotations that visibly change each symbol (mod its own symmetry)
+ROT_DISTINCT = {"arrow": [90, 180, 270], "flag": [90, 180, 270], "L": [90, 180, 270],
+                "half": [90, 180, 270], "T": [90, 180, 270], "wedge": [90, 180, 270],
+                "S": [90, 270], "ring": [], "cross": [], "diamond": []}
+# symmetry group (rotations that leave the symbol unchanged) for canonicalising
+SYM_GROUP = {"ring": [0, 90, 180, 270], "cross": [0, 90, 180, 270],
+             "diamond": [0, 90, 180, 270], "S": [0, 180]}
 
-def dial_frame(black_pos, gray_pos, center_black, corner):
-    parts = [frame_rect()]
-    for x, y in SAT:
-        parts.append(f'<line x1="55" y1="55" x2="{x}" y2="{y}" stroke="{BLACK}" stroke-width="2"/>')
-    cfill = BLACK if center_black else WHITE
-    parts.append(f'<rect x="43" y="43" width="24" height="24" fill="{cfill}" stroke="{BLACK}" stroke-width="2"/>')
-    for i, (x, y) in enumerate(SAT):
-        fill = BLACK if i == black_pos else (GRAY if i == gray_pos else WHITE)
-        parts.append(f'<circle cx="{x}" cy="{y}" r="11" fill="{fill}" stroke="{BLACK}" stroke-width="2"/>')
-    (x1, y1), (x2, y2) = CORN[corner]
-    parts.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{BLACK}" stroke-width="2"/>')
-    return "".join(parts)
+def place(sym, fill, x, y, scale=1.0, rot=0):
+    return (f'<g transform="translate({x},{y}) rotate({rot}) scale({scale})">'
+            f'{SYMS[sym](fill)}</g>')
 
-def dial_state(t, p):
-    black = (p["b0"] + p["db"] * t) % 4
-    gray = None if p["dg"] is None else (p["g0"] + p["dg"] * t) % 4
-    centre = (p["c0"] + p["dc"] * t) % 2 == 1
-    corner = (p["k0"] + p["dk"] * t) % 4
-    return black, gray, centre, corner
+# ---------- Family A: code questions -------------------------------------------
 
-def gen_dial(difficulty):
-    p = {"b0": rng.randrange(4), "c0": rng.randrange(2), "k0": rng.randrange(4),
-         "db": rng.choice([1, -1]), "dg": None, "g0": 0, "dc": 0, "dk": 0}
-    if difficulty >= 2:
-        # gray orbits opposite to black; odd initial offset means the relative
-        # offset stays odd (changes by 2 each step) so the discs never collide
-        p["dg"] = -p["db"]
-        p["g0"] = (p["b0"] + rng.choice([1, 3])) % 4
-    if difficulty == 3:
-        p["dc"] = 1
-        p["dk"] = rng.choice([1, -1])
-    states = [dial_state(t, p) for t in range(4)]
-    assert len(set(states)) == 4, "shown frames + answer must all be distinct"
-    seq = "".join(f'<g transform="translate({i * 118},0)">{dial_frame(*states[i])}</g>' for i in range(3))
-    seq += ('<g transform="translate(354,0)">'
-            f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
-            f'<text x="46" y="68" font-family="sans-serif" font-size="34" font-weight="bold" fill="{BLACK}">?</text></g>')
-    prompt = "Which figure comes next in the sequence?\n" + wrap(seq, 470, 110, 470)
-    correct = states[3]
-    b, g, c, k = correct
-    if difficulty == 1:
-        cands = [((b - p["db"]) % 4, None, c, k),     # disc stays put (= frame 3)
-                 ((b + p["db"]) % 4, None, c, k),     # overshoots one step
-                 ((b + 2) % 4, None, c, k)]           # opposite position
-    else:
-        nb = (b - 2 * p["db"]) % 4                    # black went the wrong way
-        gw = (g + p["db"]) % 4                        # gray displaced
-        if gw == b:
-            gw = (g + 2 * p["db"]) % 4
-        cands = [(nb, g, c, k),
-                 (b, gw, c, k),
-                 (b, g, (not c) if difficulty == 3 else c, (k + 2) % 4)]
-    opts_states, seen = [correct], {correct}
-    for st in cands:
-        if st not in seen:
-            opts_states.append(st); seen.add(st)
-    while len(opts_states) < 4:   # safety net; cands are distinct by construction
-        st = (rng.randrange(4), None if difficulty == 1 else rng.randrange(4),
-              rng.random() < .5, rng.randrange(4))
-        if st[0] != st[1] and st not in seen:
-            opts_states.append(st); seen.add(st)
-    rng.shuffle(opts_states)
-    options = [wrap(dial_frame(*st), 110, 110, 104) for st in opts_states]
-    ci = opts_states.index(correct)
-    moves = ["the black disc moves one step " + ("clockwise" if p["db"] == 1 else "anticlockwise")]
-    if p["dg"]: moves.append("the grey disc moves one step the opposite way")
-    if p["dc"]: moves.append("the centre square alternates black/white")
-    if p["dk"]: moves.append("the corner tick advances one corner " + ("clockwise" if p["dk"] == 1 else "anticlockwise"))
-    return prompt, options, ci, "Each step: " + "; ".join(moves) + "."
+F_OUTER, F_FILL = ["square", "circle", "triangle"], ["white", "grey", "black"]
+F_INNER, F_DOT, F_SIZE = ["cross", "ring", "diamond"], ["N", "E", "S", "W"], ["large", "small"]
+FEATURES = [("outer", F_OUTER), ("fill", F_FILL), ("inner", F_INNER), ("dot", F_DOT), ("size", F_SIZE)]
+FEAT_LABEL = {"outer": "the outer shape", "fill": "the shading", "inner": "the inner mark",
+              "dot": "the dot position", "size": "the size"}
+POS_LETTERS = [list("ABCD"), list("XYZW"), list("FGHJ"), list("KLMN")]
+DOT_XY = {"N": (0, -41), "E": (41, 0), "S": (0, 41), "W": (-41, 0)}
+ORDINAL = ["First", "Second", "Third", "Fourth"]
 
-# ---------- Family B: Set A / Set B -------------------------------------------
-
-QUAD = [(28, 28), (72, 28), (28, 72), (72, 72)]
-
-def shape_svg(kind, x, y, s, fill):
-    if kind == "circle":
-        return f'<circle cx="{x}" cy="{y}" r="{s}" fill="{fill}" stroke="{BLACK}" stroke-width="2"/>'
+def outer_svg(kind, fill, r):
+    f = FILLS[fill]
     if kind == "square":
-        return f'<rect x="{x - s}" y="{y - s}" width="{2 * s}" height="{2 * s}" fill="{fill}" stroke="{BLACK}" stroke-width="2"/>'
-    return (f'<polygon points="{x},{y - s} {x + s},{y + s} {x - s},{y + s}" '
-            f'fill="{fill}" stroke="{BLACK}" stroke-width="2"/>')
+        return f'<rect x="{-r}" y="{-r}" width="{2*r}" height="{2*r}" fill="{f}" stroke="{BLACK}" stroke-width="2.5"/>'
+    if kind == "circle":
+        return f'<circle cx="0" cy="0" r="{r}" fill="{f}" stroke="{BLACK}" stroke-width="2.5"/>'
+    return f'<polygon points="0,{-r} {r},{round(r*0.85)} {-r},{round(r*0.85)}" fill="{f}" stroke="{BLACK}" stroke-width="2.5"/>'
 
-def panel(shapes):  # shapes: list of (kind, black?)
-    parts = [f'<rect x="2" y="2" width="96" height="96" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>']
-    pts = QUAD[:len(shapes)]
-    for (kind, blk), (x, y) in zip(shapes, pts):
-        parts.append(shape_svg(kind, x, y, 15, BLACK if blk else WHITE))
-    return "".join(parts)
+def inner_svg(kind, ink):
+    if kind == "cross":
+        return f'<polygon points="-3,-11 3,-11 3,-3 11,-3 11,3 3,3 3,11 -3,11 -3,3 -11,3 -11,-3 -3,-3" fill="{ink}"/>'
+    if kind == "ring":
+        return f'<circle cx="0" cy="0" r="8" fill="none" stroke="{ink}" stroke-width="3.5"/>'
+    return f'<polygon points="0,-10 10,0 0,10 -10,0" fill="{ink}"/>'
 
-RULES = [  # (name, predicate, explanation-A, explanation-B)
-    ("has_black_circle", lambda sh: any(k == "circle" and b for k, b in sh), "every panel contains a black circle", "no panel contains a black circle"),
-    ("count3", lambda sh: len(sh) == 3, "every panel has exactly 3 shapes", "every panel has exactly 4 shapes"),
-    ("has_triangle", lambda sh: any(k == "triangle" for k, b in sh), "every panel contains a triangle", "no panel contains a triangle"),
-    ("blacks_odd", lambda sh: sum(1 for k, b in sh if b) % 2 == 1, "every panel has an odd number of black shapes", "every panel has an even number of black shapes"),
-    ("black_majority", lambda sh: sum(1 for k, b in sh if b) * 2 > len(sh), "black shapes outnumber white in every panel", "white shapes outnumber black in every panel"),
-]
+def code_panel(p):
+    r = 33 if p["size"] == "large" else 22
+    ink = WHITE if p["fill"] == "black" else BLACK
+    dx, dy = DOT_XY[p["dot"]]
+    yoff = 6 if p["outer"] == "triangle" else 0   # triangle centroid sits low
+    return (f'<rect x="-50" y="-50" width="100" height="100" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+            f'<g transform="translate(0,{-yoff})">{outer_svg(p["outer"], p["fill"], r)}</g>'
+            f'<g transform="translate(0,{0 if p["outer"] != "triangle" else 4})">{inner_svg(p["inner"], ink)}</g>'
+            f'<circle cx="{dx}" cy="{dy}" r="5" fill="{BLACK}"/>')
 
-def rand_panel(n=None):
-    n = n or rng.choice([2, 3, 4])
-    return [(rng.choice(["circle", "square", "triangle"]), rng.random() < .5) for _ in range(n)]
-
-def gen_sets(difficulty):
-    idx = {1: [0, 1, 2], 2: [3], 3: [4]}[difficulty]
-    name, pred, expA, expB = RULES[rng.choice(idx)]
-    if name == "black_majority":
-        # strict negation: ties belong to NEITHER set, so exclude them everywhere
-        negpred = lambda sh: sum(1 for k, b in sh if b) * 2 < len(sh)
-    else:
-        negpred = lambda sh: not pred(sh)
-    used = set()
-    def sample(want):
-        for _ in range(4000):
-            sh = rand_panel(3) if (name == "count3" and want) else (rand_panel(4) if name == "count3" else rand_panel())
-            if tuple(sh) in used:
-                continue
-            if (pred(sh) if want else negpred(sh)):
-                used.add(tuple(sh))
-                return sh
-        raise RuntimeError(f"sampling failed: {name} want={want}")
-    setA = [sample(True) for _ in range(4)]
-    setB = [sample(False) for _ in range(4)]
-    answer = rng.choice(["Set A", "Set B"])
-    test = sample(answer == "Set A")
-    parts, lab = [], '<text x="{x}" y="16" font-family="sans-serif" font-size="14" font-weight="bold" fill="#111">{t}</text>'
-    parts.append(lab.format(x=78, t="Set A"))
-    parts.append(lab.format(x=318, t="Set B"))
-    parts.append(lab.format(x=508, t="Test shape"))
-    for i, sh in enumerate(setA):
-        parts.append(f'<g transform="translate({(i % 2) * 104},{24 + (i // 2) * 104})">{panel(sh)}</g>')
-    for i, sh in enumerate(setB):
-        parts.append(f'<g transform="translate({240 + (i % 2) * 104},{24 + (i // 2) * 104})">{panel(sh)}</g>')
-    parts.append(f'<g transform="translate(490,76)">{panel(test)}</g>')
-    prompt = "Which set does the test shape belong to?\n" + wrap("".join(parts), 600, 240, 560)
-    options = ["Set A", "Set B", "Neither"]
-    return prompt, options, options.index(answer), f"Set A: {expA}. Set B: {expB}. The test shape fits {answer}."
-
-# ---------- Family C: analogy --------------------------------------------------
-
-DOTP = [(55, 14), (96, 55), (55, 96), (14, 55)]
-
-def fig(shape, size, black, rot, dot):
-    s = 30 if size == "large" else 17
-    fill = BLACK if black else WHITE
-    if shape == "triangle":
-        body = f'<polygon points="55,{55 - s} {55 + s},{55 + s} {55 - s},{55 + s}" fill="{fill}" stroke="{BLACK}" stroke-width="2"/>'
-    elif shape == "square":
-        body = f'<rect x="{55 - s}" y="{55 - s}" width="{2 * s}" height="{2 * s}" fill="{fill}" stroke="{BLACK}" stroke-width="2"/>'
-    else:  # arrow
-        body = (f'<polygon points="55,{55 - s} {55 + s // 1},55 55,{55 + s} {55 + s // 3},55" '
-                f'fill="{fill}" stroke="{BLACK}" stroke-width="2"/>')
-    g = f'<g transform="rotate({rot} 55 55)">{body}</g>'
-    dx, dy = DOTP[dot]
-    return frame_rect() + g + f'<circle cx="{dx}" cy="{dy}" r="6" fill="#555"/>'
-
-TRANSFORMS = {
-    "rot90cw":  (lambda f: {**f, "rot": (f["rot"] + 90) % 360, "dot": (f["dot"] + 1) % 4}, "rotate 90° clockwise (the dot moves with it)"),
-    "rot90ccw": (lambda f: {**f, "rot": (f["rot"] - 90) % 360, "dot": (f["dot"] - 1) % 4}, "rotate 90° anticlockwise (the dot moves with it)"),
-    "invert":   (lambda f: {**f, "black": not f["black"]}, "invert the fill (black ↔ white)"),
-    "resize":   (lambda f: {**f, "size": "small" if f["size"] == "large" else "large"}, "swap the size (large ↔ small)"),
-    "dotflip":  (lambda f: {**f, "dot": (f["dot"] + 2) % 4}, "move the dot to the opposite side"),
-}
-
-def gen_analogy(difficulty):
-    for _attempt in range(1000):
-        keys = {1: 1, 2: 2, 3: 2}[difficulty]
-        pool = list(TRANSFORMS) if difficulty < 3 else ["rot90ccw", "resize", "dotflip", "invert"]
-        chosen = rng.sample(pool, keys)
-        # squares look identical under 90° rotation -> ambiguous; exclude them
-        # from rotation questions (triangle and arrow are both 90°-asymmetric)
-        shapes = ["triangle", "arrow"] if any(key.startswith("rot") for key in chosen) else ["triangle", "square", "arrow"]
-        def T(f):
-            for k in chosen:
-                f = TRANSFORMS[k][0](f)
-            return f
-        A = {"shape": rng.choice(shapes), "size": rng.choice(["large", "small"]),
-             "black": rng.random() < .5, "rot": rng.choice([0, 90, 180, 270]), "dot": rng.randrange(4)}
-        B = T(dict(A))
-        C = dict(A)
-        C["shape"] = rng.choice([s for s in shapes if s != A["shape"]])
-        C["rot"] = rng.choice([0, 90, 180, 270]); C["dot"] = rng.randrange(4); C["black"] = rng.random() < .5
-        ans = T(dict(C))
-        def render(f): return fig(f["shape"], f["size"], f["black"], f["rot"], f["dot"])
-        if render(A) == render(B) or render(C) == render(ans):
+def solve_codes(examples, test, n_pos):
+    """All consistent (positions -> distinct features, value <-> letter bijection)
+    hypotheses. Returns None if any consistent hypothesis cannot code the test
+    panel (unknowable), else the set of predicted codes."""
+    answers = set()
+    for combo in itertools.permutations(range(len(FEATURES)), n_pos):
+        ok, maps = True, []
+        for p, fi in enumerate(combo):
+            fname = FEATURES[fi][0]
+            m, rev = {}, {}
+            for panel, code in examples:
+                v, c = panel[fname], code[p]
+                if m.get(v, c) != c or rev.get(c, v) != v:
+                    ok = False
+                    break
+                m[v] = c
+                rev[c] = v
+            if not ok:
+                break
+            maps.append((fname, m))
+        if not ok:
             continue
-        sep = '<text x="{x}" y="62" font-family="sans-serif" font-size="22" font-weight="bold" fill="#111">{t}</text>'
-        strip = (f'<g>{render(A)}</g>' + sep.format(x=116, t=":") +
-                 f'<g transform="translate(136,0)">{render(B)}</g>' + sep.format(x=252, t="::") +
-                 f'<g transform="translate(288,0)">{render(C)}</g>' + sep.format(x=404, t=":") +
-                 f'<g transform="translate(424,0)"><rect x="3" y="3" width="104" height="104" fill="#fff" stroke="#111" stroke-width="2"/>'
-                 f'<text x="46" y="68" font-family="sans-serif" font-size="34" font-weight="bold" fill="#111">?</text></g>')
-        prompt = "The first figure is to the second as the third is to which answer figure?\n" + wrap(strip, 535, 110, 500)
-        distract = []
-        for k in TRANSFORMS:
-            if k not in chosen:
-                f = TRANSFORMS[k][0](dict(C))
-                if render(f) != render(ans):
-                    distract.append(f)
-        f2 = T(T(dict(C)))
-        if render(f2) != render(ans):
-            distract.append(f2)
-        seen, opts = {render(ans)}, [ans]
-        for f in distract:
-            r = render(f)
-            if r not in seen:
-                opts.append(f); seen.add(r)
+        pred = []
+        for fname, m in maps:
+            if test[fname] not in m:
+                return None
+            pred.append(m[test[fname]])
+        answers.add(tuple(pred))
+    return answers
+
+def rand_code_panel():
+    return {f: rng.choice(vs) for f, vs in FEATURES}
+
+def gen_codes(difficulty):
+    k = {1: 2, 2: 3, 3: 4}[difficulty]
+    n_ex = k + 2
+    for _ in range(4000):
+        coded = rng.sample(range(len(FEATURES)), k)
+        vmaps = []
+        for p, fi in enumerate(coded):
+            vals = FEATURES[fi][1]
+            vmaps.append(dict(zip(vals, rng.sample(POS_LETTERS[p][:len(vals)], len(vals)))))
+        def code_of(panel):
+            return tuple(vmaps[p][panel[FEATURES[fi][0]]] for p, fi in enumerate(coded))
+        examples = [rand_code_panel() for _ in range(n_ex)]
+        test = rand_code_panel()
+        # coded feature values of the test must be learnable from the examples,
+        # coded features must actually vary, and the test must not be a copy
+        bad = False
+        for fi in coded:
+            f = FEATURES[fi][0]
+            seen = {e[f] for e in examples}
+            if test[f] not in seen or len(seen) < 2:
+                bad = True
+                break
+        if bad or any(all(e[f] == t for f, t in test.items()) for e in examples):
+            continue
+        # red herring: at medium/hard every UNCODED feature must vary too
+        if difficulty >= 2:
+            for fi in range(len(FEATURES)):
+                if fi not in coded and len({e[FEATURES[fi][0]] for e in examples}) < 2:
+                    bad = True
+                    break
+            if bad:
+                continue
+        exs = [(e, code_of(e)) for e in examples]
+        sols = solve_codes(exs, test, k)
+        if sols is None or len(sols) != 1:
+            continue
+        answer = code_of(test)
+        # distractors: 1-letter mutations using letters seen at that position
+        seen_letters = [sorted({c[p] for _, c in exs}) for p in range(k)]
+        cands = []
+        for p in range(k):
+            for c in seen_letters[p]:
+                if c != answer[p]:
+                    cands.append(answer[:p] + (c,) + answer[p + 1:])
+        rng.shuffle(cands)
+        opts = [answer]
+        for c in cands:
+            if c not in opts:
+                opts.append(c)
             if len(opts) == 4:
                 break
         if len(opts) < 4:
             continue
         rng.shuffle(opts)
-        options = [wrap(render(f), 110, 110, 104) for f in opts]
-        ci = next(i for i, f in enumerate(opts) if render(f) == render(ans))
-        rule = " then ".join(TRANSFORMS[k][1] for k in chosen)
-        return prompt, options, ci, f"The transformation is: {rule}. Applying it to the third figure gives the answer."
-    raise RuntimeError("analogy generation failed after 1000 attempts")
+        ci = opts.index(answer)
+        # prompt drawing: labelled examples, then the unlabelled test panel
+        parts = []
+        for i, (e, c) in enumerate(exs):
+            x = 54 + i * 112
+            parts.append(f'<g transform="translate({x},56)">{code_panel(e)}</g>')
+            parts.append(f'<text x="{x}" y="132" text-anchor="middle" font-family="sans-serif" '
+                         f'font-size="16" font-weight="bold" fill="{BLACK}">{" ".join(c)}</text>')
+        tx = 54 + n_ex * 112 + 36
+        parts.append(f'<g transform="translate({tx},56)">{code_panel(test)}</g>')
+        parts.append(f'<text x="{tx}" y="132" text-anchor="middle" font-family="sans-serif" '
+                     f'font-size="20" font-weight="bold" fill="{BLACK}">?</text>')
+        vw = tx + 70
+        prompt = ("Each figure is labelled with its code. Work out what each letter stands for, "
+                  "then select the code for the final figure.\n" + wrap("".join(parts), vw, 146, min(vw, 720)))
+        options = [" ".join(o) for o in opts]
+        expl = []
+        for p, fi in enumerate(coded):
+            fname, vals = FEATURES[fi]
+            pairs = ", ".join(f"{vmaps[p][v]} = {v}" for v in vals if v in {e[fname] for e in examples})
+            expl.append(f"{ORDINAL[p]} letter codes {FEAT_LABEL[fname]} ({pairs})")
+        explanation = "; ".join(expl) + f". The final figure's code is {' '.join(answer)}."
+        return prompt, options, ci, explanation
+    raise RuntimeError("gen_codes failed")
 
-# ---------- assemble -----------------------------------------------------------
+# ---------- Family B: matrix completion ----------------------------------------
+
+CORNER_XY = {0: (38, -38), 1: (38, 38), 2: (-38, 38), 3: (-38, -38)}  # NE SE SW NW
+CORNER_NAME = {0: "top-right", 1: "bottom-right", 2: "bottom-left", 3: "top-left"}
+
+def inner_arrow(ink):
+    return f'<polygon points="0,-14 10,0 4,0 4,14 -4,14 -4,0 -10,0" fill="{ink}"/>'
+
+def matrix_cell(c):
+    ink = WHITE if c["fill"] == "black" else BLACK
+    dx, dy = CORNER_XY[c["dot"]]
+    return (f'<rect x="-50" y="-50" width="100" height="100" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+            f'{outer_svg(c["shape"], c["fill"], 32)}'
+            f'<g transform="rotate({c["rot"]})">{inner_arrow(ink)}</g>'
+            f'<circle cx="{dx}" cy="{dy}" r="5.5" fill="{BLACK}" stroke="{WHITE}" stroke-width="1.5"/>')
+
+M_ATTRS = ["shape", "fill", "rot", "dot"]
+
+def gen_matrix(difficulty):
+    k = {1: 2, 2: 3, 3: 4}[difficulty]
+    for _ in range(2000):
+        ruled = rng.sample(M_ATTRS, k)
+        rules, desc = {}, []
+        for a in ruled:
+            axis = rng.choice(["row", "col"])
+            axname = "row" if axis == "row" else "column"
+            if a == "shape":
+                vals = rng.sample(F_OUTER, 3)
+                rules[a] = lambda r, c, vals=vals, axis=axis: vals[r if axis == "row" else c]
+                desc.append(f"the outer shape is fixed by {axname} ({', '.join(vals)})")
+            elif a == "fill":
+                vals = rng.sample(F_FILL, 3)
+                rules[a] = lambda r, c, vals=vals, axis=axis: vals[r if axis == "row" else c]
+                desc.append(f"the shading is fixed by {axname} ({', '.join(vals)})")
+            elif a == "rot":
+                base, d = rng.randrange(4), rng.choice([1, -1])
+                rules[a] = lambda r, c, base=base, d=d, axis=axis: ((base + d * (r if axis == "row" else c)) % 4) * 90
+                desc.append(f"the arrow rotates 90° {'clockwise' if d == 1 else 'anticlockwise'} along each {axname}")
+            else:
+                base, d = rng.randrange(4), rng.choice([1, -1])
+                rules[a] = lambda r, c, base=base, d=d, axis=axis: (base + d * (r if axis == "row" else c)) % 4
+                desc.append(f"the corner dot moves one corner {'clockwise' if d == 1 else 'anticlockwise'} along each {axname}")
+        const = {"shape": rng.choice(F_OUTER), "fill": rng.choice(F_FILL),
+                 "rot": rng.randrange(4) * 90, "dot": rng.randrange(4)}
+        def cell(r, c):
+            out = dict(const)
+            for a, fn in rules.items():
+                out[a] = fn(r, c)
+            return out
+        correct = cell(2, 2)
+        # distractors: each takes one ruled attribute from a different grid cell
+        cands = []
+        for a in ruled:
+            for (r, c) in [(0, 0), (0, 2), (2, 0), (1, 1)]:
+                wrong = cell(r, c)[a]
+                if wrong != correct[a]:
+                    mut = dict(correct)
+                    mut[a] = wrong
+                    cands.append(mut)
+        seen = {matrix_cell(correct)}
+        opts = [correct]
+        rng.shuffle(cands)
+        for m in cands:
+            s = matrix_cell(m)
+            if s not in seen:
+                opts.append(m)
+                seen.add(s)
+            if len(opts) == 4:
+                break
+        if len(opts) < 4:
+            continue
+        rng.shuffle(opts)
+        ci = next(i for i, o in enumerate(opts) if matrix_cell(o) == matrix_cell(correct))
+        grid = []
+        for r in range(3):
+            for c in range(3):
+                x, y = 54 + c * 104, 54 + r * 104
+                if (r, c) == (2, 2):
+                    grid.append(f'<rect x="{x-50}" y="{y-50}" width="100" height="100" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+                                f'<text x="{x}" y="{y+12}" text-anchor="middle" font-family="sans-serif" font-size="40" font-weight="bold" fill="{BLACK}">?</text>')
+                else:
+                    grid.append(f'<g transform="translate({x},{y})">{matrix_cell(cell(r, c))}</g>')
+        prompt = "Select the option that completes the matrix.\n" + wrap("".join(grid), 316, 316, 300)
+        options = [wrap(f'<g transform="translate(55,55)">{matrix_cell(o)}</g>', 110, 110, 104) for o in opts]
+        explanation = "Rules: " + "; ".join(desc) + ". Apply all of them to the bottom-right cell."
+        return prompt, options, ci, explanation
+    raise RuntimeError("gen_matrix failed")
+
+# ---------- Family C: odd one out (reflection among rotations) ------------------
+
+def odd_compound(base, chiral, base_fill, accent_fill, chiral_scale):
+    # three DIFFERENT elements at the corners of a scalene triangle: chirality
+    # comes from the arrangement itself, never from one small element alone
+    # (a near-collinear layout lets a reflection masquerade as a 180 rotation)
+    return (place(base, FILLS[base_fill], 0, 16, 1.6)
+            + place(chiral, WHITE, 28, -20, chiral_scale)
+            + f'<rect x="-38" y="-30" width="16" height="16" fill="{FILLS[accent_fill]}" stroke="{BLACK}" stroke-width="2"/>')
+
+def odd_option_svg(inner, angle, mirror):
+    flip = ' scale(-1,1)' if mirror else ''
+    return wrap(f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+                f'<g transform="translate(55,55) rotate({angle}){flip} scale(0.85)">{inner}</g>', 110, 110, 104)
+
+def raster_distinct(svgs, thresh=0.03):
+    """Every pair of option images must differ on >= thresh of pixels, so a
+    reflection can never look near-identical to one of the shown rotations.
+    Soft dependency: skipped (returns True) if cairosvg/PIL are unavailable."""
+    try:
+        import io as _io
+        import cairosvg
+        from PIL import Image, ImageChops
+    except Exception:
+        return True
+    imgs = []
+    for s in svgs:
+        png = cairosvg.svg2png(bytestring=s.encode(), output_width=88, output_height=88)
+        imgs.append(Image.open(_io.BytesIO(png)).convert("L"))
+    for i in range(len(imgs)):
+        for j in range(i + 1, len(imgs)):
+            diff = ImageChops.difference(imgs[i], imgs[j])
+            frac = sum(1 for px in diff.getdata() if px > 40) / (88 * 88)
+            if frac < thresh:
+                return False
+    return True
+
+def herring_fills(n=4):
+    # two values, each appearing twice, shuffled - so no option is uniquely shaded
+    a, b = rng.sample(F_FILL, 2)
+    fills = [a, a, b, b]
+    rng.shuffle(fills)
+    return fills
+
+def gen_odd(difficulty):
+    base = rng.choice(["wedge", "half", "arrow"])
+    chiral = {1: rng.choice(["flag", "L"]), 2: rng.choice(["flag", "L"]), 3: "S"}[difficulty]
+    cscale = {1: 0.95, 2: 0.7, 3: 0.55}[difficulty]
+    step = 90 if difficulty == 1 else 45
+    if difficulty == 1:
+        bfills = [rng.choice(F_FILL)] * 4
+        afills = [rng.choice(F_FILL)] * 4
+    elif difficulty == 2:
+        bfills = [rng.choice(F_FILL)] * 4
+        afills = herring_fills()
+    else:
+        bfills = herring_fills()
+        afills = herring_fills()
+    options = None
+    for _ in range(300):
+        angles = rng.sample(range(0, 360, step), 4)
+        mirror_idx = rng.randrange(4)
+        cand = [odd_option_svg(odd_compound(base, chiral, bfills[i], afills[i], cscale),
+                               angles[i], i == mirror_idx) for i in range(4)]
+        if len(set(cand)) == 4 and raster_distinct(cand):
+            options = cand
+            break
+    if options is None:
+        raise RuntimeError("gen_odd failed to find visually distinct options")
+    prompt = "Three of these figures are rotations of one figure. Select the one that is most unlike the others."
+    herring = "" if difficulty == 1 else " The shading differences are a red herring - no single figure is uniquely shaded."
+    explanation = (f"The odd one out is a REFLECTION of the others, not a rotation - "
+                   f"check which side of the {SYM_NAME[base]} the {SYM_NAME[chiral]} sits on as you rotate each figure.{herring}")
+    return prompt, options, mirror_idx, explanation
+
+# ---------- Family D: nets and cubes --------------------------------------------
+# Cross net (U above F; L F R B in a row; D below F). Folding gives each face a
+# painted frame (u = symbol right, v = symbol up) in cube-body coordinates:
+AX = {"F": (0, 0, 1), "B": (0, 0, -1), "U": (0, 1, 0), "D": (0, -1, 0), "L": (-1, 0, 0), "R": (1, 0, 0)}
+FRAME = {"F": ((1, 0, 0), (0, 1, 0)), "U": ((1, 0, 0), (0, 0, -1)), "D": ((1, 0, 0), (0, 0, 1)),
+         "L": ((0, 0, 1), (0, 1, 0)), "R": ((0, 0, -1), (0, 1, 0)), "B": ((-1, 0, 0), (0, 1, 0))}
+OPP = {"F": "B", "B": "F", "U": "D", "D": "U", "L": "R", "R": "L"}
+NET_POS = {"U": (1, 0), "L": (0, 1), "F": (1, 1), "R": (2, 1), "B": (3, 1), "D": (1, 2)}
+
+def vneg(a): return (-a[0], -a[1], -a[2])
+
+def _verify_frames():
+    """Independent derivation of FRAME by simulating the fold: rotate each net
+    cell about its hinge(s) so the flaps wrap BEHIND the F plane. Integer-exact."""
+    def rotx(v, sgn):  # +/-90 about x
+        x, y, z = v
+        return (x, -sgn * z, sgn * y)
+    def roty(v, sgn):  # +/-90 about y
+        x, y, z = v
+        return (sgn * z, y, -sgn * x)
+    chains = {"F": [], "U": [("x", -1)], "D": [("x", 1)], "L": [("y", -1)],
+              "R": [("y", 1)], "B": [("y", 1), ("y", 1)]}
+    for face, chain in chains.items():
+        n, u, v = (0, 0, 1), (1, 0, 0), (0, 1, 0)   # painted normal/right/up flat on the net
+        for ax, sgn in chain:
+            f = rotx if ax == "x" else roty
+            n, u, v = f(n, sgn), f(u, sgn), f(v, sgn)
+        assert n == AX[face], f"fold sim normal mismatch for {face}: {n}"
+        assert (u, v) == FRAME[face], f"fold sim frame mismatch for {face}: {(u, v)}"
+_VERIFIED = None  # set after FRAME/AX definitions below
+def vcross(a, b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
+def mapv(M, v): return tuple(sum(M[i][j]*v[j] for j in range(3)) for i in range(3))
+
+def rot_uv(u, v, r):
+    """Frame of a symbol rotated r deg clockwise within its face."""
+    for _ in range((r // 90) % 4):
+        u, v = vneg(v), u
+    return u, v
+
+def orient_for(fl_face, top_face):
+    """Rotation matrix taking body axes so fl_face faces +z (front-left panel)
+    and top_face faces +y. Returns (M, fr_face)."""
+    nf, ng = AX[fl_face], AX[top_face]
+    nh = vcross(nf, ng)
+    # M[i][j] = sum_k Tcol_k[i] * Scol_k[j] with Scols = (nf, ng, nh) -> (z, y, z×y=-x)
+    Tcols = [(0, 0, 1), (0, 1, 0), (-1, 0, 0)]
+    Scols = [nf, ng, nh]
+    M = [[sum(Tcols[k][i] * Scols[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    fr = next(f for f, n in AX.items() if mapv(M, n) == (1, 0, 0))
+    return M, fr
+
+ALL_VIEWS = [(f, g) for f in AX for g in AX if g != f and g != OPP[f]]
+_verify_frames()
+
+ISO = 27
+def P(v):
+    x, y, z = v
+    return (0.866 * (x - z) * ISO, (0.5 * (x + z) - y) * ISO)
+
+def canon_panel(sym, u, v):
+    """Quantised, symmetry-canonical signature of a rendered panel."""
+    cands = []
+    for r in SYM_GROUP.get(sym, [0]):
+        uu, vv = rot_uv(u, v, r)
+        cands.append((uu, vv))
+    return (sym, min(cands))
+
+CUBE_AXES = {"T": ((0, 1, 0), (1, 0, 0), (0, 0, 1)),
+             "FL": ((0, 0, 1), (1, 0, 0), (0, 1, 0)),
+             "FR": ((1, 0, 0), (0, 0, 1), (0, 1, 0))}
+
+def cube_svg(panels):
+    """panels: dict pos -> (sym, fill, u_world, v_world); pos in T, FL, FR.
+    Panel quads use canonical in-plane axes; only the symbol uses (u, v)."""
+    cx, cy = 55, 60
+    parts = []
+    for pos in ("FL", "FR", "T"):
+        n, a1, a2 = CUBE_AXES[pos]
+        sym, fill, u, v = panels[pos]
+        assert sum(ui * ni for ui, ni in zip(u, n)) == 0, "symbol frame must lie in the panel plane"
+        pn, pu, pv = P(n), P(u), P(v)
+        q1, q2 = P(a1), P(a2)
+        corners = [(cx + pn[0] + s1 * q1[0] + s2 * q2[0], cy + pn[1] + s1 * q1[1] + s2 * q2[1])
+                   for s1, s2 in [(-1, -1), (1, -1), (1, 1), (-1, 1)]]
+        pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in corners)
+        parts.append(f'<polygon points="{pts}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>')
+        # symbol local coords are ~[-20,20]; matrix maps local x->u, local -y->v
+        k = 0.034
+        a, b = pu[0] * k, pu[1] * k
+        c, d = -pv[0] * k, -pv[1] * k
+        e, f = cx + pn[0], cy + pn[1]
+        parts.append(f'<g transform="matrix({a:.3f},{b:.3f},{c:.3f},{d:.3f},{e:.1f},{f:.1f})">{SYMS[sym](fill)}</g>')
+    return "".join(parts)
+
+def legit_panels(faces, M, fr_map):
+    """Render-true panels for orientation map fr_map = {pos: face}."""
+    out = {}
+    for pos, face in fr_map.items():
+        sym, fill, cr = faces[face]
+        u, v = rot_uv(*FRAME[face], cr)
+        out[pos] = (sym, fill, mapv(M, u), mapv(M, v))
+    return out
+
+def panels_sig(panels):
+    return tuple(canon_panel(panels[pos][0], panels[pos][2], panels[pos][3]) for pos in ("T", "FL", "FR"))
+
+def legal_set(faces):
+    sigs = set()
+    for fl, top in ALL_VIEWS:
+        M, fr = orient_for(fl, top)
+        sigs.add(panels_sig(legit_panels(faces, M, {"FL": fl, "T": top, "FR": fr})))
+    return sigs
+
+def pick_view(faces, need_directional=2):
+    for _ in range(200):
+        fl, top = rng.choice(ALL_VIEWS)
+        M, fr = orient_for(fl, top)
+        vis = [fl, top, fr]
+        if sum(1 for f in vis if faces[f][0] in ROT_DISTINCT and ROT_DISTINCT[faces[f][0]]) >= need_directional:
+            return fl, top, fr, M
+    raise RuntimeError("no informative view")
+
+def net_svg(faces):
+    parts = []
+    for face, (gx, gy) in NET_POS.items():
+        x, y = 8 + gx * 54, 8 + gy * 54
+        sym, fill, cr = faces[face]
+        parts.append(f'<rect x="{x}" y="{y}" width="54" height="54" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>')
+        parts.append(f'<g transform="translate({x+27},{y+27}) rotate({cr}) scale(0.95)">{SYMS[sym](fill)}</g>')
+    return wrap("".join(parts), 232, 178, 232)
+
+def gen_nets(difficulty):
+    pool_easy = ["arrow", "flag", "L", "half", "T", "wedge"]
+    pool_med = ["arrow", "flag", "L", "half", "T", "wedge", "ring"]
+    pool_hard = ["arrow", "flag", "L", "half", "T", "wedge", "S", "cross", "diamond"]
+    pool = {1: pool_easy, 2: pool_med, 3: pool_hard}[difficulty]
+    for _ in range(500):
+        chosen = rng.sample(pool, 6)
+        if sum(1 for s in chosen if ROT_DISTINCT[s]) < 4:
+            continue
+        faces = {f: (chosen[i], rng.choice([WHITE, BLACK]) if chosen[i] not in ("S",) else WHITE,
+                     rng.randrange(4) * 90) for i, f in enumerate(AX)}
+        legal = legal_set(faces)
+        unused = [s for s in SYMS if s not in chosen]
+
+        fl, top, fr, M = pick_view(faces)
+        correct_panels = legit_panels(faces, M, {"FL": fl, "T": top, "FR": fr})
+        wrongs, reasons = [], []
+
+        def fresh_view():
+            f2, t2, r2, M2 = pick_view(faces)
+            return {"FL": f2, "T": t2, "FR": r2}, M2
+
+        # 1) opposites violation: top panel shows the face OPPOSITE the front-left
+        vmap, M2 = fresh_view()
+        opp_face = OPP[vmap["FL"]]
+        pan = legit_panels(faces, M2, vmap)
+        s_o, f_o, _ = faces[opp_face]
+        pan["T"] = (s_o, f_o, pan["T"][2], pan["T"][3])   # in the top panel's own plane
+        wrongs.append(pan)
+        reasons.append(f"shows the {SYM_NAME[s_o]} next to the {SYM_NAME[faces[vmap['FL']][0]]}, "
+                       f"but they are on opposite faces of the net")
+
+        # 2) orientation violation
+        vmap, M2 = fresh_view()
+        pan = legit_panels(faces, M2, vmap)
+        rot_targets = [p for p in pan if ROT_DISTINCT[pan[p][0]]]
+        pos = rng.choice(rot_targets)
+        face = vmap[pos]
+        sym, fill, cr = faces[face]
+        extra = 180 if difficulty == 1 else rng.choice([r for r in ROT_DISTINCT[sym] if r != 180] or [180])
+        u, v = rot_uv(*rot_uv(*FRAME[face], cr), extra)
+        pan[pos] = (sym, fill, mapv(M2, u), mapv(M2, v))
+        wrongs.append(pan)
+        reasons.append(f"the {SYM_NAME[sym]} is rotated the wrong way")
+
+        # 3) third wrong option by difficulty
+        vmap, M2 = fresh_view()
+        pan = legit_panels(faces, M2, vmap)
+        if difficulty <= 2:
+            pos = rng.choice(list(pan))
+            if difficulty == 1:
+                dud = rng.choice(unused)
+                pan[pos] = (dud, rng.choice([WHITE, BLACK]), pan[pos][2], pan[pos][3])
+                reasons.append(f"shows a {SYM_NAME[dud]}, which is not on the net at all")
+            else:
+                sym, fill, u, v = pan[pos]
+                pan[pos] = (sym, BLACK if fill == WHITE else WHITE, u, v)
+                reasons.append(f"the {SYM_NAME[sym]} is the wrong colour")
+        else:
+            rot_targets = [p for p in pan if ROT_DISTINCT[pan[p][0]]]
+            pos = rng.choice(rot_targets)
+            face = vmap[pos]
+            sym, fill, cr = faces[face]
+            extra = rng.choice([r for r in ROT_DISTINCT[sym] if r != 180] or [180])
+            u, v = rot_uv(*rot_uv(*FRAME[face], cr), extra)
+            pan[pos] = (sym, fill, mapv(M2, u), mapv(M2, v))
+            reasons.append(f"the {SYM_NAME[sym]} is rotated the wrong way")
+        wrongs.append(pan)
+
+        # verify: correct is legal; every wrong is illegal (vs all 24 views) and
+        # colour-duds are checked by fill mismatch instead of signature
+        if panels_sig(correct_panels) not in legal:
+            continue
+        ok = True
+        sigs = {json.dumps(panels_sig(correct_panels), sort_keys=True)}
+        fills_by_sym = {faces[f][0]: faces[f][1] for f in faces}
+        for pan in wrongs:
+            sig = panels_sig(pan)
+            fill_bad = any(p[0] in fills_by_sym and p[1] != fills_by_sym[p[0]] for p in pan.values())
+            dud_bad = any(p[0] not in fills_by_sym for p in pan.values())
+            if sig in legal and not fill_bad and not dud_bad:
+                ok = False
+                break
+            j = json.dumps(sig, sort_keys=True) + ("F" if fill_bad else "") + ("D" if dud_bad else "")
+            if j in sigs:
+                ok = False
+                break
+            sigs.add(j)
+        if not ok:
+            continue
+
+        all_pans = [("C", correct_panels)] + [("W", w) for w in wrongs]
+        rng.shuffle(all_pans)
+        ci = next(i for i, (tag, _) in enumerate(all_pans) if tag == "C")
+        options = [wrap(cube_svg(pan), 110, 116, 104) for _, pan in all_pans]
+        if len(set(options)) < 4:
+            continue
+        prompt = "Which cube can be made from this net?\n" + net_svg(faces)
+        explanation = ("Check each cube against the net using duds, opposite faces and orientation. "
+                       + "; ".join(f"one option {r}" for r in reasons)
+                       + ". The remaining cube is consistent with the net.")
+        return prompt, options, ci, explanation
+    raise RuntimeError("gen_nets failed")
+
+# ---------- assemble -------------------------------------------------------------
 
 def sql_str(s): return "'" + s.replace("'", "''") + "'"
 
 t0 = time.time()
-rows = []          # (position, difficulty, prompt, options, ci, explanation, practice)
+rows = []
 pos = 91
-# exact mix: 10 per family, 10 per difficulty
-mix = [("dial", 1, 3), ("sets", 1, 4), ("analogy", 1, 3),
-       ("dial", 2, 4), ("sets", 2, 3), ("analogy", 2, 3),
-       ("dial", 3, 3), ("sets", 3, 3), ("analogy", 3, 4)]
-gens = {"dial": gen_dial, "sets": gen_sets, "analogy": gen_analogy}
+# 30 live: 10 per difficulty; codes 8, matrix 8, odd 7, nets 7
+mix = [("codes", 1, 3), ("matrix", 1, 3), ("odd", 1, 2), ("nets", 1, 2),
+       ("codes", 2, 3), ("matrix", 2, 3), ("odd", 2, 2), ("nets", 2, 2),
+       ("codes", 3, 2), ("matrix", 3, 2), ("odd", 3, 3), ("nets", 3, 3)]
+gens = {"codes": gen_codes, "matrix": gen_matrix, "odd": gen_odd, "nets": gen_nets}
 generated = []
 for fam, diff, n in mix:
     print(f"[gen] {fam} d{diff} x{n} ... ", end="", flush=True)
     for _ in range(n):
-        generated.append((diff, *gens[fam](diff)))
+        generated.append((diff, fam, *gens[fam](diff)))
     print(f"ok ({time.time() - t0:.2f}s)", flush=True)
-# ramp easy->hard across positions 91-120, families shuffled within each band
 by_diff = {1: [], 2: [], 3: []}
 for r in generated:
     by_diff[r[0]].append(r)
@@ -295,16 +643,15 @@ generated = []
 for d in (1, 2, 3):
     rng.shuffle(by_diff[d])
     generated.extend(by_diff[d])
-for diff, prompt, options, ci, expl in generated:
+fam_at = {}
+for diff, fam, prompt, options, ci, expl in generated:
     rows.append((pos, diff, prompt, options, ci, expl, False))
+    fam_at[pos] = fam
     pos += 1
-# two practice questions so the warm-up teaches the format; existing warm-ups
-# sit at positions 101-106, so these append at 107-108
 print("[gen] practice x2 ... ", end="", flush=True)
-practice = [(107, 1, *gen_dial(1)), (108, 1, *gen_analogy(1))]
+practice = [(107, 1, *gen_codes(1)), (108, 1, *gen_nets(1))]
 print(f"ok ({time.time() - t0:.2f}s)", flush=True)
 
-# validation: every svg parses, options unique, correct index sane
 def validate(prompt, options, ci):
     for blob in [prompt] + options:
         i = blob.find("<svg")
@@ -315,34 +662,30 @@ def validate(prompt, options, ci):
 for r in rows: validate(r[2], r[3], r[4])
 for r in practice: validate(r[2], r[3], r[4])
 print(f"validated {len(rows)} live + {len(practice)} practice questions")
-
-# retire list per Favour 2026-06-11: keep 41, 57, 60 (genuinely challenging);
-# retire the rest of the original fake-hard list. Net bank 90 -> 108.
-RETIRE = [44, 46, 49, 51, 53, 54, 56, 59, 81, 83, 86, 90]
+from collections import Counter
+print("family mix:", Counter(fam_at.values()))
 
 out = []
-out.append("""-- 0049: nonverbal reasoning revamp (round 3)
--- +30 generated shape/pattern questions (sequence completion, Set A/B,
--- analogy) with SVG figures rendered by TestRunner's PromptContent /
--- OptionContent convention; -12 retired questions that were labelled hard
--- but are calculator-trivial or logically thin (net bank 90 -> 108;
--- 41, 57 and 60 kept after manual review on 2026-06-11).
--- Answers computed from generating rules (scripts/generate_nvr_questions.py,
--- deterministic seed). Practice gains 2 NVR warm-ups so the format is taught.
-
-alter table public.test_questions drop constraint if exists test_questions_category_check;
-alter table public.test_questions add constraint test_questions_category_check
-  check (category in ('arithmetic','numerical','sequence','logic','verbal','nonverbal'));
+out.append("""-- 0050: nonverbal bank rebuild (round 4)
+-- Replaces the 0049 nonverbal set after Favour's review (2026-06-11): too
+-- easy, Set A/B felt off. New families modelled on his 11+ NVR source PDFs:
+-- letter codes, 3x3 matrix completion, odd-one-out (reflection among
+-- rotations), nets & cubes (dud / opposites / orientation violations).
+-- Difficulty = 2/3/4 simultaneous rules for easy/medium/hard + red herrings.
+-- 30 live at positions 91-120 (10/10/10) + 2 practice at 107-108.
+-- Answers computed from generating rules; code questions verified uniquely
+-- deducible by hypothesis search; nets options verified against the full
+-- 24-orientation legality set (scripts/generate_nvr_questions.py, fixed seed).
+-- The 0049 retire list (44,46,...,90) and category constraint stay as applied.
 
 with t as (select id from public.tests where event_id = '""" + EVENT_ID + """' limit 1)
 update public.test_questions q set active = false
-from t where q.test_id = t.id and q.is_practice = false
-  and q.position in (""" + ", ".join(map(str, RETIRE)) + """);
+from t where q.test_id = t.id and q.category = 'nonverbal';
 
 with t as (select id from public.tests where event_id = '""" + EVENT_ID + """' limit 1)
-update public.tests s set instructions = s.instructions ||
-  E'\\n\\nSome questions show shapes and patterns instead of numbers — work out the rule and pick the figure that fits. No maths needed for those.'
-from t where s.id = t.id;
+delete from public.test_questions q
+where q.test_id = (select id from t) and q.category = 'nonverbal'
+  and not exists (select 1 from public.test_answers a where a.question_id = q.id);
 """)
 out.append("with t as (select id from public.tests where event_id = '" + EVENT_ID + "' limit 1)\n"
            "insert into public.test_questions\n"
@@ -356,6 +699,6 @@ out.append(",\n".join(vals))
 out.append(") as v(position, difficulty, prompt, options, correct_index, explanation, is_practice);\n")
 
 sql = "\n".join(out)
-with open("supabase/migrations/0049_nonverbal_revamp.sql", "w", encoding="utf-8") as f:
+with open("supabase/migrations/0050_nonverbal_rebuild.sql", "w", encoding="utf-8") as f:
     f.write(sql)
-print(f"wrote migration: {len(sql)//1024} KB, {len(rows)} live rows, retire {len(RETIRE)}")
+print(f"wrote migration: {len(sql)//1024} KB, {len(rows)} live rows + {len(practice)} practice")
