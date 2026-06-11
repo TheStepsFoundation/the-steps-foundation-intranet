@@ -15,7 +15,7 @@ features, medium = 3, hard = 4 - plus red herrings at medium/hard. Every
 answer is COMPUTED from generating rules; code questions are checked for
 unique deducibility by exhaustive hypothesis search, and every nets option is
 checked against the full 24-orientation legality set. Deterministic seed.
-Output: supabase/migrations/0050_nonverbal_rebuild.sql
+Output: supabase/migrations/0051_nonverbal_tune.sql
 """
 import itertools, json, random, time, xml.etree.ElementTree as ET
 
@@ -142,8 +142,14 @@ def rand_code_panel():
     return {f: rng.choice(vs) for f, vs in FEATURES}
 
 def gen_codes(difficulty):
-    k = {1: 2, 2: 3, 3: 4}[difficulty]
+    # Favour 2026-06-11 (round 2): one notch easier. Easy = 2 letters with NO
+    # red herrings (uncoded features held constant), medium = 2 letters with
+    # varying uncoded features, hard = 3 letters. A 1-letter code was rejected:
+    # with one position the deduction collapses to spot-the-shared-feature and
+    # there are rarely more than two plausible distractor codes.
+    k = {1: 2, 2: 2, 3: 3}[difficulty]
     n_ex = k + 2
+    noiseless = difficulty == 1
     for _ in range(4000):
         coded = rng.sample(range(len(FEATURES)), k)
         vmaps = []
@@ -154,6 +160,14 @@ def gen_codes(difficulty):
             return tuple(vmaps[p][panel[FEATURES[fi][0]]] for p, fi in enumerate(coded))
         examples = [rand_code_panel() for _ in range(n_ex)]
         test = rand_code_panel()
+        if noiseless:
+            for fi in range(len(FEATURES)):
+                if fi not in coded:
+                    f, vs = FEATURES[fi]
+                    cv = rng.choice(vs)
+                    for e in examples:
+                        e[f] = cv
+                    test[f] = cv
         # coded feature values of the test must be learnable from the examples,
         # coded features must actually vary, and the test must not be a copy
         bad = False
@@ -514,11 +528,13 @@ def net_svg(faces):
         parts.append(f'<g transform="translate({x+27},{y+27}) rotate({cr}) scale(0.95)">{SYMS[sym](fill)}</g>')
     return wrap("".join(parts), 232, 178, 232)
 
-def gen_nets(difficulty):
-    pool_easy = ["arrow", "flag", "L", "half", "T", "wedge"]
-    pool_med = ["arrow", "flag", "L", "half", "T", "wedge", "ring"]
-    pool_hard = ["arrow", "flag", "L", "half", "T", "wedge", "S", "cross", "diamond"]
-    pool = {1: pool_easy, 2: pool_med, 3: pool_hard}[difficulty]
+def gen_cube_net(level):
+    """level 1 = blatant violations (serves as MEDIUM); level 2 = subtler
+    (serves as HARD). The old hardest variant (two 90-degree mis-orientations,
+    exotic symbols) was dropped per Favour: past the point where working it
+    out beats screenshotting it into an LLM."""
+    pool = {1: ["arrow", "flag", "L", "half", "T", "wedge"],
+            2: ["arrow", "flag", "L", "half", "T", "wedge", "ring"]}[level]
     for _ in range(500):
         chosen = rng.sample(pool, 6)
         if sum(1 for s in chosen if ROT_DISTINCT[s]) < 4:
@@ -553,34 +569,24 @@ def gen_nets(difficulty):
         pos = rng.choice(rot_targets)
         face = vmap[pos]
         sym, fill, cr = faces[face]
-        extra = 180 if difficulty == 1 else rng.choice([r for r in ROT_DISTINCT[sym] if r != 180] or [180])
+        extra = 180 if level == 1 else rng.choice([r for r in ROT_DISTINCT[sym] if r != 180] or [180])
         u, v = rot_uv(*rot_uv(*FRAME[face], cr), extra)
         pan[pos] = (sym, fill, mapv(M2, u), mapv(M2, v))
         wrongs.append(pan)
         reasons.append(f"the {SYM_NAME[sym]} is rotated the wrong way")
 
-        # 3) third wrong option by difficulty
+        # 3) third wrong option: blatant dud at level 1, wrong colour at level 2
         vmap, M2 = fresh_view()
         pan = legit_panels(faces, M2, vmap)
-        if difficulty <= 2:
-            pos = rng.choice(list(pan))
-            if difficulty == 1:
-                dud = rng.choice(unused)
-                pan[pos] = (dud, rng.choice([WHITE, BLACK]), pan[pos][2], pan[pos][3])
-                reasons.append(f"shows a {SYM_NAME[dud]}, which is not on the net at all")
-            else:
-                sym, fill, u, v = pan[pos]
-                pan[pos] = (sym, BLACK if fill == WHITE else WHITE, u, v)
-                reasons.append(f"the {SYM_NAME[sym]} is the wrong colour")
+        pos = rng.choice(list(pan))
+        if level == 1:
+            dud = rng.choice(unused)
+            pan[pos] = (dud, rng.choice([WHITE, BLACK]), pan[pos][2], pan[pos][3])
+            reasons.append(f"shows a {SYM_NAME[dud]}, which is not on the net at all")
         else:
-            rot_targets = [p for p in pan if ROT_DISTINCT[pan[p][0]]]
-            pos = rng.choice(rot_targets)
-            face = vmap[pos]
-            sym, fill, cr = faces[face]
-            extra = rng.choice([r for r in ROT_DISTINCT[sym] if r != 180] or [180])
-            u, v = rot_uv(*rot_uv(*FRAME[face], cr), extra)
-            pan[pos] = (sym, fill, mapv(M2, u), mapv(M2, v))
-            reasons.append(f"the {SYM_NAME[sym]} is rotated the wrong way")
+            sym, fill, u, v = pan[pos]
+            pan[pos] = (sym, BLACK if fill == WHITE else WHITE, u, v)
+            reasons.append(f"the {SYM_NAME[sym]} is the wrong colour")
         wrongs.append(pan)
 
         # verify: correct is legal; every wrong is illegal (vs all 24 views) and
@@ -618,6 +624,119 @@ def gen_nets(difficulty):
         return prompt, options, ci, explanation
     raise RuntimeError("gen_nets failed")
 
+
+# ---------- Family D (easy): square-based pyramid nets ---------------------------
+# 4 triangles around a base square, symbols pointing outward (= toward the apex
+# once folded). Adjacent triangles share a slant edge; opposite triangles only
+# ever meet at the apex, so a view showing them side by side is impossible.
+
+PYR_CCW = ["N", "W", "S", "E"]          # base order seen from above
+PYR_OPP = {"N": "S", "S": "N", "E": "W", "W": "E"}
+PYR_NET_ROT = {"N": 0, "E": 90, "S": 180, "W": 270}
+
+def pyr_ccw_next(f):
+    return PYR_CCW[(PYR_CCW.index(f) + 1) % 4]
+
+def pyramid_net_svg(tris, base_sym):
+    c, h, half = 88, 50, 28
+    parts = [f'<rect x="{c-half}" y="{c-half}" width="{2*half}" height="{2*half}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>',
+             place(base_sym[0], base_sym[1], c, c, 0.85)]
+    APEX = {"N": (c, c-half-h), "E": (c+half+h, c), "S": (c, c+half+h), "W": (c-half-h, c)}
+    CORNERS = {"N": ((c-half, c-half), (c+half, c-half)), "E": ((c+half, c-half), (c+half, c+half)),
+               "S": ((c+half, c+half), (c-half, c+half)), "W": ((c-half, c+half), (c-half, c-half))}
+    for f in ["N", "E", "S", "W"]:
+        (x1, y1), (x2, y2) = CORNERS[f]
+        ax, ay = APEX[f]
+        parts.append(f'<polygon points="{x1},{y1} {x2},{y2} {ax},{ay}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>')
+        sym, fill = tris[f]
+        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+        sx, sy = mx + (ax - mx) * 0.42, my + (ay - my) * 0.42
+        parts.append(place(sym, fill, round(sx, 1), round(sy, 1), 0.62, rot=PYR_NET_ROT[f]))
+    return wrap("".join(parts), 176, 176, 176)
+
+def _unit2(v, scale):
+    n = (v[0] ** 2 + v[1] ** 2) ** 0.5
+    return (v[0] / n * scale, v[1] / n * scale)
+
+def pyramid_view_svg(left, right, lrot=0, rrot=0):
+    """3/4 view: apex + two visible triangular faces; extra rot 0 = correct
+    (symbol points at the apex)."""
+    Px, A, B, C, D = (55, 14), (12, 82), (57, 98), (97, 74), (50, 58)
+    parts = [
+        f'<polygon points="{A[0]},{A[1]} {B[0]},{B[1]} {Px[0]},{Px[1]}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>',
+        f'<polygon points="{B[0]},{B[1]} {C[0]},{C[1]} {Px[0]},{Px[1]}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>',
+        f'<line x1="{A[0]}" y1="{A[1]}" x2="{D[0]}" y2="{D[1]}" stroke="{BLACK}" stroke-width="1.5" stroke-dasharray="4,3"/>',
+        f'<line x1="{C[0]}" y1="{C[1]}" x2="{D[0]}" y2="{D[1]}" stroke="{BLACK}" stroke-width="1.5" stroke-dasharray="4,3"/>',
+    ]
+    for (sym, fill), rot, Lc, Rc in [(left, lrot, A, B), (right, rrot, B, C)]:
+        mid = ((Lc[0] + Rc[0]) / 2, (Lc[1] + Rc[1]) / 2)
+        cx, cy = mid[0] + (Px[0] - mid[0]) * 0.30, mid[1] + (Px[1] - mid[1]) * 0.30
+        u = (Rc[0] - Lc[0], Rc[1] - Lc[1])
+        v = (Px[0] - mid[0], Px[1] - mid[1])
+        for _ in range((rot // 90) % 4):
+            u, v = (-v[0], -v[1]), u
+        un, vn = _unit2(u, 0.60), _unit2(v, 0.64)
+        parts.append(f'<g transform="matrix({un[0]:.3f},{un[1]:.3f},{-vn[0]:.3f},{-vn[1]:.3f},{cx:.1f},{cy:.1f})">{SYMS[sym](fill)}</g>')
+    return wrap("".join(parts), 110, 112, 104)
+
+def gen_pyramid():
+    pool = ["arrow", "flag", "L", "half", "T", "wedge"]
+    for _ in range(300):
+        chosen = rng.sample(pool, 5)
+        tris = {f: (chosen[i], rng.choice([WHITE, BLACK])) for i, f in enumerate(PYR_CCW)}
+        base_sym = (chosen[4], rng.choice([WHITE, BLACK]))
+        unused = [x for x in SYMS if x not in chosen]
+        cf = rng.choice(PYR_CCW)
+        correct = ("ok", cf, 0, pyr_ccw_next(cf), 0, None)
+        wrongs, reasons = [], []
+        f1 = rng.choice(PYR_CCW)
+        wrongs.append(("opp", f1, 0, PYR_OPP[f1], 0, None))
+        reasons.append(f"shows the {SYM_NAME[tris[f1][0]]} and the {SYM_NAME[tris[PYR_OPP[f1]][0]]} side by side, "
+                       f"but they sit on opposite sides of the square and can only meet at the apex")
+        f2 = rng.choice(PYR_CCW)
+        side = rng.randrange(2)
+        wrongs.append(("flip", f2, 180 if side == 0 else 0, pyr_ccw_next(f2), 0 if side == 0 else 180, None))
+        flipped = tris[f2][0] if side == 0 else tris[pyr_ccw_next(f2)][0]
+        reasons.append(f"the {SYM_NAME[flipped]} points to the base, but every shape on the net points away from the square")
+        f3 = rng.choice(PYR_CCW)
+        dud = rng.choice(unused)
+        wrongs.append(("dud", f3, 0, pyr_ccw_next(f3), 0, dud))
+        reasons.append(f"shows a {SYM_NAME[dud]}, which is not on the net")
+
+        def render(t):
+            _, lf, lr, rf, rr, dudsym = t
+            left = tris[lf]
+            right = (dudsym, rng.choice([WHITE, BLACK])) if dudsym else tris[rf]
+            return pyramid_view_svg(left, right, lr, rr)
+
+        rendered, seen, ok = [], set(), True
+        for tag, t in [("C", correct)] + [("W", w) for w in wrongs]:
+            r = render(t)
+            if r in seen:
+                ok = False
+                break
+            seen.add(r)
+            rendered.append((tag, r))
+        if not ok:
+            continue
+        rng.shuffle(rendered)
+        ci = next(i for i, (tag, _) in enumerate(rendered) if tag == "C")
+        options = [r for _, r in rendered]
+        prompt = ("This net folds up into a square-based pyramid, with the shapes on the outside. "
+                  "Which pyramid can be made from this net?\n" + pyramid_net_svg(tris, base_sym))
+        explanation = ("When the net folds, every triangle's shape ends up pointing at the apex, and triangles on "
+                       "opposite sides of the square never share an edge. " + "; ".join(f"one option {r}" for r in reasons)
+                       + ". The remaining pyramid is consistent with the net.")
+        return prompt, options, ci, explanation
+    raise RuntimeError("gen_pyramid failed")
+
+def gen_nets(difficulty):
+    # Favour 2026-06-11 (round 2): easy = pyramid nets (one less face to track),
+    # medium = old easy cube nets, hard = old medium; old hard dropped.
+    if difficulty == 1:
+        return gen_pyramid()
+    return gen_cube_net(difficulty - 1)
+
 # ---------- assemble -------------------------------------------------------------
 
 def sql_str(s): return "'" + s.replace("'", "''") + "'"
@@ -649,7 +768,7 @@ for diff, fam, prompt, options, ci, expl in generated:
     fam_at[pos] = fam
     pos += 1
 print("[gen] practice x2 ... ", end="", flush=True)
-practice = [(107, 1, *gen_codes(1)), (108, 1, *gen_nets(1))]
+practice = [(107, 1, *gen_codes(1)), (108, 1, *gen_nets(2))]
 print(f"ok ({time.time() - t0:.2f}s)", flush=True)
 
 def validate(prompt, options, ci):
@@ -666,7 +785,14 @@ from collections import Counter
 print("family mix:", Counter(fam_at.values()))
 
 out = []
-out.append("""-- 0050: nonverbal bank rebuild (round 4)
+out.append("""-- 0051: nonverbal difficulty tune (round 5)
+-- Per Favour 2026-06-11 (round 2): easy nets become square-based pyramid nets
+-- (one less face to track), medium nets = old easy cubes, hard nets = old
+-- medium cubes (the old hard tier invited screenshot-the-question-into-an-LLM
+-- behaviour); code questions shift one notch easier (easy = 2 letters with no
+-- red herrings, medium = old easy, hard = old medium; a 1-letter code is
+-- degenerate). Matrix and odd-one-out unchanged. Same replace pattern as 0050.
+--
 -- Replaces the 0049 nonverbal set after Favour's review (2026-06-11): too
 -- easy, Set A/B felt off. New families modelled on his 11+ NVR source PDFs:
 -- letter codes, 3x3 matrix completion, odd-one-out (reflection among
@@ -699,6 +825,6 @@ out.append(",\n".join(vals))
 out.append(") as v(position, difficulty, prompt, options, correct_index, explanation, is_practice);\n")
 
 sql = "\n".join(out)
-with open("supabase/migrations/0050_nonverbal_rebuild.sql", "w", encoding="utf-8") as f:
+with open("supabase/migrations/0051_nonverbal_tune.sql", "w", encoding="utf-8") as f:
     f.write(sql)
 print(f"wrote migration: {len(sql)//1024} KB, {len(rows)} live rows + {len(practice)} practice")
