@@ -15,7 +15,7 @@ features, medium = 3, hard = 4 - plus red herrings at medium/hard. Every
 answer is COMPUTED from generating rules; code questions are checked for
 unique deducibility by exhaustive hypothesis search, and every nets option is
 checked against the full 24-orientation legality set. Deterministic seed.
-Output: supabase/migrations/0052_pyramid_chirality_fix.sql
+Output: supabase/migrations/0053_nets_simplify.sql
 """
 import itertools, json, random, time, xml.etree.ElementTree as ET
 
@@ -48,6 +48,10 @@ def s_S(fill):
     return f'<polyline points="13,-14 -8,-14 -8,0 8,0 8,14 -13,14" fill="none" stroke="{BLACK}" stroke-width="4.5"/>'
 def s_wedge(fill):
     return f'<path d="M -3 3 L -3 -15 A 18 18 0 0 1 15 3 Z" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
+def s_tri(fill):
+    return f'<polygon points="0,-16 14,12 -14,12" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
+def s_dome(fill):
+    return f'<path d="M -15 8 A 15 15 0 0 1 15 8 Z" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
 def s_ring(fill):
     return f'<circle cx="0" cy="0" r="12" fill="{fill}" stroke="{BLACK}" stroke-width="3.5"/>'
 def s_cross(fill):
@@ -56,14 +60,16 @@ def s_diamond(fill):
     return f'<polygon points="0,-16 16,0 0,16 -16,0" fill="{fill}" stroke="{BLACK}" stroke-width="2.5"/>'
 
 SYMS = {"arrow": s_arrow, "flag": s_flag, "L": s_L, "half": s_half, "T": s_T,
-        "S": s_S, "wedge": s_wedge, "ring": s_ring, "cross": s_cross, "diamond": s_diamond}
+        "S": s_S, "wedge": s_wedge, "ring": s_ring, "cross": s_cross, "diamond": s_diamond,
+        "tri": s_tri, "dome": s_dome}
 SYM_NAME = {"arrow": "arrow", "flag": "flag", "L": "L-shape", "half": "half-shaded circle",
             "T": "T-shape", "S": "S-shape", "wedge": "quarter-wedge", "ring": "ring",
-            "cross": "cross", "diamond": "diamond"}
+            "cross": "cross", "diamond": "diamond", "tri": "triangle", "dome": "dome"}
 # extra rotations that visibly change each symbol (mod its own symmetry)
 ROT_DISTINCT = {"arrow": [90, 180, 270], "flag": [90, 180, 270], "L": [90, 180, 270],
                 "half": [90, 180, 270], "T": [90, 180, 270], "wedge": [90, 180, 270],
-                "S": [90, 270], "ring": [], "cross": [], "diamond": []}
+                "S": [90, 270], "ring": [], "cross": [], "diamond": [],
+                "tri": [90, 180, 270], "dome": [90, 180, 270]}
 # symmetry group (rotations that leave the symbol unchanged) for canonicalising
 SYM_GROUP = {"ring": [0, 90, 180, 270], "cross": [0, 90, 180, 270],
              "diamond": [0, 90, 180, 270], "S": [0, 180]}
@@ -528,21 +534,29 @@ def net_svg(faces):
         parts.append(f'<g transform="translate({x+27},{y+27}) rotate({cr}) scale(0.95)">{SYMS[sym](fill)}</g>')
     return wrap("".join(parts), 232, 178, 232)
 
+# shapes that read alike once affine-skewed onto a cube face; never let a dud
+# introduce one when its lookalike is on the net
+CONFUSABLE = {"dome": {"half", "wedge"}, "half": {"dome"}, "wedge": {"dome"},
+              "tri": {"arrow"}, "arrow": {"tri"}}
+
 def gen_cube_net(level):
-    """level 1 = blatant violations (serves as MEDIUM); level 2 = subtler
-    (serves as HARD). The old hardest variant (two 90-degree mis-orientations,
-    exotic symbols) was dropped per Favour: past the point where working it
-    out beats screenshotting it into an LLM."""
-    pool = {1: ["arrow", "flag", "L", "half", "T", "wedge"],
-            2: ["arrow", "flag", "L", "half", "T", "wedge", "ring"]}[level]
+    """Both levels share the same blatant violation structure (opposites +
+    180-degree flip + off-net dud); only shape complexity separates them.
+    level 1 (MEDIUM) = bold, simple shapes; level 2 (HARD) = the thinner,
+    subtler original pool. The two former harder tiers (90-degree flips,
+    wrong colours, exotic symbols) were dropped per Favour: past the point
+    where working it out beats screenshotting the question into an LLM."""
+    pool = {1: ["arrow", "tri", "dome", "T", "L", "ring"],
+            2: ["arrow", "flag", "L", "half", "T", "wedge"]}[level]
     for _ in range(500):
         chosen = rng.sample(pool, 6)
         if sum(1 for s in chosen if ROT_DISTINCT[s]) < 4:
             continue
-        faces = {f: (chosen[i], rng.choice([WHITE, BLACK]) if chosen[i] not in ("S",) else WHITE,
+        faces = {f: (chosen[i], rng.choice([WHITE, BLACK]) if chosen[i] not in ("S", "ring") else WHITE,
                      rng.randrange(4) * 90) for i, f in enumerate(AX)}
         legal = legal_set(faces)
-        unused = [s for s in SYMS if s not in chosen]
+        confus = set().union(*(CONFUSABLE.get(c, set()) for c in chosen))
+        unused = [s for s in SYMS if s not in chosen and s not in confus]
 
         fl, top, fr, M = pick_view(faces)
         correct_panels = legit_panels(faces, M, {"FL": fl, "T": top, "FR": fr})
@@ -569,7 +583,7 @@ def gen_cube_net(level):
         pos = rng.choice(rot_targets)
         face = vmap[pos]
         sym, fill, cr = faces[face]
-        extra = 180 if level == 1 else rng.choice([r for r in ROT_DISTINCT[sym] if r != 180] or [180])
+        extra = 180
         u, v = rot_uv(*rot_uv(*FRAME[face], cr), extra)
         pan[pos] = (sym, fill, mapv(M2, u), mapv(M2, v))
         wrongs.append(pan)
@@ -579,14 +593,10 @@ def gen_cube_net(level):
         vmap, M2 = fresh_view()
         pan = legit_panels(faces, M2, vmap)
         pos = rng.choice(list(pan))
-        if level == 1:
-            dud = rng.choice(unused)
-            pan[pos] = (dud, rng.choice([WHITE, BLACK]), pan[pos][2], pan[pos][3])
-            reasons.append(f"shows a {SYM_NAME[dud]}, which is not on the net at all")
-        else:
-            sym, fill, u, v = pan[pos]
-            pan[pos] = (sym, BLACK if fill == WHITE else WHITE, u, v)
-            reasons.append(f"the {SYM_NAME[sym]} is the wrong colour")
+        dud = rng.choice(unused)
+        dud_fill = WHITE if dud in ("S", "ring") else rng.choice([WHITE, BLACK])
+        pan[pos] = (dud, dud_fill, pan[pos][2], pan[pos][3])
+        reasons.append(f"shows a {SYM_NAME[dud]}, which is not on the net at all")
         wrongs.append(pan)
 
         # verify: correct is legal; every wrong is illegal (vs all 24 views) and
@@ -705,7 +715,8 @@ def gen_pyramid():
         chosen = rng.sample(pool, 5)
         tris = {f: (chosen[i], rng.choice([WHITE, BLACK])) for i, f in enumerate(PYR_ORDER)}
         base_sym = (chosen[4], rng.choice([WHITE, BLACK]))
-        unused = [x for x in SYMS if x not in chosen]
+        confus = set().union(*(CONFUSABLE.get(c, set()) for c in chosen))
+        unused = [x for x in SYMS if x not in chosen and x not in confus]
         cf = rng.choice(PYR_ORDER)
         correct = ("ok", cf, 0, pyr_right_of(cf), 0, None)
         wrongs, reasons = [], []
@@ -805,7 +816,16 @@ from collections import Counter
 print("family mix:", Counter(fam_at.values()))
 
 out = []
-out.append("""-- 0052: pyramid chirality fix (round 6)
+out.append("""-- 0053: nets ladder re-grade (round 7)
+-- Per Favour: the old medium cube tier IS the right hard tier; medium stays
+-- cubes but with simpler, bolder shapes (new solid triangle + dome symbols,
+-- ring instead of thin flag / small wedge). Violation structure identical at
+-- both levels (opposites + 180-flip + off-net dud) - only shape complexity
+-- separates medium from hard. Confusable-shape guard keeps lookalike duds
+-- (dome vs half-circle, triangle vs arrow) out of the options.
+--
+-- (superseded header below, kept for context)
+-- 0052: pyramid chirality fix (round 6)
 -- Favour spot-checked #94 and flagged it. The marked answer was a MIRROR
 -- IMAGE pyramid: unfolding a paint-outside pyramid into a paint-up net flips
 -- it apex-down, which reverses the net's cyclic order - so legal (left,right)
@@ -854,6 +874,6 @@ out.append(",\n".join(vals))
 out.append(") as v(position, difficulty, prompt, options, correct_index, explanation, is_practice);\n")
 
 sql = "\n".join(out)
-with open("supabase/migrations/0052_pyramid_chirality_fix.sql", "w", encoding="utf-8") as f:
+with open("supabase/migrations/0053_nets_simplify.sql", "w", encoding="utf-8") as f:
     f.write(sql)
 print(f"wrote migration: {len(sql)//1024} KB, {len(rows)} live rows + {len(practice)} practice")
