@@ -222,10 +222,28 @@ export async function upcomingQuestions(
   return out
 }
 
-/** Curved order: questions trend easy → hard as the attempt progresses, but
- *  with random jitter (key = difficulty + U(0, 1.2)) so adjacent difficulty
- *  bands blend into a smooth ramp rather than abrupt steps, and no two
- *  candidates share an order (so answer keys can't be passed around). */
+/** Block order (Favour, 2026-06-11): every attempt draws a fresh random
+ *  15 easy, then 15 medium, then 15 hard - and anyone still going gets the
+ *  remaining hard questions. With the bank at 30/30/30 that caps an attempt
+ *  at 60 questions; answering the last one auto-submits (see /api/test/answer),
+ *  so a fast candidate is told they're done even with time on the clock.
+ *  Both the selection and the order differ for every attempt. */
+export function blockOrder(questions: Array<Pick<QuestionRow, 'id' | 'difficulty'>>): string[] {
+  const shuffled = (ids: string[]): string[] => {
+    const a = [...ids]
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[a[i], a[j]] = [a[j], a[i]]
+    }
+    return a
+  }
+  const pool = (d: number) => shuffled(questions.filter(q => q.difficulty === d).map(q => q.id))
+  // first 15 + remaining 15 of one shuffle = the whole shuffled hard pool
+  return [...pool(1).slice(0, 15), ...pool(2).slice(0, 15), ...pool(3)]
+}
+
+/** Superseded by blockOrder (kept for reference): smooth easy → hard ramp
+ *  with U(0, 1.2) jitter over the whole bank. */
 export function curvedOrder(questions: Array<Pick<QuestionRow, 'id' | 'difficulty'>>): string[] {
   return questions
     .map(q => ({ id: q.id, key: q.difficulty + Math.random() * 1.2 }))

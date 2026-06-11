@@ -15,7 +15,7 @@ features, medium = 3, hard = 4 - plus red herrings at medium/hard. Every
 answer is COMPUTED from generating rules; code questions are checked for
 unique deducibility by exhaustive hypothesis search, and every nets option is
 checked against the full 24-orientation legality set. Deterministic seed.
-Output: supabase/migrations/0054_sequences_for_matrices.sql
+Output: supabase/migrations/0055_bank_resize.sql
 """
 import itertools, json, math, random, time, xml.etree.ElementTree as ET
 
@@ -1109,9 +1109,10 @@ t0 = time.time()
 rows = []
 pos = 91
 # 30 live: 10 per difficulty; codes 8, matrix 8, odd 7, nets 7
+# d3 grew to 12 in the 2026-06-11 bank resize (30/30/30 across the whole test)
 mix = [("codes", 1, 3), ("seq", 1, 3), ("odd", 1, 2), ("nets", 1, 2),
        ("codes", 2, 3), ("seq", 2, 3), ("odd", 2, 2), ("nets", 2, 2),
-       ("codes", 3, 2), ("seq", 3, 2), ("odd", 3, 3), ("nets", 3, 3)]
+       ("codes", 3, 3), ("seq", 3, 2), ("odd", 3, 3), ("nets", 3, 4)]
 gens = {"codes": gen_codes, "seq": gen_sequence, "odd": gen_odd, "nets": gen_nets}
 generated = []
 for fam, diff, n in mix:
@@ -1149,7 +1150,47 @@ from collections import Counter
 print("family mix:", Counter(fam_at.values()))
 
 out = []
-out.append("""-- 0054: sequences replace matrices (round 8)
+CUT_IDS = [  # frozen 2026-06-11: trim old bank to 20 easy + 20 medium (+ all NVR = 30/30)
+    "e42aefb9-5c9f-4957-80f3-e82477a15ca5", "ead46b0f-a7be-4f8b-add0-18b21d7428da",
+    "f236502b-1089-4108-9a71-bfd2e7665b9a", "1b92a1c3-dca0-421b-8340-032bb9878b57",
+    "83c64d83-247d-4755-a4e7-4bd168a9e160", "fdf94429-dc68-468e-8158-030e74bc7f63",
+    "24944b35-ef15-496b-9460-0871dbab77ac", "f3f439ec-2815-4cc8-a53b-0f4da3f74d3b",
+    "c432f654-a32d-467b-9a1e-58a1163cfab3", "84598b54-55c9-45f4-89bc-90cc1f87fa79",
+    "81a578ec-66bd-4dd5-b87c-71da18d225b9", "906555ff-0732-4b40-9e52-8ce2c036c526",
+    "ebec9cec-9a23-4625-a697-e00bfd1547d6", "f05b0803-b33b-47a4-afb4-88c708041410",
+    "56b2f4f2-1335-4a11-afb9-5d6ef7691c65", "87ba2935-ca41-41e2-987c-4c1e3c2964e7",
+    "86b17ce8-f8d5-4e77-9b29-a40f31648c02", "94f2c583-9ad1-4f30-b592-b25518910272",
+    "6bb9a0f2-a019-496a-891d-9c970cde6c96", "30135935-6645-4d48-901e-368bfb75a423",
+]
+NEW_INSTRUCTIONS = (
+    "You have 15 minutes. The test has more questions than most people will reach, and they get "
+    "harder as you go - work quickly but carefully. Questions appear one at a time and you cannot "
+    "go back. Your result reflects how many you answer correctly; there is no penalty for a wrong "
+    "answer, and skipping is free. You may use rough paper, and calculators are allowed - though "
+    "most questions are designed to be faster in your head. If you answer everything before the "
+    "timer runs out, the test simply finishes - and you can also finish early once you have done "
+    "as much as you can. Once you press Start the timer cannot be paused, and you only get one attempt."
+    "\n\nSome questions show shapes and patterns instead of numbers - work out the rule and pick the "
+    "figure that fits. No maths needed for those.")
+
+out.append("""-- 0055: bank resize to 30/30/30 (round 9)
+-- Per Favour: 90 live questions (30 per difficulty), each attempt serves a
+-- fresh random 15 easy + 15 medium + 15 hard, then the remaining 15 hard,
+-- capping at 60 (see blockOrder in src/lib/test-server.ts). This migration:
+-- deactivates 20 over-represented old easy/medium questions (frozen ids,
+-- chosen randomly within category cells - all NVR kept), grows the NVR hard
+-- tier by 2 (+1 codes, +1 nets -> 32 NVR, 12 hard) via the usual full
+-- replace, and rewrites tests.instructions for the new format.
+
+update public.test_questions set active = false
+where id in (""" + ", ".join("'" + i + "'" for i in CUT_IDS) + """);
+
+with t as (select id from public.tests where event_id = '""" + EVENT_ID + """' limit 1)
+update public.tests s set instructions = """ + sql_str(NEW_INSTRUCTIONS).replace("\\n", "\n") + """
+from t where s.id = t.id;
+""")
+out.append("""-- (superseded header below, kept for context)
+-- 0054: sequences replace matrices (round 8)
 -- Per Favour: all 8 matrix questions swapped for sequence-completion with
 -- non-trivial changes - needle turning 60/120/150 deg against a 12-tick dial,
 -- dot orbiting in large odd jumps, corner polygon morphing through
@@ -1217,6 +1258,6 @@ out.append(",\n".join(vals))
 out.append(") as v(position, difficulty, prompt, options, correct_index, explanation, is_practice);\n")
 
 sql = "\n".join(out)
-with open("supabase/migrations/0054_sequences_for_matrices.sql", "w", encoding="utf-8") as f:
+with open("supabase/migrations/0055_bank_resize.sql", "w", encoding="utf-8") as f:
     f.write(sql)
 print(f"wrote migration: {len(sql)//1024} KB, {len(rows)} live rows + {len(practice)} practice")

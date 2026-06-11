@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   getServiceClient, getBearerEmail, resolveStudentId, isTeamMember,
   fetchTestBySlug, testOpenNow, isInvited, findAttempt, expireIfOverdue,
-  upcomingQuestions, attemptStatePayload, curvedOrder, jsonError, type AttemptRow,
+  upcomingQuestions, attemptStatePayload, blockOrder, jsonError, type AttemptRow,
 } from '@/lib/test-server'
 
 export const runtime = 'nodejs'
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     .eq('is_practice', false)
     .eq('active', true)
   if (!qs || qs.length === 0) return jsonError('This test has no questions yet', 409)
-  const order = curvedOrder(qs)
+  const order = blockOrder(qs)
 
   const startedAt = new Date()
   const deadline = new Date(startedAt.getTime() + test.duration_seconds * 1000)
