@@ -15,9 +15,9 @@ features, medium = 3, hard = 4 - plus red herrings at medium/hard. Every
 answer is COMPUTED from generating rules; code questions are checked for
 unique deducibility by exhaustive hypothesis search, and every nets option is
 checked against the full 24-orientation legality set. Deterministic seed.
-Output: supabase/migrations/0053_nets_simplify.sql
+Output: supabase/migrations/0054_sequences_for_matrices.sql
 """
-import itertools, json, random, time, xml.etree.ElementTree as ET
+import itertools, json, math, random, time, xml.etree.ElementTree as ET
 
 rng = random.Random(20260611)
 EVENT_ID = "b5e7f8a1-3c9d-4b2e-8f1a-6d7c8e9f0a1b"
@@ -240,7 +240,8 @@ def gen_codes(difficulty):
         return prompt, options, ci, explanation
     raise RuntimeError("gen_codes failed")
 
-# ---------- Family B: matrix completion ----------------------------------------
+# ---------- Family B: matrix completion (UNUSED since round 8 - Favour swapped
+# matrices for sequence completion; kept for possible re-use) -------------------
 
 CORNER_XY = {0: (38, -38), 1: (38, 38), 2: (-38, 38), 3: (-38, -38)}  # NE SE SW NW
 CORNER_NAME = {0: "top-right", 1: "bottom-right", 2: "bottom-left", 3: "top-left"}
@@ -327,6 +328,338 @@ def gen_matrix(difficulty):
         explanation = "Rules: " + "; ".join(desc) + ". Apply all of them to the bottom-right cell."
         return prompt, options, ci, explanation
     raise RuntimeError("gen_matrix failed")
+
+# ---------- Family B2: sequence completion (replaces matrices, round 8) ---------
+# Favour: changes need "oomph" - no plain 90-degree turns, corner-hopping or
+# white/black/grey cycles. Layers: a needle turning 60/120/150 degrees per step
+# against a 12-tick dial, a dot orbiting in large odd jumps, a corner polygon
+# morphing through triangle/square/pentagon/hexagon (cycles AND bounces), and
+# a pie that fills by a fixed extra sweep each step. Active layers = 2/3/4 for
+# easy/medium/hard; inactive layers stay frozen as gentle noise. The missing
+# frame sits at the END for easy but ANYWHERE in the sequence for medium/hard.
+
+SEQ_R, MORPH_NAME = 38, {3: "triangle", 4: "square", 5: "pentagon", 6: "hexagon"}
+
+def _pt(cx, cy, r, ang_deg):
+    a = math.radians(ang_deg - 90)
+    return (cx + math.cos(a) * r, cy + math.sin(a) * r)
+
+def seq_panel(st):
+    cx, cy, R = 55, 62, SEQ_R
+    parts = [f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>',
+             f'<circle cx="{cx}" cy="{cy}" r="{R}" fill="none" stroke="{GRAY}" stroke-width="1.2"/>']
+    for t in range(12):
+        (x1, y1), (x2, y2) = _pt(cx, cy, R - 3, t * 30), _pt(cx, cy, R + 3, t * 30)
+        parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{BLACK}" stroke-width="1.5"/>')
+    # needle with arrowhead
+    ang = st["needle"] * 30
+    tx, ty = _pt(cx, cy, R - 12, ang)
+    parts.append(f'<line x1="{cx}" y1="{cy}" x2="{tx:.1f}" y2="{ty:.1f}" stroke="{BLACK}" stroke-width="3"/>')
+    (hx, hy) = _pt(cx, cy, R - 6, ang)
+    (b1x, b1y), (b2x, b2y) = _pt(cx, cy, R - 15, ang - 16), _pt(cx, cy, R - 15, ang + 16)
+    parts.append(f'<polygon points="{hx:.1f},{hy:.1f} {b1x:.1f},{b1y:.1f} {b2x:.1f},{b2y:.1f}" fill="{BLACK}"/>')
+    # orbiting dot on the ring
+    dx, dy = _pt(cx, cy, R, st["dot"] * 30)
+    parts.append(f'<circle cx="{dx:.1f}" cy="{dy:.1f}" r="4.6" fill="{BLACK}" stroke="{WHITE}" stroke-width="1.2"/>')
+    # corner morph polygon (top-left)
+    n = st["sides"]
+    off = 45 if n == 4 else 0   # a 4-gon should read as a square, not a diamond
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (_pt(18, 17, 12, off + k * 360 / n) for k in range(n)))
+    parts.append(f'<polygon points="{pts}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2.2"/>')
+    # corner pie (top-right)
+    pcx, pcy, pr, sweep = 92, 17, 12, st["pie"]
+    parts.append(f'<circle cx="{pcx}" cy="{pcy}" r="{pr}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>')
+    if sweep >= 360:
+        parts.append(f'<circle cx="{pcx}" cy="{pcy}" r="{pr}" fill="{BLACK}" stroke="{BLACK}" stroke-width="2"/>')
+    elif sweep > 0:
+        (x0, y0), (x1, y1) = _pt(pcx, pcy, pr, 0), _pt(pcx, pcy, pr, sweep)
+        large = 1 if sweep > 180 else 0
+        parts.append(f'<path d="M {pcx} {pcy} L {x0:.1f} {y0:.1f} A {pr} {pr} 0 {large} 1 {x1:.1f} {y1:.1f} Z" fill="{BLACK}"/>')
+    return "".join(parts)
+
+_MORPH_CYC = [3, 4, 5, 6]
+_MORPH_WAVES = ([3, 4, 5, 4], [4, 5, 6, 5])
+
+def _morph_hyps():
+    hyps = []
+    for d in (1, -1):
+        for ph in range(4):
+            hyps.append(lambda t, d=d, ph=ph: _MORPH_CYC[(ph + d * t) % 4])
+    for wave in _MORPH_WAVES:
+        for ph in range(4):
+            hyps.append(lambda t, wave=wave, ph=ph: wave[(ph + t) % 4])
+    return hyps
+
+def gen_seq_dial(difficulty):
+    k = {1: 2, 2: 3, 3: 4}[difficulty]
+    layers = ["needle", "dot", "sides", "pie"]
+    for _ in range(2000):
+        active = rng.sample(layers, k)
+        # rule parameters - deliberately not 90-degree / single-corner steps
+        dn = rng.choice([2, -2, 4, -4, 5, -5])          # needle: 60/120/150 deg
+        dd = rng.choice([x for x in (2, -2, 4, -4, 5, -5) if x != dn])
+        morph = rng.choice([("cyc", rng.choice([1, -1]), rng.randrange(4))]
+                           + [("wave", w, rng.randrange(4)) for w in range(2)])
+        dp, p0 = rng.choice([60, 90, 120]), rng.choice([0, 30, 60])
+        if p0 + 4 * dp > 360:
+            p0 = 0
+        if p0 + 4 * dp > 360:
+            dp = 60
+        const = {"needle": rng.randrange(12), "dot": rng.randrange(12),
+                 "sides": rng.choice(_MORPH_CYC), "pie": rng.choice([90, 180, 270])}
+        def sides_at(t):
+            kind, a, ph = morph
+            return _MORPH_CYC[(ph + a * t) % 4] if kind == "cyc" else _MORPH_WAVES[a][(ph + t) % 4]
+        def state(t):
+            return {"needle": (const["needle"] + dn * t) % 12 if "needle" in active else const["needle"],
+                    "dot": (const["dot"] + dd * t) % 12 if "dot" in active else const["dot"],
+                    "sides": sides_at(t) if "sides" in active else const["sides"],
+                    "pie": p0 + dp * t if "pie" in active else const["pie"]}
+        states = [state(t) for t in range(5)]
+        if len({seq_panel(st) for st in states}) < 5:
+            continue
+        # frames must not collide: needle and dot on the same tick reads badly
+        if any(st["needle"] == st["dot"] for st in states):
+            continue
+        gap = 4 if difficulty == 1 else rng.randrange(5)
+        shown = [t for t in range(5) if t != gap]
+        # the morph rule must be uniquely determined by the four visible frames
+        if "sides" in active:
+            nxt = {h(gap) for h in _morph_hyps() if all(h(t) == states[t]["sides"] for t in shown)}
+            if len(nxt) != 1:
+                continue
+        answer = states[gap]
+        # distractors: one active layer wrong each, using near-miss hypotheses
+        cands = []
+        if "needle" in active:
+            for delta in (-dn, dn, -2 * dn):
+                cands.append({**answer, "needle": (answer["needle"] + delta) % 12})
+        if "dot" in active:
+            for delta in (-dd, dd):
+                cands.append({**answer, "dot": (answer["dot"] + delta) % 12})
+        if "sides" in active:
+            for v in _MORPH_CYC:
+                if v != answer["sides"]:
+                    cands.append({**answer, "sides": v})
+        if "pie" in active:
+            for v in (answer["pie"] - dp, answer["pie"] + dp):
+                if 0 <= v <= 360:
+                    cands.append({**answer, "pie": v})
+        rng.shuffle(cands)
+        seen, opts = {seq_panel(answer)}, [answer]
+        for c in cands:
+            r = seq_panel(c)
+            if r not in seen and c["needle"] != c["dot"]:
+                opts.append(c)
+                seen.add(r)
+            if len(opts) == 4:
+                break
+        if len(opts) < 4:
+            continue
+        rng.shuffle(opts)
+        ci = next(i for i, o in enumerate(opts) if seq_panel(o) == seq_panel(answer))
+        cells = []
+        for i, t in enumerate(range(5)):
+            x = i * 114
+            if t == gap:
+                cells.append(f'<g transform="translate({x},0)"><rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+                             f'<text x="46" y="68" font-family="sans-serif" font-size="34" font-weight="bold" fill="{BLACK}">?</text></g>')
+            else:
+                cells.append(f'<g transform="translate({x},0)">{seq_panel(states[t])}</g>')
+        prompt = "Which figure completes the sequence?\n" + wrap("".join(cells), 566, 110, 540)
+        desc = []
+        if "needle" in active:
+            desc.append(f"the needle turns {abs(dn) * 30}° {'clockwise' if dn > 0 else 'anticlockwise'}")
+        if "dot" in active:
+            desc.append(f"the dot jumps {abs(dd) * 30}° {'clockwise' if dd > 0 else 'anticlockwise'} round the dial")
+        if "sides" in active:
+            kind = morph[0]
+            seqn = " → ".join(MORPH_NAME[states[t]["sides"]] for t in range(5))
+            desc.append(f"the corner shape changes sides ({seqn}{' - it bounces back' if kind == 'wave' else ''})")
+        if "pie" in active:
+            desc.append(f"the pie fills another {dp}°")
+        ordinals = ["first", "second", "third", "fourth", "fifth"]
+        explanation = ("Each step: " + "; ".join(desc) + f". Everything else stays still. "
+                       f"The missing figure is the {ordinals[gap]} in the sequence.")
+        return prompt, options_from(opts), ci, explanation
+    raise RuntimeError("gen_seq_dial failed")
+
+def unique_completion(hyps, visible, gap):
+    """Value at `gap` implied by every hypothesis consistent with the visible
+    (t, value) pairs - None unless that value is unique."""
+    nxt = {h(gap) for h in hyps if all(h(t) == v for t, v in visible)}
+    return next(iter(nxt)) if len(nxt) == 1 else None
+
+# --- easy template: spinning flag on a 6-tick ring + dot-count row -------------
+
+def _pip_hyps():
+    hyps = [lambda t, a=a, ph=ph: [a, a + 2, a + 4, a + 2][(ph + t) % 4]
+            for a in range(1, 6) for ph in range(4)]
+    hyps.append(lambda t: 1 + 2 * t)
+    hyps.append(lambda t: 9 - 2 * t)
+    return hyps
+
+def seq_easy_panel(st):
+    parts = [f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>']
+    cx, cy, R = 55, 48, 34
+    parts.append(f'<circle cx="{cx}" cy="{cy}" r="{R}" fill="none" stroke="{GRAY}" stroke-width="1.2"/>')
+    for t in range(6):
+        (x1, y1), (x2, y2) = _pt(cx, cy, R - 3, t * 60), _pt(cx, cy, R + 3, t * 60)
+        parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{BLACK}" stroke-width="1.5"/>')
+    parts.append(f'<g transform="translate({cx},{cy}) rotate({st["rot"] * 60}) scale(1.25)">{SYMS["flag"](GRAY)}</g>')
+    n = st["pips"]
+    x0 = 55 - (n - 1) * 5.5
+    for i in range(n):
+        parts.append(f'<circle cx="{x0 + i * 11:.1f}" cy="98" r="4" fill="{BLACK}"/>')
+    return "".join(parts)
+
+def gen_seq_easy():
+    for _ in range(2000):
+        dr, r0 = rng.choice([1, -1, 2, -2]), rng.randrange(6)
+        mode = rng.choice(["bounce", "bounce", "rise", "fall"])
+        if mode == "bounce":
+            a, ph = rng.randrange(1, 6), rng.randrange(4)
+            pip = lambda t, a=a, ph=ph: [a, a + 2, a + 4, a + 2][(ph + t) % 4]
+        elif mode == "rise":
+            pip = lambda t: 1 + 2 * t
+        else:
+            pip = lambda t: 9 - 2 * t
+        states = [{"rot": (r0 + dr * t) % 6, "pips": pip(t)} for t in range(5)]
+        if len({seq_easy_panel(st) for st in states}) < 5:
+            continue
+        gap = rng.choice([2, 3, 4])   # easy: never hide the opening frame
+        visible = [(t, states[t]["pips"]) for t in range(5) if t != gap]
+        if unique_completion(_pip_hyps(), visible, gap) != states[gap]["pips"]:
+            continue
+        answer = states[gap]
+        cands = [{**answer, "rot": (answer["rot"] + d) % 6} for d in (-dr, dr, 2 * dr)]
+        cands += [{**answer, "pips": v} for v in (answer["pips"] - 2, answer["pips"] + 2) if 1 <= v <= 9]
+        opts, ci, options = _seq_options(answer, cands, seq_easy_panel)
+        if opts is None:
+            continue
+        prompt = _seq_prompt(states, gap, seq_easy_panel)
+        pipdesc = {"bounce": "the row of dots grows by two, then falls back (it bounces)",
+                   "rise": "the row of dots grows by two each time",
+                   "fall": "the row of dots shrinks by two each time"}[mode]
+        expl = (f"Each step: the flag turns {abs(dr) * 60}° {'clockwise' if dr > 0 else 'anticlockwise'} "
+                f"(use the tick marks); {pipdesc}. The missing figure is the "
+                f"{['first', 'second', 'third', 'fourth', 'fifth'][gap]} in the sequence.")
+        return prompt, options, ci, expl
+    raise RuntimeError("gen_seq_easy failed")
+
+# --- medium template: 8-point compass arrow + battery + corner morph -----------
+
+def _bat_hyps():
+    hyps = [lambda t, a=a, ph=ph: [a, a + 1, a + 2, a + 1][(ph + t) % 4]
+            for a in range(0, 3) for ph in range(4)]
+    hyps.append(lambda t: t)
+    hyps.append(lambda t: 4 - t)
+    return hyps
+
+def _tri_morph_hyps():
+    hyps = [lambda t, d=d, ph=ph: [3, 4, 5][(ph + d * t) % 3]
+            for d in (1, -1) for ph in range(3)]
+    hyps += [lambda t, ph=ph: [3, 4, 5, 4][(ph + t) % 4] for ph in range(4)]
+    return hyps
+
+def seq_med_panel(st):
+    parts = [f'<rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>']
+    cx, cy, R = 47, 64, 33
+    parts.append(f'<circle cx="{cx}" cy="{cy}" r="{R}" fill="none" stroke="{GRAY}" stroke-width="1.2"/>')
+    for t in range(8):
+        (x1, y1), (x2, y2) = _pt(cx, cy, R - 3, t * 45), _pt(cx, cy, R + 3, t * 45)
+        parts.append(f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{BLACK}" stroke-width="1.5"/>')
+    ang = st["arrow"] * 45
+    tx, ty = _pt(cx, cy, R - 11, ang)
+    parts.append(f'<line x1="{cx}" y1="{cy}" x2="{tx:.1f}" y2="{ty:.1f}" stroke="{BLACK}" stroke-width="3"/>')
+    (hx, hy) = _pt(cx, cy, R - 5, ang)
+    (b1x, b1y), (b2x, b2y) = _pt(cx, cy, R - 14, ang - 18), _pt(cx, cy, R - 14, ang + 18)
+    parts.append(f'<polygon points="{hx:.1f},{hy:.1f} {b1x:.1f},{b1y:.1f} {b2x:.1f},{b2y:.1f}" fill="{BLACK}"/>')
+    for i in range(4):   # battery on the right edge, fills bottom-up
+        y = 89 - i * 14
+        fill = BLACK if st["bat"] > i else WHITE
+        parts.append(f'<rect x="90" y="{y}" width="14" height="12" fill="{fill}" stroke="{BLACK}" stroke-width="1.6"/>')
+    n = st["sides"]
+    off = 45 if n == 4 else 0
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in (_pt(18, 17, 11, off + k * 360 / n) for k in range(n)))
+    parts.append(f'<polygon points="{pts}" fill="{WHITE}" stroke="{BLACK}" stroke-width="2.2"/>')
+    return "".join(parts)
+
+def gen_seq_med():
+    for _ in range(2000):
+        da, a0 = rng.choice([1, -1, 3, -3]), rng.randrange(8)
+        bmode = rng.choice([("wave", rng.randrange(3), rng.randrange(4)), ("rise",), ("fall",)])
+        bat = (lambda t, a=bmode[1], ph=bmode[2]: [a, a + 1, a + 2, a + 1][(ph + t) % 4]) if bmode[0] == "wave"             else (lambda t: t) if bmode[0] == "rise" else (lambda t: 4 - t)
+        mk, md, mp = rng.choice([("cyc", 1, 0), ("cyc", 1, 1), ("cyc", 1, 2),
+                                 ("cyc", -1, 0), ("cyc", -1, 1), ("cyc", -1, 2),
+                                 ("wave", 0, 0), ("wave", 0, 1), ("wave", 0, 2), ("wave", 0, 3)])
+        sides = (lambda t, d=md, ph=mp: [3, 4, 5][(ph + d * t) % 3]) if mk == "cyc"             else (lambda t, ph=mp: [3, 4, 5, 4][(ph + t) % 4])
+        states = [{"arrow": (a0 + da * t) % 8, "bat": bat(t), "sides": sides(t)} for t in range(5)]
+        if len({seq_med_panel(st) for st in states}) < 5:
+            continue
+        gap = rng.randrange(5)
+        vis_b = [(t, states[t]["bat"]) for t in range(5) if t != gap]
+        vis_m = [(t, states[t]["sides"]) for t in range(5) if t != gap]
+        if unique_completion(_bat_hyps(), vis_b, gap) != states[gap]["bat"]:
+            continue
+        if unique_completion(_tri_morph_hyps(), vis_m, gap) != states[gap]["sides"]:
+            continue
+        answer = states[gap]
+        cands = [{**answer, "arrow": (answer["arrow"] + d) % 8} for d in (-da, da)]
+        cands += [{**answer, "bat": v} for v in (answer["bat"] - 1, answer["bat"] + 1) if 0 <= v <= 4]
+        cands += [{**answer, "sides": v} for v in (3, 4, 5) if v != answer["sides"]]
+        opts, ci, options = _seq_options(answer, cands, seq_med_panel)
+        if opts is None:
+            continue
+        prompt = _seq_prompt(states, gap, seq_med_panel)
+        bdesc = {"wave": "the battery fills one cell, then drains back (it bounces)",
+                 "rise": "the battery fills one more cell each time",
+                 "fall": "the battery drains one cell each time"}[bmode[0]]
+        seqn = " → ".join(MORPH_NAME[states[t]["sides"]] for t in range(5))
+        expl = (f"Each step: the compass arrow turns {abs(da) * 45}° {'clockwise' if da > 0 else 'anticlockwise'}; "
+                f"{bdesc}; the corner shape changes sides ({seqn}). The missing figure is the "
+                f"{['first', 'second', 'third', 'fourth', 'fifth'][gap]} in the sequence.")
+        return prompt, options, ci, expl
+    raise RuntimeError("gen_seq_med failed")
+
+def _seq_options(answer, cands, panel_fn):
+    rng.shuffle(cands)
+    seen, opts = {panel_fn(answer)}, [answer]
+    for c in cands:
+        r = panel_fn(c)
+        if r not in seen:
+            opts.append(c)
+            seen.add(r)
+        if len(opts) == 4:
+            break
+    if len(opts) < 4:
+        return None, None, None
+    rng.shuffle(opts)
+    ci = next(i for i, o in enumerate(opts) if panel_fn(o) == panel_fn(answer))
+    return opts, ci, [wrap(panel_fn(o), 110, 110, 104) for o in opts]
+
+def _seq_prompt(states, gap, panel_fn):
+    cells = []
+    for t in range(5):
+        x = t * 114
+        if t == gap:
+            cells.append(f'<g transform="translate({x},0)"><rect x="3" y="3" width="104" height="104" fill="{WHITE}" stroke="{BLACK}" stroke-width="2"/>'
+                         f'<text x="46" y="68" font-family="sans-serif" font-size="34" font-weight="bold" fill="{BLACK}">?</text></g>')
+        else:
+            cells.append(f'<g transform="translate({x},0)">{panel_fn(states[t])}</g>')
+    return "Which figure completes the sequence?\n" + wrap("".join(cells), 566, 110, 540)
+
+def gen_sequence(difficulty):
+    # three distinct templates, equally dynamic, 2/3/4 changes (Favour-approved
+    # hard = the four-layer dial; easy/medium get their own looks)
+    if difficulty == 1:
+        return gen_seq_easy()
+    if difficulty == 2:
+        return gen_seq_med()
+    return gen_seq_dial(3)
+
+def options_from(opts):
+    return [wrap(seq_panel(o), 110, 110, 104) for o in opts]
 
 # ---------- Family C: odd one out (reflection among rotations) ------------------
 
@@ -776,10 +1109,10 @@ t0 = time.time()
 rows = []
 pos = 91
 # 30 live: 10 per difficulty; codes 8, matrix 8, odd 7, nets 7
-mix = [("codes", 1, 3), ("matrix", 1, 3), ("odd", 1, 2), ("nets", 1, 2),
-       ("codes", 2, 3), ("matrix", 2, 3), ("odd", 2, 2), ("nets", 2, 2),
-       ("codes", 3, 2), ("matrix", 3, 2), ("odd", 3, 3), ("nets", 3, 3)]
-gens = {"codes": gen_codes, "matrix": gen_matrix, "odd": gen_odd, "nets": gen_nets}
+mix = [("codes", 1, 3), ("seq", 1, 3), ("odd", 1, 2), ("nets", 1, 2),
+       ("codes", 2, 3), ("seq", 2, 3), ("odd", 2, 2), ("nets", 2, 2),
+       ("codes", 3, 2), ("seq", 3, 2), ("odd", 3, 3), ("nets", 3, 3)]
+gens = {"codes": gen_codes, "seq": gen_sequence, "odd": gen_odd, "nets": gen_nets}
 generated = []
 for fam, diff, n in mix:
     print(f"[gen] {fam} d{diff} x{n} ... ", end="", flush=True)
@@ -816,7 +1149,17 @@ from collections import Counter
 print("family mix:", Counter(fam_at.values()))
 
 out = []
-out.append("""-- 0053: nets ladder re-grade (round 7)
+out.append("""-- 0054: sequences replace matrices (round 8)
+-- Per Favour: all 8 matrix questions swapped for sequence-completion with
+-- non-trivial changes - needle turning 60/120/150 deg against a 12-tick dial,
+-- dot orbiting in large odd jumps, corner polygon morphing through
+-- triangle/square/pentagon/hexagon (cycles and bounces), pie filling a fixed
+-- extra sweep per step. Active layers = 2/3/4 by difficulty; the missing
+-- frame is at the end for easy but ANYWHERE in the sequence for medium/hard.
+-- Morph rules verified uniquely inferable from the four visible frames.
+--
+-- (superseded header below, kept for context)
+-- 0053: nets ladder re-grade (round 7)
 -- Per Favour: the old medium cube tier IS the right hard tier; medium stays
 -- cubes but with simpler, bolder shapes (new solid triangle + dome symbols,
 -- ring instead of thin flag / small wedge). Violation structure identical at
@@ -874,6 +1217,6 @@ out.append(",\n".join(vals))
 out.append(") as v(position, difficulty, prompt, options, correct_index, explanation, is_practice);\n")
 
 sql = "\n".join(out)
-with open("supabase/migrations/0053_nets_simplify.sql", "w", encoding="utf-8") as f:
+with open("supabase/migrations/0054_sequences_for_matrices.sql", "w", encoding="utf-8") as f:
     f.write(sql)
 print(f"wrote migration: {len(sql)//1024} KB, {len(rows)} live rows + {len(practice)} practice")
