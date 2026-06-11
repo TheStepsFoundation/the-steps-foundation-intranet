@@ -74,7 +74,9 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
   const [finishArmed, setFinishArmed] = useState(false) // two-step Finish now
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [awayWarning, setAwayWarning] = useState(false)
+  const [leaveHref, setLeaveHref] = useState<string | null>(null)
   const awayCountRef = useRef(0)
+  const leaveOkRef = useRef(false)
   const deadlineRef = useRef<number>(0)
   const finishedRef = useRef(false)
   const chainRef = useRef<Promise<void>>(Promise.resolve())
@@ -110,6 +112,7 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
   useEffect(() => {
     if (phase !== 'running') return
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (leaveOkRef.current) return   // user already confirmed via our modal
       e.preventDefault()
       e.returnValue = ''
     }
@@ -120,11 +123,26 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
         setAwayWarning(true)
       }
     }
+    // In-app links (logo, nav) navigate client-side, which never triggers
+    // beforeunload - intercept clicks in the CAPTURE phase so Next's Link
+    // handler never runs, and ask first via our own modal.
+    const onClickCapture = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null
+      const a = el?.closest?.('a[href]') as HTMLAnchorElement | null
+      if (!a) return
+      const href = a.getAttribute('href') || ''
+      if (!href || href.startsWith('#')) return
+      e.preventDefault()
+      e.stopPropagation()
+      setLeaveHref(href)
+    }
     window.addEventListener('beforeunload', onBeforeUnload)
     document.addEventListener('visibilitychange', onVisibility)
+    document.addEventListener('click', onClickCapture, true)
     return () => {
       window.removeEventListener('beforeunload', onBeforeUnload)
       document.removeEventListener('visibilitychange', onVisibility)
+      document.removeEventListener('click', onClickCapture, true)
     }
   }, [phase])
 
@@ -379,6 +397,33 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
             {formatClock(secondsLeft)}
           </span>
         </div>
+        {leaveHref !== null && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+              <h3 className="text-lg font-semibold text-steps-dark mb-2">Leave the test?</h3>
+              <p className="text-sm text-slate-600 mb-4">
+                Your timer carries on running while you are away, and you only get one attempt —
+                if time runs out before you come back, your test ends with the answers you have given so far.
+              </p>
+              <div className="grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLeaveHref(null)}
+                  className="w-full py-2.5 rounded-xl bg-steps-blue-600 text-white font-medium hover:bg-steps-blue-700"
+                >
+                  Stay in the test
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { leaveOkRef.current = true; window.location.assign(leaveHref) }}
+                  className="w-full py-2.5 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50"
+                >
+                  Leave anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {awayWarning && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
             <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
