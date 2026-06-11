@@ -73,6 +73,8 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
   const [armed, setArmed] = useState(false) // two-step Start confirmation
   const [finishArmed, setFinishArmed] = useState(false) // two-step Finish now
   const [secondsLeft, setSecondsLeft] = useState(0)
+  const [awayWarning, setAwayWarning] = useState(false)
+  const awayCountRef = useRef(0)
   const deadlineRef = useRef<number>(0)
   const finishedRef = useRef(false)
   const chainRef = useRef<Promise<void>>(Promise.resolve())
@@ -100,6 +102,31 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
       return merged
     })
   }, [])
+
+  // Keep candidates on the page: browsers show a native confirm on close/nav,
+  // and switching tabs/apps triggers a warning overlay on return. Attempts are
+  // already one-shot and the clock is server-side, so this is deterrence - the
+  // timer keeps running while they're away.
+  useEffect(() => {
+    if (phase !== 'running') return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        awayCountRef.current += 1
+      } else if (awayCountRef.current > 0) {
+        setAwayWarning(true)
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [phase])
 
   const finish = useCallback(async (viaTimer: boolean) => {
     if (finishedRef.current) return
@@ -323,21 +350,53 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
   if (phase === 'running') {
     const q = buf[0] ?? null
     const urgent = secondsLeft <= 60
+    const timeFrac = info ? Math.max(0, Math.min(1, secondsLeft / info.test.durationSeconds)) : 1
     return (
       <div className="max-w-2xl mx-auto">
+        <div
+          className="h-2.5 w-full rounded-full bg-slate-200 overflow-hidden mb-3"
+          role="progressbar"
+          aria-label="Time remaining"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(timeFrac * 100)}
+        >
+          <div
+            className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${timeFrac <= 0.1 ? 'bg-red-500' : timeFrac <= 0.25 ? 'bg-amber-500' : 'bg-steps-blue-500'}`}
+            style={{ width: `${timeFrac * 100}%` }}
+          />
+        </div>
         <div className="flex items-center justify-between mb-4">
           <span className="text-sm font-medium text-slate-500">
             Question {q ? q.number : minNumberRef.current}
             {q?.total != null && !studentView && <span className="text-slate-400"> of {q.total}</span>}
           </span>
           <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold tabular-nums ${urgent ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}
+            className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-2xl font-bold tabular-nums ${urgent ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}
             aria-live={urgent ? 'polite' : 'off'}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0" /></svg>
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0" /></svg>
             {formatClock(secondsLeft)}
           </span>
         </div>
+        {awayWarning && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+              <h3 className="text-lg font-semibold text-red-600 mb-2">Stay on this page</h3>
+              <p className="text-sm text-slate-600 mb-4">
+                You switched away from the test. The timer has kept running the whole time,
+                and leaving this page can end your attempt — stay on this screen until you finish.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAwayWarning(false)}
+                className="w-full py-2.5 rounded-xl bg-steps-blue-600 text-white font-medium hover:bg-steps-blue-700"
+              >
+                Return to the test
+              </button>
+            </div>
+          </div>
+        )}
         {q ? (
           <Card>
             <PromptContent text={q.prompt} className="text-lg font-medium text-steps-dark leading-snug mb-5" />

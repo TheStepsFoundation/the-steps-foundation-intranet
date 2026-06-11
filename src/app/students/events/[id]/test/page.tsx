@@ -118,6 +118,22 @@ export default function EventTestAdminPage() {
   const [studentNames, setStudentNames] = useState<Record<string, { name: string; email: string | null }>>({})
   const [questions, setQuestions] = useState<QuestionRow[]>([])
   const [showQuestions, setShowQuestions] = useState(false)
+  const [qCategory, setQCategory] = useState('all')
+  const [qSort, setQSort] = useState<'number' | 'easiest' | 'hardest'>('number')
+  const [qShowInactive, setQShowInactive] = useState(false)
+  const qCategories = useMemo(
+    () => Array.from(new Set(questions.map(q => q.category))).sort(),
+    [questions],
+  )
+  const visibleQuestions = useMemo(() => {
+    let list = qShowInactive ? questions : questions.filter(q => q.active)
+    if (qCategory !== 'all') list = list.filter(q => q.category === qCategory)
+    const out = [...list]
+    // 'number' keeps fetch order (practice last, then by position)
+    if (qSort === 'easiest') out.sort((a, b) => a.difficulty - b.difficulty || Number(a.is_practice) - Number(b.is_practice) || a.position - b.position)
+    if (qSort === 'hardest') out.sort((a, b) => b.difficulty - a.difficulty || Number(a.is_practice) - Number(b.is_practice) || a.position - b.position)
+    return out
+  }, [questions, qCategory, qSort, qShowInactive])
   const [copied, setCopied] = useState(false)
 
   const load = useCallback(async () => {
@@ -613,7 +629,36 @@ export default function EventTestAdminPage() {
                 <p className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2">
                   Answers are visible here (admins only — students can never fetch them). Don&apos;t screen-share this card.
                 </p>
-                {questions.map(q => (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <select
+                    value={qCategory}
+                    onChange={e => setQCategory(e.target.value)}
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-200"
+                  >
+                    <option value="all">All types</option>
+                    {qCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <select
+                    value={qSort}
+                    onChange={e => setQSort(e.target.value as 'number' | 'easiest' | 'hardest')}
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2.5 py-1.5 text-sm text-gray-700 dark:text-gray-200"
+                  >
+                    <option value="number">Sort: number</option>
+                    <option value="easiest">Sort: easiest first</option>
+                    <option value="hardest">Sort: hardest first</option>
+                  </select>
+                  <label className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={qShowInactive}
+                      onChange={e => setQShowInactive(e.target.checked)}
+                      className="rounded border-gray-300 dark:border-gray-600"
+                    />
+                    Show inactive ({questions.filter(q => !q.active).length})
+                  </label>
+                  <span className="ml-auto text-xs text-gray-400">{visibleQuestions.length} shown</span>
+                </div>
+                {visibleQuestions.map(q => (
                   <div key={q.id} className="border border-gray-100 dark:border-gray-800 rounded-lg p-3">
                     <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
                       <span>#{q.position}</span>
