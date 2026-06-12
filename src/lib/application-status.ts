@@ -12,6 +12,7 @@
 
 export type ApplicationStatusCode =
   | 'submitted'
+  | 'screening_passed'
   | 'shortlisted'
   | 'accepted'
   | 'waitlist'
@@ -32,6 +33,11 @@ type StatusMeta = {
 
 const STATUSES: Record<ApplicationStatusCode, StatusMeta> = {
   submitted:   { code: 'submitted',   studentLabel: 'Submitted',    adminLabel: 'Submitted',    badgeClasses: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  // 'screening_passed' = passed the initial eligibility/grades screen and has
+  // been invited to the online selection test. NOT shortlisted — the
+  // shortlist (capacity x 1.5) comes after test results. Conveyed to the
+  // student by the 'Pass screening & notify' composer flow.
+  screening_passed: { code: 'screening_passed', studentLabel: 'Screening passed', adminLabel: 'Screening passed', badgeClasses: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300' },
   shortlisted: { code: 'shortlisted', studentLabel: 'Shortlisted',  adminLabel: 'Shortlisted',  badgeClasses: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
   accepted:    { code: 'accepted',    studentLabel: 'Accepted',     adminLabel: 'Accepted',     badgeClasses: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
   waitlist:    { code: 'waitlist',    studentLabel: 'Waitlisted',   adminLabel: 'Waitlist',     badgeClasses: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
@@ -198,12 +204,16 @@ export function getJourneyAwareLabel(
   const SOFT_UNSUCCESSFUL = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
 
   // Case 1: rejected, with prefix telling the story of how far they got.
+  // Precedence: shortlisted > waitlisted > screening passed (furthest along wins).
   if (code === 'rejected') {
     if (historyEverHad(history, 'shortlisted')) {
       return { primary: 'Unsuccessful', prefix: 'Shortlisted', badgeClasses: SOFT_UNSUCCESSFUL }
     }
     if (historyEverHad(history, 'waitlist')) {
       return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
+    }
+    if (historyEverHad(history, 'screening_passed')) {
+      return { primary: 'Unsuccessful', prefix: 'Screening passed', badgeClasses: SOFT_UNSUCCESSFUL }
     }
     return { primary: 'Unsuccessful', badgeClasses: SOFT_UNSUCCESSFUL }
   }

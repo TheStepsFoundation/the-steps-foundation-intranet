@@ -6,8 +6,8 @@ import Link from 'next/link'
 import { TopNav } from '@/components/TopNav'
 import { PressableButton } from '@/components/PressableButton'
 import {
-  fetchEventOverview, signOut, withdrawApplication, fetchMyFeedback,
-  type EventOverview,
+  fetchEventOverview, signOut, withdrawApplication, fetchMyFeedback, fetchMyTestInfo,
+  type EventOverview, type StudentTestInfo,
 } from '@/lib/hub-api'
 import { clearAllDrafts } from '@/lib/apply-draft'
 import { getJourneyAwareLabel } from '@/lib/application-status'
@@ -205,6 +205,9 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false)
   const [withdrawErr, setWithdrawErr] = useState<string | null>(null)
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
+  // Online selection test (invitation-gated server-side; null = no test /
+  // not signed in / request failed — all render as "no test section").
+  const [testInfo, setTestInfo] = useState<StudentTestInfo | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -288,6 +291,19 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
   }, [id, adminPreviewMode, adminPreviewParam, adminPreviewPayload])
 
   useEffect(() => { load() }, [load])
+
+  // Fetch the online-test state once the overview is in. Skipped in admin
+  // preview (admins have their own practice-mode preview from the test page)
+  // and for withdrawn/ineligible applications.
+  useEffect(() => {
+    const app = overview?.application
+    const slug = overview?.event?.slug
+    if (!app || !slug || adminPreviewMode) return
+    if (app.status === 'withdrew' || app.status === 'ineligible') return
+    let cancelled = false
+    fetchMyTestInfo(slug).then(info => { if (!cancelled) setTestInfo(info) })
+    return () => { cancelled = true }
+  }, [overview, adminPreviewMode])
 
   const handleSignOut = async () => { clearAllDrafts(); await signOut(); router.push('/my/sign-in') }
 
@@ -378,7 +394,18 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
   const showActionsEdit = application && !isPast && application.status === 'submitted'
   const showActionsWithdraw = application && !isPast && application.status !== 'withdrew' && application.status !== 'rejected'
   const showActionsFeedback = !!application && !!isPast && application.status === 'accepted' && application.attended === true && getFeedbackFields(event.feedback_config).length > 0 && !feedbackSubmitted
-  const hasActions = showActionsApply || showActionsEdit || showActionsWithdraw || showActionsFeedback
+
+  // Online test states (testInfo is null unless this student is involved
+  // with a test for this event — see fetchMyTestInfo).
+  const testInvited = !!testInfo?.invited && !adminPreviewMode
+  const testDone = testInvited && (testInfo?.attemptStatus === 'submitted' || testInfo?.attemptStatus === 'expired')
+  const testInProgressNow = testInvited && testInfo?.attemptStatus === 'in_progress'
+  const showTestCta = testInvited && !testDone && testInfo?.openNow === true
+  // Invited but the window hasn't opened (draft test, or opens_at in the future).
+  const testNotYetOpen = testInvited && !testDone && !showTestCta && !testInfo?.attemptStatus && (testInfo?.status === 'draft' || (testInfo?.status === 'open' && !!testInfo?.opensAt && new Date(testInfo.opensAt).getTime() > Date.now()))
+  const testWindowClosed = testInvited && !testDone && !showTestCta && !testNotYetOpen && !testInProgressNow
+
+  const hasActions = showActionsApply || showActionsEdit || showActionsWithdraw || showActionsFeedback || showTestCta
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white pb-24 sm:pb-12">
@@ -521,6 +548,71 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
               </section>
             )}
 
+            {/* Online selection test — invitation-gated. */}
+            {testInvited && (
+              <section
+                className={`rounded-2xl border p-6 sm:p-8 animate-tsf-fade-up-3 ${
+                  testDone
+                    ? 'bg-gradient-to-br from-emerald-50 to-white border-emerald-200'
+                    : 'bg-gradient-to-br from-teal-50 to-white border-teal-200'
+                }`}
+                aria-labelledby="test-heading"
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${testDone ? 'bg-emerald-100 text-emerald-700' : 'bg-teal-100 text-teal-700'}`}>
+                    {testDone ? (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 id="test-heading" className="font-display text-lg font-bold text-steps-dark">Your online test</h2>
+
+                    {testDone && (
+                      <p className="text-sm text-slate-700 mt-2">
+                        All done — your test has been submitted. We&apos;ll be in touch about next steps soon.
+                      </p>
+                    )}
+
+                    {showTestCta && (
+                      <>
+                        <p className="text-sm text-slate-700 mt-2">
+                          {testInProgressNow
+                            ? 'You have a test in progress — your timer is still running, so jump back in.'
+                            : 'You\u2019ve passed our initial screening! The next step is a short online test.'}
+                          {!testInProgressNow && testInfo?.durationSeconds ? ` It takes ${Math.round(testInfo.durationSeconds / 60)} minutes, and you only get one attempt — find a quiet spot first.` : ''}
+                        </p>
+                        {!testInProgressNow && testInfo?.closesAt && (
+                          <p className="text-xs font-semibold text-teal-800 mt-2">
+                            Complete it by {new Date(testInfo.closesAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}.
+                          </p>
+                        )}
+                        <div className="mt-4">
+                          <PressableButton href={`/my/test/${event.slug}`} variant="primary">
+                            {testInProgressNow ? 'Continue your test' : 'Start your online test'}
+                          </PressableButton>
+                        </div>
+                      </>
+                    )}
+
+                    {testNotYetOpen && (
+                      <p className="text-sm text-slate-700 mt-2">
+                        You&apos;ve been invited to an online test for this event. It isn&apos;t open yet
+                        {testInfo?.status === 'open' && testInfo?.opensAt ? ` — it opens ${new Date(testInfo.opensAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : ' — we\u2019ll email you when it is'}.
+                      </p>
+                    )}
+
+                    {testWindowClosed && (
+                      <p className="text-sm text-slate-600 mt-2">
+                        The test window has closed. If you think this is a mistake, reply to your invitation email and we&apos;ll take a look.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* Check-in QR (accepted only) */}
             {application?.status === 'accepted' && !isPast && (
               <section className="bg-gradient-to-br from-steps-blue-50 to-white rounded-2xl border border-steps-blue-200 p-6 sm:p-8 animate-tsf-fade-up-3">
@@ -615,6 +707,11 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
       {/* Mobile sticky action bar — only when there's an action to take. */}
       {hasActions && (
         <div className="fixed bottom-0 inset-x-0 z-40 sm:hidden bg-white/95 backdrop-blur border-t border-slate-200 px-4 py-3 flex gap-2 animate-tsf-fade-up">
+          {showTestCta && (
+            <PressableButton href={`/my/test/${event.slug}`} variant="primary" fullWidth size="sm">
+              {testInProgressNow ? 'Continue your test' : 'Start your online test'}
+            </PressableButton>
+          )}
           {showActionsApply && (
             <PressableButton href={adminPreviewMode ? `/apply/${event.slug}?test=1` : `/apply/${event.slug}`} variant="primary" fullWidth size="sm" target={adminPreviewMode ? '_blank' : undefined}>
               {adminPreviewMode ? 'Apply (test)' : 'Apply'}

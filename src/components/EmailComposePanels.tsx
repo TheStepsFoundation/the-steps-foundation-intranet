@@ -468,6 +468,7 @@ const DEFAULT_TEMPLATE_TYPES: { code: string; label: string }[] = [
   { code: 'rejection', label: 'Rejection' },
   { code: 'waitlist', label: 'Waitlist' },
   { code: 'invite', label: 'Invite' },
+  { code: 'test_invite', label: 'Test invite' },
   { code: 'reminder', label: 'Reminder' },
   { code: 'follow_up', label: 'Follow-up' },
   { code: 'custom', label: 'Custom' },

@@ -11,6 +11,7 @@ import {
   fetchProfile, updateProfile, fetchMyApplications, fetchOpenEvents, fetchMyFeedbackEventIds,
   signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, fetchMyEventOptoutsVisible, setEventOptout, fetchLiveEvents, fetchScheduledEvents,
   type HubApplication, type HubEvent, type ProfileUpdate,
+  fetchMyTestInfo, type StudentTestInfo,
 } from '@/lib/hub-api'
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
 import { getDisplayLocation } from '@/lib/event-display'
@@ -78,6 +79,28 @@ function StudentHubInner() {
   const [loading, setLoading] = useState(true)
   const [profile, setProfile] = useState<StudentSelf | null>(null)
   const [applications, setApplications] = useState<HubApplication[]>([])
+  // Online-test nudges: applications at 'screening_passed' whose test is open
+  // and not yet submitted. Rendered as a can't-miss banner at the top.
+  const [testNudges, setTestNudges] = useState<Array<{ app: HubApplication; info: StudentTestInfo }>>([])
+
+  useEffect(() => {
+    // Only statuses the screening flow produces, only future events, and a
+    // small cap so we never fan out many API calls.
+    const candidates = applications
+      .filter(a => a.status === 'screening_passed' && !!a.event?.slug)
+      .filter(a => !a.event.event_date || new Date(a.event.event_date).getTime() >= Date.now())
+      .slice(0, 3)
+    if (candidates.length === 0) { setTestNudges([]); return }
+    let cancelled = false
+    Promise.all(candidates.map(async app => ({ app, info: await fetchMyTestInfo(app.event.slug) })))
+      .then(rows => {
+        if (cancelled) return
+        setTestNudges(rows.filter((r): r is { app: HubApplication; info: StudentTestInfo } =>
+          !!r.info && r.info.invited && r.info.openNow
+          && r.info.attemptStatus !== 'submitted' && r.info.attemptStatus !== 'expired'))
+      })
+    return () => { cancelled = true }
+  }, [applications])
   const [openEvents, setOpenEvents] = useState<HubEvent[]>([])
   const [scheduledEvents, setScheduledEvents] = useState<HubEvent[]>([])
   const [feedbackSubmittedFor, setFeedbackSubmittedFor] = useState<Set<string>>(new Set())
@@ -595,6 +618,34 @@ function StudentHubInner() {
             Password set — you can use it to sign in next time.
           </div>
         )}
+
+        {/* === Online test nudge — passed screening, test open, not yet taken === */}
+        {testNudges.map(({ app, info }) => (
+          <div key={app.id} className="mb-8 rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50 to-white p-5 sm:p-6 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-display font-bold text-steps-dark">
+                    {info.attemptStatus === 'in_progress' ? 'Your online test is in progress' : `You\u2019ve passed the initial screening for ${app.event.name}!`}
+                  </p>
+                  <p className="text-sm text-slate-600 mt-0.5">
+                    {info.attemptStatus === 'in_progress'
+                      ? 'Your timer is still running — jump back in to finish.'
+                      : <>The next step is a short online test{info.durationSeconds ? ` (${Math.round(info.durationSeconds / 60)} minutes, one attempt)` : ''}{info.closesAt ? ` — complete it by ${new Date(info.closesAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : ''}.</>}
+                  </p>
+                </div>
+              </div>
+              <div className="flex-shrink-0">
+                <PressableButton href={`/my/test/${app.event.slug}`} variant="primary" size="sm">
+                  {info.attemptStatus === 'in_progress' ? 'Continue your test' : 'Start your online test'}
+                </PressableButton>
+              </div>
+            </div>
+          </div>
+        ))}
 
         {/* === Section: Apply now === */}
         {eligibleOpenEvents.length > 0 && (

@@ -660,3 +660,51 @@ export async function submitFeedback(
   if (error) return { error: error.message }
   return { error: null }
 }
+
+// ---------------------------------------------------------------------------
+// Online selection test — student-side info (invitation-gated server-side).
+// Wraps POST /api/test/info so the hub home + event page can surface the
+// test without any direct table access (students have none by design).
+// ---------------------------------------------------------------------------
+
+export type StudentTestInfo = {
+  title: string
+  openNow: boolean
+  status: 'draft' | 'open' | 'closed'
+  opensAt: string | null
+  closesAt: string | null
+  durationSeconds: number
+  invited: boolean
+  attemptStatus: 'in_progress' | 'submitted' | 'expired' | 'voided' | null
+}
+
+/** Returns null when there is no test, the student isn't signed in, or the
+ *  request fails — callers treat null as "show nothing". */
+export async function fetchMyTestInfo(eventSlug: string): Promise<StudentTestInfo | null> {
+  if (!eventSlug) return null
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) return null
+  try {
+    const r = await fetch('/api/test/info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ slug: eventSlug, mode: 'student' }),
+    })
+    if (!r.ok) return null
+    const d = await r.json()
+    if (!d?.test) return null
+    return {
+      title: d.test.title ?? 'Online test',
+      openNow: !!d.test.openNow,
+      status: d.test.status ?? 'draft',
+      opensAt: d.test.opensAt ?? null,
+      closesAt: d.test.closesAt ?? null,
+      durationSeconds: d.test.durationSeconds ?? 0,
+      invited: !!d.invited,
+      attemptStatus: d.attempt?.status ?? null,
+    }
+  } catch {
+    return null
+  }
+}

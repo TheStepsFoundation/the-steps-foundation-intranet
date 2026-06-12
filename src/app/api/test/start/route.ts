@@ -43,6 +43,17 @@ export async function POST(req: NextRequest) {
     if (!studentId) return jsonError('No Steps Foundation account found for this email', 403)
     if (!(await isInvited(svc, test.id, studentId))) return jsonError('You have not been invited to this test', 403)
     if (!testOpenNow(test)) return jsonError('The test is not currently open', 403)
+    // A withdrawn application revokes test access even if the invitation row
+    // still exists (invites are usually sent before anyone withdraws).
+    // (withdrawal soft-deletes the row, so read the latest row incl. deleted)
+    const { data: appRows } = await svc
+      .from('applications')
+      .select('status, created_at')
+      .eq('event_id', test.event_id)
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    if (appRows?.[0]?.status === 'withdrew') return jsonError('You have withdrawn your application for this event', 403)
     who = { studentId }
   }
 

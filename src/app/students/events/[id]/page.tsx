@@ -148,12 +148,16 @@ const STATUSES = ADMIN_STATUS_OPTIONS.map(s => ({ code: s.code, label: s.label, 
 const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.code, s]))
 
 // Notify-able statuses for combined actions.
-// Order mirrors the decision funnel — shortlist is the earliest commitment, then accept/waitlist/reject.
-const NOTIFY_STATUSES = [
-  { code: 'shortlisted', label: 'Shortlist & Notify', templateType: 'shortlist', color: 'bg-violet-600 hover:bg-violet-700' },
-  { code: 'accepted',    label: 'Accept & Notify',    templateType: 'acceptance', color: 'bg-emerald-600 hover:bg-emerald-700' },
-  { code: 'waitlist',    label: 'Waitlist & Notify',  templateType: 'waitlist',   color: 'bg-amber-600 hover:bg-amber-700' },
-  { code: 'rejected',    label: 'Reject & Notify',    templateType: 'rejection',  color: 'bg-red-600 hover:bg-red-700' },
+// Order mirrors the decision funnel — screening pass is the earliest (gates
+// the online test), then shortlist, then accept/waitlist/reject.
+// internalCode: the matching internal-review draft mark, or null when the
+// status has no internal analog (screening pass is conveyed immediately).
+const NOTIFY_STATUSES: Array<{ code: string; label: string; templateType: string; color: string; verb: string; internalCode: InternalReviewStatusCode | null }> = [
+  { code: 'screening_passed', label: 'Pass Screening & Notify', templateType: 'test_invite', color: 'bg-teal-600 hover:bg-teal-700', verb: 'Pass screening', internalCode: null },
+  { code: 'shortlisted', label: 'Shortlist & Notify', templateType: 'shortlist', color: 'bg-violet-600 hover:bg-violet-700', verb: 'Shortlist', internalCode: 'shortlist' },
+  { code: 'accepted',    label: 'Accept & Notify',    templateType: 'acceptance', color: 'bg-emerald-600 hover:bg-emerald-700', verb: 'Accept', internalCode: 'accept' },
+  { code: 'waitlist',    label: 'Waitlist & Notify',  templateType: 'waitlist',   color: 'bg-amber-600 hover:bg-amber-700', verb: 'Waitlist', internalCode: 'waitlist' },
+  { code: 'rejected',    label: 'Reject & Notify',    templateType: 'rejection',  color: 'bg-red-600 hover:bg-red-700', verb: 'Reject', internalCode: 'reject' },
 ]
 
 // An applicant's effective decision status for the status-filter tabs + counts.
@@ -165,7 +169,7 @@ const NOTIFY_STATUSES = [
 // internal shortlist mark as shortlisted. Keeps tabs mutually exclusive so the
 // counts still sum to the total.
 function effectiveDecisionStatus(a: Pick<Applicant, 'status' | 'internal_review_status'>): string {
-  if (a.status === 'submitted' && a.internal_review_status) {
+  if ((a.status === 'submitted' || a.status === 'screening_passed') && a.internal_review_status) {
     return INTERNAL_REVIEW_STATUSES[a.internal_review_status]?.correspondsTo ?? a.status
   }
   return a.status
@@ -1696,6 +1700,24 @@ export default function EventDetailPage() {
   // Combined action: status to apply after emails are queued
   const [notifyAction, setNotifyAction] = useState<string | null>(null)
 
+  // Online test access — the compose flow can add every recipient to the
+  // test invite list when the emails are queued ("you've passed the initial
+  // screening — take the online test"). test_invitations rows are what gate
+  // /api/test/* for students, and the hub surfaces the test once invited.
+  const [eventTest, setEventTest] = useState<{ id: string; status: 'draft' | 'open' | 'closed' } | null>(null)
+  const [openTestAccess, setOpenTestAccess] = useState(false)
+  const [testAccessGranted, setTestAccessGranted] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!eventId) return
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase.from('tests').select('id, status').eq('event_id', eventId).maybeSingle()
+      if (!cancelled) setEventTest((data as { id: string; status: 'draft' | 'open' | 'closed' } | null) ?? null)
+    })()
+    return () => { cancelled = true }
+  }, [eventId])
+
   // --------------------------------------------------------------------------
   // Email queue stats — populated from email_outbox, filtered to this event.
   // Poll every 5s while there's in-flight work (queued + sending > 0) so the
@@ -2549,6 +2571,8 @@ export default function EventDetailPage() {
 
   const openCompose = (action?: string) => {
     setNotifyAction(action ?? null)
+    setOpenTestAccess(action === 'screening_passed')
+    setTestAccessGranted(null)
     loadTemplates().then(() => {
       // If this is a combined action, auto-select matching template
       if (action) {
@@ -2780,6 +2804,8 @@ export default function EventDetailPage() {
       // anchor with admin-editable text.
       .replace(/href=("|&quot;|')\{\{apply_link\}\}\1/g, (_m, q) => `href=${q}${applyLinkUrl}${q}`)
       .replace(/\{\{apply_link\}\}/g, `<a href="${applyLinkUrl}" style="color:#1d4ed8;text-decoration:underline;font-weight:600">${applyLinkAnchor}</a>`)
+      .replace(/href=("|&quot;|')\{\{test_link\}\}\1/g, (_m, q) => `href=${q}https://the-steps-foundation-intranet.vercel.app/my/test/${event?.slug ?? ''}${q}`)
+      .replace(/\{\{test_link\}\}/g, `<a href="https://the-steps-foundation-intranet.vercel.app/my/test/${event?.slug ?? ''}" style="color:#1d4ed8;text-decoration:underline;font-weight:600">Take the online test</a>`)
       .replace(/href=("|&quot;|')\{\{portal_link\}\}\1/g, (_m, q) => `href=${q}https://the-steps-foundation-intranet.vercel.app/my${q}`)
       .replace(/\{\{portal_link\}\}/g, `<a href="https://the-steps-foundation-intranet.vercel.app/my" style="color:#1d4ed8;text-decoration:underline;font-weight:600">${portalLinkAnchor}</a>`)
       .replace(/href=("|&quot;|')\{\{rsvp_link\}\}\1/g, (_m, q) => `href=${q}https://the-steps-foundation-intranet.vercel.app/my${q}`)
@@ -2853,6 +2879,22 @@ export default function EventDetailPage() {
       setSendProgress({ sent: 0, failed: recipients.length, total: recipients.length })
       setEmailStep('done')
       return
+    }
+
+    // Grant online test access — invitation rows are what gate /api/test/*
+    // and make the test appear on the student hub. Idempotent upsert, so
+    // re-sending to an already-invited student is harmless.
+    if (openTestAccess && eventTest) {
+      const inviteRows = recipients
+        .filter(r => !!r.student_id)
+        .map(r => ({ test_id: eventTest.id, student_id: r.student_id as string, invited_by: (teamMember as any)?.auth_uuid ?? null }))
+      if (inviteRows.length > 0) {
+        const { error: invErr } = await supabase
+          .from('test_invitations')
+          .upsert(inviteRows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
+        if (invErr) console.error('test invitation upsert error:', invErr)
+        else setTestAccessGranted(inviteRows.length)
+      }
     }
 
     // Combined action: apply the status change immediately so the admin
@@ -4184,14 +4226,8 @@ export default function EventDetailPage() {
               })()}
               <div ref={bulkMenuRef} className="flex flex-wrap items-center gap-2">
                 {NOTIFY_STATUSES.map(ns => {
-                  const internalCode = ns.code === 'accepted' ? 'accept'
-                    : ns.code === 'shortlisted' ? 'shortlist'
-                    : ns.code === 'waitlist' ? 'waitlist'
-                    : 'reject'
-                  const verb = ns.code === 'accepted' ? 'Accept'
-                    : ns.code === 'shortlisted' ? 'Shortlist'
-                    : ns.code === 'waitlist' ? 'Waitlist'
-                    : 'Reject'
+                  const internalCode = ns.internalCode
+                  const verb = ns.verb
                   const isOpen = bulkMenuOpen === ns.code
                   return (
                     <div key={ns.code} className="relative">
@@ -4218,14 +4254,16 @@ export default function EventDetailPage() {
                           >
                             {verb} &amp; notify
                           </button>
-                          <button
-                            role="menuitem"
-                            onClick={() => { setBulkMenuOpen(null); bulkUpdateInternalReviewStatus(internalCode as InternalReviewStatusCode) }}
-                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            title="Internal mark — never shown to students"
-                          >
-                            {verb} internally
-                          </button>
+                          {internalCode && (
+                            <button
+                              role="menuitem"
+                              onClick={() => { setBulkMenuOpen(null); bulkUpdateInternalReviewStatus(internalCode) }}
+                              className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                              title="Internal mark — never shown to students"
+                            >
+                              {verb} internally
+                            </button>
+                          )}
                           <button
                             role="menuitem"
                             onClick={() => { setBulkMenuOpen(null); bulkUpdateStatus(ns.code) }}
@@ -4995,6 +5033,7 @@ export default function EventDetailPage() {
                   { tag: 'rsvp_link', label: lbl('rsvp_link', 'RSVP Link') },
                   { tag: 'portal_link', label: lbl('portal_link', 'Portal Link') },
                   { tag: 'withdraw_link', label: lbl('withdraw_link', 'Withdraw link') },
+                  ...(eventTest ? [{ tag: 'test_link', label: lbl('test_link', 'Test Link') }] : []),
                 ]
                 const subjectMergeTags: MergeTag[] = [
                   { tag: 'first_name', label: lbl('first_name', 'First Name') },
@@ -5033,6 +5072,34 @@ export default function EventDetailPage() {
                 )
               })()}
 
+              {emailStep === 'pick' && (
+                <div className={`rounded-lg border p-3 ${eventTest ? 'border-teal-200 dark:border-teal-900/50 bg-teal-50/50 dark:bg-teal-900/10' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'}`}>
+                  <label className={`flex items-start gap-2.5 ${eventTest ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'}`}>
+                    <input
+                      type="checkbox"
+                      checked={openTestAccess && !!eventTest}
+                      disabled={!eventTest}
+                      onChange={e => setOpenTestAccess(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">Open the online test for these recipients</span>
+                      <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {eventTest
+                          ? <>Adds every recipient to the test invite list when the emails are queued. Use the <code className="px-1 rounded bg-gray-100 dark:bg-gray-800 text-[11px]">{'{{test_link}}'}</code> merge tag so the email links straight to it — it also appears on their student hub.</>
+                          : <>No online test exists for this event yet — set one up on the Test page first.</>}
+                      </span>
+                      {eventTest && eventTest.status !== 'open' && openTestAccess && (
+                        <span className="mt-1.5 inline-flex flex-wrap items-center gap-1 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-2 py-1 text-xs font-medium text-amber-800 dark:text-amber-300">
+                          The test is still <strong className="mx-0.5">{eventTest.status}</strong> — invited students can&apos;t start it until you open it on the{' '}
+                          <a href={`/students/events/${eventId}/test`} target="_blank" rel="noreferrer" className="underline">Test page</a>.
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                </div>
+              )}
+
               {emailStep === 'preview' && (
                 <EmailPreviewPanel
                   recipientName={`${getRecipients()[0]?.first_name ?? ''} ${getRecipients()[0]?.last_name ?? ''}`.trim()}
@@ -5043,9 +5110,17 @@ export default function EventDetailPage() {
                     const html = looksLikeHtml(raw) ? raw : plainTextToHtml(raw)
                     return html.replace(/\{\{withdraw_link\}\}/g, `<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">${withdrawLinkAnchor}</a>`).replace(/\{\{event_optout_link\}\}/g, `<a href="#preview" style="color:#1d4ed8;text-decoration:underline;font-weight:600" title="Preview — per-recipient signed URL inserted at send time">${eventOptoutLinkAnchor}</a>`)
                   })()}
-                  footerBanner={notifyAction ? (
-                    <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300">
-                      After sending, all {getRecipients().length} selected applicant{getRecipients().length !== 1 ? 's' : ''} will be marked as <strong>{STATUS_MAP[notifyAction]?.label ?? notifyAction}</strong>.
+                  footerBanner={(notifyAction || (openTestAccess && eventTest)) ? (
+                    <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300 space-y-1">
+                      {notifyAction && (
+                        <div>After sending, all {getRecipients().length} selected applicant{getRecipients().length !== 1 ? 's' : ''} will be marked as <strong>{STATUS_MAP[notifyAction]?.label ?? notifyAction}</strong>.</div>
+                      )}
+                      {openTestAccess && eventTest && (
+                        <div>
+                          All recipients will be added to the <strong>online test</strong> invite list.
+                          {eventTest.status !== 'open' && <> The test is still <strong>{eventTest.status}</strong> — remember to open it.</>}
+                        </div>
+                      )}
                     </div>
                   ) : undefined}
                 />
@@ -5058,9 +5133,18 @@ export default function EventDetailPage() {
               {emailStep === 'done' && (
                 <EmailDonePanel
                   progress={sendProgress}
-                  extra={notifyAction ? (
-                    <div className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
-                      Statuses updated to {STATUS_MAP[notifyAction]?.label ?? notifyAction}
+                  extra={(notifyAction || testAccessGranted != null) ? (
+                    <div className="mt-1 space-y-0.5">
+                      {notifyAction && (
+                        <div className="text-sm text-emerald-600 dark:text-emerald-400">
+                          Statuses updated to {STATUS_MAP[notifyAction]?.label ?? notifyAction}
+                        </div>
+                      )}
+                      {testAccessGranted != null && (
+                        <div className="text-sm text-teal-600 dark:text-teal-400">
+                          Online test opened for {testAccessGranted} student{testAccessGranted !== 1 ? 's' : ''}
+                        </div>
+                      )}
                     </div>
                   ) : undefined}
                 />

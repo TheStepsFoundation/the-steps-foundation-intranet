@@ -79,6 +79,8 @@ export async function POST(req: NextRequest) {
       videoUrl: test.video_url,
       durationSeconds: test.duration_seconds,
       openNow,
+      opensAt: test.opens_at,
+      closesAt: test.closes_at,
       status: mode === 'team' ? 'open' : test.status,
     },
     invited,
