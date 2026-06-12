@@ -95,8 +95,11 @@ function StudentHubInner() {
     Promise.all(candidates.map(async app => ({ app, info: await fetchMyTestInfo(app.event.slug) })))
       .then(rows => {
         if (cancelled) return
+        // Locked tests (not yet open) still surface — students who passed
+        // screening should SEE the test on their hub; they just can't start
+        // it until an admin opens it / the open date arrives.
         setTestNudges(rows.filter((r): r is { app: HubApplication; info: StudentTestInfo } =>
-          !!r.info && r.info.invited && r.info.openNow
+          !!r.info && r.info.invited && r.info.status !== 'closed'
           && r.info.attemptStatus !== 'submitted' && r.info.attemptStatus !== 'expired'))
       })
     return () => { cancelled = true }
@@ -634,13 +637,15 @@ function StudentHubInner() {
                   <p className="text-sm text-slate-600 mt-0.5">
                     {info.attemptStatus === 'in_progress'
                       ? 'Your timer is still running — jump back in to finish.'
+                      : !info.openNow
+                      ? <>The next step is a short online test{info.durationSeconds ? ` (${Math.round(info.durationSeconds / 60)} minutes, one attempt)` : ''}. It isn&apos;t open yet{info.opensAt ? ` — it opens ${new Date(info.opensAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : '; we\u2019ll email you when it opens'}. You can preview it and try the warm-up questions now.</>
                       : <>The next step is a short online test{info.durationSeconds ? ` (${Math.round(info.durationSeconds / 60)} minutes, one attempt)` : ''}{info.closesAt ? ` — complete it by ${new Date(info.closesAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : ''}.</>}
                   </p>
                 </div>
               </div>
               <div className="flex-shrink-0">
                 <PressableButton href={`/my/test/${app.event.slug}`} variant="primary" size="sm">
-                  {info.attemptStatus === 'in_progress' ? 'Continue your test' : 'Start your online test'}
+                  {info.attemptStatus === 'in_progress' ? 'Continue your test' : info.openNow ? 'Start your online test' : 'Preview your test'}
                 </PressableButton>
               </div>
             </div>

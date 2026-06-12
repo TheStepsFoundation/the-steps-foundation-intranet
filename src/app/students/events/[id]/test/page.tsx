@@ -463,7 +463,7 @@ export default function EventTestAdminPage() {
                   onChange={e => setDraft(d => ({ ...d, status: e.target.value as TestRow['status'] }))}
                   className="mt-1 w-full text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-800 px-3 py-1.5"
                 >
-                  <option value="draft">Draft (hidden from students)</option>
+                  <option value="draft">Draft (invited students see a locked preview; auto-opens at the date below)</option>
                   <option value="open">Open (invited students can take it)</option>
                   <option value="closed">Closed</option>
                 </select>
@@ -487,7 +487,7 @@ export default function EventTestAdminPage() {
                 />
               </label>
               <label className="block">
-                <span className="text-xs font-medium text-gray-500">Opens at (optional — bounds the window while status is Open)</span>
+                <span className="text-xs font-medium text-gray-500">Opens at (auto-opens at this time — or set status to Open to open immediately. Invited students can see a locked preview before then)</span>
                 <input
                   type="datetime-local"
                   value={toLocalInput(draft.opens_at ?? null)}

@@ -14,6 +14,8 @@ export type TestInfo = {
   videoUrl: string | null
   durationSeconds: number
   openNow: boolean
+  opensAt: string | null
+  closesAt: string | null
   status: 'draft' | 'open' | 'closed'
 }
 

@@ -189,12 +189,13 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
           rebase(res.attempt)
           setPhase('running'); return
         }
-        if (!res.test.openNow) {
-          setBlockedMsg(res.test.status === 'closed'
-            ? 'This test has closed.'
-            : 'This test is not open yet — check back soon.')
+        if (res.test.status === 'closed' || (res.test.closesAt && Date.now() > new Date(res.test.closesAt).getTime())) {
+          setBlockedMsg('This test has closed.')
           setPhase('blocked'); return
         }
+        // Not open yet → still show the full intro (video, instructions,
+        // warm-ups) in a LOCKED state: the Start button is replaced by an
+        // opens-at notice until an admin opens the test / the date arrives.
         setPhase('intro')
       } catch (e) {
         if (!cancelled) { setBlockedMsg(e instanceof Error ? e.message : 'Something went wrong.'); setPhase('blocked') }
@@ -560,6 +561,17 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
       {info!.practice.length > 0 && <PracticeBlock questions={info!.practice} />}
 
       <Card>
+        {!test.openNow && mode === 'student' ? (
+          <>
+            <h2 className="font-semibold text-steps-dark mb-1">The test isn&apos;t open yet</h2>
+            <p className="text-sm text-slate-600">
+              {test.opensAt
+                ? <>It opens on <strong>{new Date(test.opensAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</strong>.</>
+                : <>We&apos;ll email you as soon as it opens.</>}
+              {' '}You can watch the briefing and try the warm-up questions now — the Start button will appear right here when the test opens.
+            </p>
+          </>
+        ) : (<>
         <h2 className="font-semibold text-steps-dark mb-1">Ready?</h2>
         <p className="text-sm text-slate-500 mb-4">
           The {Math.round(test.durationSeconds / 60)}-minute timer starts the moment you press the button and cannot be paused.
@@ -593,6 +605,7 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
             </button>
           </div>
         )}
+        </>)}
       </Card>
     </div>
   )

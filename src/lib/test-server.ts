@@ -116,12 +116,16 @@ export async function fetchTestBySlug(svc: ServiceClient, slug: string): Promise
   return { test: test as TestRow, eventName: ev.name, eventSlug: ev.slug }
 }
 
-/** Is the test currently open to invited students? */
+/** Is the test currently open to invited students?
+ *  Open when an admin has manually flipped status to 'open', OR while still
+ *  draft once the scheduled opens_at passes (auto-open). 'closed' and a
+ *  passed closes_at always win. Invited students can SEE the test before it
+ *  opens — this gate only controls starting it. */
 export function testOpenNow(test: TestRow, now = Date.now()): boolean {
-  if (test.status !== 'open') return false
-  if (test.opens_at && now < new Date(test.opens_at).getTime()) return false
+  if (test.status === 'closed') return false
   if (test.closes_at && now > new Date(test.closes_at).getTime()) return false
-  return true
+  if (test.status === 'open') return true
+  return !!test.opens_at && now >= new Date(test.opens_at).getTime()
 }
 
 export async function isInvited(svc: ServiceClient, testId: string, studentId: string): Promise<boolean> {
