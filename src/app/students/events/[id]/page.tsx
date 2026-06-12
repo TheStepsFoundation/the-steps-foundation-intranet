@@ -102,6 +102,8 @@ type Applicant = {
   testAccuracy: number | null
   /** Questions actually answered (skips excluded); null = no attempt / in progress. */
   testAnswered: number | null
+  /** On the test invite list ("screening passed", internal). */
+  testInvited: boolean
   /** AI reviewer output (admin-only annotation; suggestion is applied separately). */
   aiReview: AiReviewResult | null
 }
@@ -152,13 +154,22 @@ const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.code, s]))
 // the online test), then shortlist, then accept/waitlist/reject.
 // internalCode: the matching internal-review draft mark, or null when the
 // status has no internal analog (screening pass is conveyed immediately).
-const NOTIFY_STATUSES: Array<{ code: string; label: string; templateType: string; color: string; verb: string; internalCode: InternalReviewStatusCode | null }> = [
-  { code: 'screening_passed', label: 'Pass Screening & Notify', templateType: 'test_invite', color: 'bg-teal-600 hover:bg-teal-700', verb: 'Pass screening', internalCode: null },
+const NOTIFY_STATUSES: Array<{ code: string; label: string; templateType: string; color: string; verb: string; internalCode: InternalReviewStatusCode | null; changesStatus?: boolean }> = [
+  // changesStatus: false — screening pass is INTERNAL ONLY. It grants test
+  // access (invite list) and optionally emails the test link; it must NEVER
+  // change the student-facing status (Sam, 2026-06-10). There is also no
+  // application_statuses FK row for 'screening_passed', so a status write
+  // would be rejected by the DB anyway.
+  { code: 'screening_passed', label: 'Send test invites', templateType: 'test_invite', color: 'bg-teal-600 hover:bg-teal-700', verb: 'Pass screening', internalCode: null, changesStatus: false },
   { code: 'shortlisted', label: 'Shortlist & Notify', templateType: 'shortlist', color: 'bg-violet-600 hover:bg-violet-700', verb: 'Shortlist', internalCode: 'shortlist' },
   { code: 'accepted',    label: 'Accept & Notify',    templateType: 'acceptance', color: 'bg-emerald-600 hover:bg-emerald-700', verb: 'Accept', internalCode: 'accept' },
   { code: 'waitlist',    label: 'Waitlist & Notify',  templateType: 'waitlist',   color: 'bg-amber-600 hover:bg-amber-700', verb: 'Waitlist', internalCode: 'waitlist' },
   { code: 'rejected',    label: 'Reject & Notify',    templateType: 'rejection',  color: 'bg-red-600 hover:bg-red-700', verb: 'Reject', internalCode: 'reject' },
 ]
+
+// Whether a composer notify-action commits a student-facing status change.
+const actionChangesStatus = (code: string | null): boolean =>
+  !!code && NOTIFY_STATUSES.find(n => n.code === code)?.changesStatus !== false
 
 // An applicant's effective decision status for the status-filter tabs + counts.
 // A committed decision (shortlisted/accepted/waitlist/rejected) always wins.
@@ -1866,9 +1877,12 @@ export default function EventDetailPage() {
     // Selection-test scores (if this event has a test). Admin-only RLS — for
     // wider members this comes back empty and the column just shows dashes.
     const testMap: Record<string, { score: number | null; status: string; correct: number | null; answered: number | null }> = {}
+    let testInvitedSet = new Set<string>()
     {
       const { data: testRow } = await supabase.from('tests').select('id').eq('event_id', eventId).maybeSingle()
       if (testRow) {
+        const { data: tInv } = await supabase.from('test_invitations').select('student_id').eq('test_id', testRow.id)
+        testInvitedSet = new Set((tInv ?? []).map(r => r.student_id))
         const { data: tAtts } = await supabase
           .from('test_attempts')
           .select('student_id, score, status, correct_count, answered_count')
@@ -1964,6 +1978,7 @@ export default function EventDetailPage() {
           if (!t || t.status === 'in_progress') return null
           return t.answered ?? null
         })(),
+        testInvited: testInvitedSet.has(row.student_id),
       }
     })
 
@@ -2176,7 +2191,7 @@ export default function EventDetailPage() {
     const ids = [...selected]
     const now = new Date().toISOString()
 
-    await supabase
+    const { error: intErr } = await supabase
       .from('applications')
       .update({
         internal_review_status: newInternal,
@@ -2186,10 +2201,49 @@ export default function EventDetailPage() {
         updated_at: now,
       } as any)
       .in('id', ids)
+    if (intErr) {
+      window.alert(`Internal mark update FAILED — nothing was changed.\n\n${intErr.message}`)
+      return
+    }
 
     setApplicants(prev => prev.map(a =>
       ids.includes(a.id) ? { ...a, internal_review_status: newInternal } : a
     ))
+  }
+
+  // Pass screening, INTERNAL ONLY: adds the selected students to the online
+  // test invite list (test_invitations is what gates /api/test/* and the
+  // student-hub surfacing). No email is sent and external status is untouched.
+  const bulkGrantTestAccess = async () => {
+    if (selected.size === 0) return
+    if (!eventTest) {
+      window.alert('This event has no selection test yet — create one from the Selection test page first.')
+      return
+    }
+    const rows = applicants
+      .filter(a => selected.has(a.id) && a.student_id)
+      .map(a => ({ test_id: eventTest.id, student_id: a.student_id, invited_by: teamMember?.auth_uuid ?? null }))
+    if (rows.length === 0) return
+    const ok = window.confirm(
+      `Pass screening for ${rows.length} selected student${rows.length === 1 ? '' : 's'}?\n\n` +
+      'Internal only: they are added to the online test invite list. ' +
+      'No email is sent and their external status does NOT change.'
+    )
+    if (!ok) return
+    const { error } = await supabase
+      .from('test_invitations')
+      .upsert(rows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
+    if (error) {
+      window.alert(`Could not open the test for the selected students:\n\n${error.message}`)
+      return
+    }
+    setApplicants(prev => prev.map(a => (selected.has(a.id) && a.student_id) ? { ...a, testInvited: true } : a))
+    setSelected(new Set())
+    window.alert(
+      `Done — ${rows.length} student${rows.length === 1 ? '' : 's'} added to the test invite list ` +
+      `(see the "invited" tag in the Test score column).` +
+      (eventTest.status !== 'open' ? `\n\nNote: the test is still ${eventTest.status} — open it from the Selection test page when ready.` : '')
+    )
   }
 
   // ---------------------------------------------------------------------------
@@ -2373,6 +2427,10 @@ export default function EventDetailPage() {
 
   const bulkUpdateStatus = async (newStatus: string, reasonOverride?: string | null) => {
     if (selected.size === 0) return
+    if (newStatus === 'screening_passed') {
+      window.alert('Screening pass is internal-only — use the Pass screening menu to open the test. External status never changes from screening.')
+      return
+    }
     const ids = [...selected]
     // Breakdown by current status so the admin sees what's actually changing.
     // Rows already on the target status are dropped from the UPDATE — that avoids
@@ -2444,10 +2502,14 @@ export default function EventDetailPage() {
       updates.decision_reason = reason
     }
 
-    await supabase
+    const { error: updErr } = await supabase
       .from('applications')
       .update(updates as any)
       .in('id', changingIds)
+    if (updErr) {
+      window.alert(`Status update FAILED — nothing was changed.\n\n${updErr.message}`)
+      return
+    }
 
     setApplicants(prev => prev.map(a =>
       changingIds.includes(a.id) ? {
@@ -2923,7 +2985,9 @@ export default function EventDetailPage() {
     // Combined action: apply the status change immediately so the admin
     // sees applicants move to Accepted / Rejected / Waitlisted right away.
     // email_log_id gets linked after send by the worker (nullable here).
-    if (notifyAction) {
+    // Screening (changesStatus: false) deliberately skips this — test invites
+    // never touch the student-facing status.
+    if (notifyAction && actionChangesStatus(notifyAction)) {
       const ids = recipients.map(r => r.id)
 
       // Status history — one row per applicant whose status actually changes
@@ -2940,7 +3004,7 @@ export default function EventDetailPage() {
       }
 
       // Bulk update application statuses
-      await supabase
+      const { error: stErr } = await supabase
         .from('applications')
         .update({
           status: notifyAction,
@@ -2950,7 +3014,9 @@ export default function EventDetailPage() {
           updated_at: now,
         } as any)
         .in('id', ids)
-
+      if (stErr) {
+        window.alert(`Emails were queued, but the status update FAILED:\n\n${stErr.message}`)
+      } else
       setApplicants(prev => prev.map(a =>
         ids.includes(a.id) ? {
           ...a,
@@ -3122,7 +3188,7 @@ export default function EventDetailPage() {
           return post16.length > 0 ? `${letters} (${app.gradeScore})` : ''
         }
         case 'engagement': return app.engagementScore
-        case 'test_score': return app.testStatus === 'in_progress' ? 'in progress' : (app.testScore ?? '')
+        case 'test_score': return app.testStatus === 'in_progress' ? 'in progress' : (app.testScore ?? (app.testInvited ? 'invited' : ''))
         case 'test_accuracy': return app.testAccuracy !== null ? `${Math.round(app.testAccuracy * 100)}%` : ''
         case 'test_answered': return app.testAnswered ?? ''
         case 'ai_score': return app.aiReview?.score ?? ''
@@ -4264,7 +4330,33 @@ export default function EventDetailPage() {
                           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.06l3.71-3.83a.75.75 0 111.08 1.04l-4.25 4.39a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd" />
                         </svg>
                       </button>
-                      {isOpen && (
+                      {isOpen && ns.code === 'screening_passed' && (
+                        <div
+                          role="menu"
+                          className="absolute z-40 mt-1 left-0 min-w-[250px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs text-gray-700 dark:text-gray-200"
+                        >
+                          <button
+                            role="menuitem"
+                            onClick={() => { setBulkMenuOpen(null); void bulkGrantTestAccess() }}
+                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Internal only — adds selected students to the test invite list. No email, no status change."
+                          >
+                            Pass screening — open test (no email)
+                          </button>
+                          <button
+                            role="menuitem"
+                            onClick={() => { setBulkMenuOpen(null); openCompose(ns.code) }}
+                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Opens the composer with the test-invite template. External status does NOT change."
+                          >
+                            Send test invite email…
+                          </button>
+                          <div className="px-3 py-1.5 text-[10px] text-gray-400 border-t border-gray-100 dark:border-gray-700">
+                            Screening never changes external status.
+                          </div>
+                        </div>
+                      )}
+                      {isOpen && ns.code !== 'screening_passed' && (
                         <div
                           role="menu"
                           className="absolute z-40 mt-1 left-0 min-w-[210px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs text-gray-700 dark:text-gray-200"
@@ -4665,6 +4757,8 @@ export default function EventDetailPage() {
                               <span className="text-xs font-medium text-steps-blue-500 dark:text-steps-blue-300">taking now…</span>
                             ) : app.testScore !== null ? (
                               <span className="font-medium tabular-nums text-gray-900 dark:text-gray-100">{app.testScore}</span>
+                            ) : app.testInvited ? (
+                              <span className="text-xs font-medium text-teal-600 dark:text-teal-400" title="On the test invite list (screening passed) — not started yet">invited</span>
                             ) : (
                               <span className="text-gray-400 dark:text-gray-600">—</span>
                             )}
@@ -5025,7 +5119,8 @@ export default function EventDetailPage() {
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {getRecipients().length} recipient{getRecipients().length !== 1 ? 's' : ''}
-                  {notifyAction && ` — status will change to "${STATUS_MAP[notifyAction]?.label ?? notifyAction}"`}
+                  {actionChangesStatus(notifyAction) && ` — status will change to "${STATUS_MAP[notifyAction ?? '']?.label ?? notifyAction}"`}
+                  {notifyAction === 'screening_passed' && ' — test invite only; external status does NOT change'}
                   {getRecipients().length < selected.size && (
                     <span className="text-amber-600 dark:text-amber-400"> ({selected.size - getRecipients().length} without email — skipped)</span>
                   )}
@@ -5137,8 +5232,11 @@ export default function EventDetailPage() {
                   })()}
                   footerBanner={(notifyAction || (openTestAccess && eventTest)) ? (
                     <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-800 dark:text-amber-300 space-y-1">
-                      {notifyAction && (
-                        <div>After sending, all {getRecipients().length} selected applicant{getRecipients().length !== 1 ? 's' : ''} will be marked as <strong>{STATUS_MAP[notifyAction]?.label ?? notifyAction}</strong>.</div>
+                      {actionChangesStatus(notifyAction) && (
+                        <div>After sending, all {getRecipients().length} selected applicant{getRecipients().length !== 1 ? 's' : ''} will be marked as <strong>{STATUS_MAP[notifyAction ?? '']?.label ?? notifyAction}</strong>.</div>
+                      )}
+                      {notifyAction === 'screening_passed' && (
+                        <div>External status will <strong>not</strong> change — this only sends the test invite.</div>
                       )}
                       {openTestAccess && eventTest && (
                         <div>
@@ -5160,9 +5258,9 @@ export default function EventDetailPage() {
                   progress={sendProgress}
                   extra={(notifyAction || testAccessGranted != null) ? (
                     <div className="mt-1 space-y-0.5">
-                      {notifyAction && (
+                      {actionChangesStatus(notifyAction) && (
                         <div className="text-sm text-emerald-600 dark:text-emerald-400">
-                          Statuses updated to {STATUS_MAP[notifyAction]?.label ?? notifyAction}
+                          Statuses updated to {STATUS_MAP[notifyAction ?? '']?.label ?? notifyAction}
                         </div>
                       )}
                       {testAccessGranted != null && (

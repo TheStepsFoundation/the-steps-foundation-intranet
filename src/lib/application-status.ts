@@ -82,7 +82,11 @@ export function getStatusMeta(raw: string | null | undefined): StatusMeta {
  */
 export const ADMIN_STATUS_OPTIONS: Array<Pick<StatusMeta, 'code' | 'adminLabel' | 'badgeClasses'> & { label: string }> =
   (Object.values(STATUSES) as StatusMeta[])
-    .filter(s => s.code !== 'ineligible')
+    // 'screening_passed' is deliberately NOT offered: screening is handled
+    // internally (test invite list) and must never flip the student-facing
+    // status. (Also unbacked by an application_statuses lookup row, so any
+    // write would fail the status FK.)
+    .filter(s => s.code !== 'ineligible' && s.code !== 'screening_passed')
     .map(s => ({
       code: s.code,
       label: s.adminLabel,
