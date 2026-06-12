@@ -135,6 +135,9 @@ export default function EventTestAdminPage() {
   // Results table controls
   const [resultSearch, setResultSearch] = useState('')
   const [resultSort, setResultSort] = useState<{ key: 'name' | 'status' | 'score' | 'answered' | 'accuracy' | 'started'; dir: 'asc' | 'desc' } | null>(null)
+  // Team practice runs use the same database-view conventions (sortable
+  // headers, one row per run) as every other data table on the site.
+  const [teamSort, setTeamSort] = useState<{ key: 'member' | 'status' | 'score' | 'answered' | 'accuracy' | 'time' | 'started'; dir: 'asc' | 'desc' }>({ key: 'score', dir: 'desc' })
   const [studentNames, setStudentNames] = useState<Record<string, { name: string; email: string | null }>>({})
   const [questions, setQuestions] = useState<QuestionRow[]>([])
   const [showQuestions, setShowQuestions] = useState(false)
@@ -355,6 +358,42 @@ export default function EventTestAdminPage() {
         >
           {label}
           <span aria-hidden="true" className={active ? '' : 'opacity-30'}>{active ? (resultSort?.dir === 'asc' ? '\u25B4' : '\u25BE') : '\u25BE'}</span>
+        </button>
+      </th>
+    )
+  }
+
+  const sortedTeamAttempts = useMemo(() => {
+    const acc = (a: AttemptRow) => (a.answered_count > 0 && a.correct_count !== null) ? a.correct_count / a.answered_count : -1
+    const timeUsed = (a: AttemptRow) => a.submitted_at ? new Date(a.submitted_at).getTime() - new Date(a.started_at).getTime() : -1
+    const val = (a: AttemptRow): string | number => {
+      switch (teamSort.key) {
+        case 'member': return (a.team_email ?? '').toLowerCase()
+        case 'status': return a.status
+        case 'score': return a.status === 'in_progress' ? -1 : Number(a.score ?? 0)
+        case 'answered': return a.answered_count
+        case 'accuracy': return a.status === 'in_progress' ? -1 : acc(a)
+        case 'time': return timeUsed(a)
+        case 'started': return a.started_at
+      }
+    }
+    const mul = teamSort.dir === 'asc' ? 1 : -1
+    const rows = attempts.filter(a => a.kind === 'team')
+    return [...rows].sort((x, y) => { const a = val(x); const b = val(y); return a < b ? -mul : a > b ? mul : 0 })
+  }, [attempts, teamSort])
+
+  const teamTh = (key: typeof teamSort.key, label: string) => {
+    const active = teamSort.key === key
+    return (
+      <th className="py-2 pr-3 font-medium">
+        <button
+          type="button"
+          onClick={() => setTeamSort(prev => prev.key === key ? { key, dir: prev.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: key === 'member' || key === 'status' ? 'asc' : 'desc' })}
+          className={`inline-flex items-center gap-0.5 hover:text-gray-600 dark:hover:text-gray-200 ${active ? 'text-gray-700 dark:text-gray-200' : ''}`}
+          title="Sort"
+        >
+          {label}
+          <span aria-hidden="true" className={active ? '' : 'opacity-30'}>{active ? (teamSort.dir === 'asc' ? '\u25B4' : '\u25BE') : '\u25BE'}</span>
         </button>
       </th>
     )
@@ -714,12 +753,47 @@ export default function EventTestAdminPage() {
             {teamAttempts.length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
                 <h3 className="text-xs font-semibold text-gray-500 mb-2">Team practice runs (not applicants)</h3>
-                <div className="flex flex-wrap gap-2">
-                  {teamAttempts.map(a => (
-                    <span key={a.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-300">
-                      {a.team_email} · {a.status === 'in_progress' ? 'in progress' : `${a.score ?? 0} pts`}
-                    </span>
-                  ))}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-800">
+                        <th className="py-2 pr-3 font-medium">#</th>
+                        {teamTh('member', 'Team member')}
+                        {teamTh('status', 'Status')}
+                        {teamTh('score', 'Score')}
+                        {teamTh('answered', 'Answered')}
+                        {teamTh('accuracy', 'Accuracy')}
+                        {teamTh('time', 'Time used')}
+                        {teamTh('started', 'Started')}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-gray-800/60">
+                      {sortedTeamAttempts.map((a, i) => {
+                        const acc = a.answered_count > 0 && a.correct_count !== null
+                          ? `${Math.round((a.correct_count / a.answered_count) * 100)}%` : '—'
+                        return (
+                          <tr key={a.id}>
+                            <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
+                            <td className="py-2 pr-3 text-gray-900 dark:text-gray-100">{a.team_email}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[a.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                                {a.status === 'in_progress' ? 'in progress' : a.status}
+                              </span>
+                            </td>
+                            <td className="py-2 pr-3 font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                              {a.status === 'in_progress' ? '—' : a.score ?? 0}
+                            </td>
+                            <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">
+                              {a.status === 'in_progress' ? `${a.current_index}/${a.question_order.length} reached` : `${a.answered_count}/${a.question_order.length}`}
+                            </td>
+                            <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{a.status === 'in_progress' ? '—' : acc}</td>
+                            <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{fmtDuration(a.started_at, a.submitted_at)}</td>
+                            <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{fmtWhen(a.started_at)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
