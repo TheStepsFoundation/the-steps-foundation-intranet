@@ -295,6 +295,7 @@ function StudentHubInner() {
         try {
           const r = await fetch(`/api/admin/preview-student-data?student_id=${encodeURIComponent(adminPreviewParam!)}`, {
             headers: { Authorization: `Bearer ${adminToken}` },
+            cache: 'no-store',
           })
           const data = await r.json()
           if (cancelled || !r.ok) { setLoading(false); return }
@@ -644,7 +645,7 @@ function StudentHubInner() {
                 </div>
               </div>
               <div className="flex-shrink-0">
-                <PressableButton href={`/my/test/${app.event.slug}`} variant="primary" size="sm">
+                <PressableButton href={adminPreviewMode ? `/my/test/${app.event.slug}?preview=admin` : `/my/test/${app.event.slug}`} variant="primary" size="sm">
                   {info.attemptStatus === 'in_progress' ? 'Continue your test' : info.openNow ? 'Start your online test' : 'Preview your test'}
                 </PressableButton>
               </div>
@@ -667,7 +668,7 @@ function StudentHubInner() {
                 return (
                   <Link
                     key={event.id}
-                    href={`/my/events/${event.id}`}
+                    href={`/my/events/${event.id}${previewQuerystring}`}
                     className="relative block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-lg hover:border-steps-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 transition-all group"
                   >
                     <div className="flex items-stretch min-h-[160px] sm:min-h-[200px]">
@@ -736,7 +737,7 @@ function StudentHubInner() {
                 return (
                   <Link
                     key={event.id}
-                    href={`/my/events/${event.id}`}
+                    href={`/my/events/${event.id}${previewQuerystring}`}
                     className="relative block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden saturate-50 opacity-80 hover:saturate-100 hover:opacity-100 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 transition group"
                   >
                     <div className="flex items-stretch min-h-[160px] sm:min-h-[200px]">
@@ -808,7 +809,7 @@ function StudentHubInner() {
                 return (
                   <Link
                     key={event.id}
-                    href={`/my/events/${event.id}`}
+                    href={`/my/events/${event.id}${previewQuerystring}`}
                     className="relative block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden opacity-60 hover:opacity-90 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 focus-visible:opacity-100 transition group"
                     title={yearLabel}
                   >
@@ -900,7 +901,7 @@ function StudentHubInner() {
                 return (
                   <Link
                     key={app.id}
-                    href={`/my/events/${app.event.id}`}
+                    href={`/my/events/${app.event.id}${previewQuerystring}`}
                     className="relative block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-lg hover:border-steps-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-2 transition-all group"
                   >
                     <div className="flex items-stretch min-h-[140px] sm:min-h-[180px]">
@@ -942,7 +943,7 @@ function StudentHubInner() {
                         {isPast && app.status === 'accepted' && app.attended === true && !feedbackSubmittedFor.has(app.event_id) && getFeedbackFields(app.event.feedback_config).length > 0 && (
                           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
                             <a
-                              href={`/my/events/${app.event.id}/feedback`}
+                              href={`/my/events/${app.event.id}/feedback${previewQuerystring}`}
                               onClick={e => e.stopPropagation()}
                               className="px-3 py-2 text-sm font-semibold text-white bg-steps-blue-600 hover:bg-steps-blue-700 rounded-xl transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-blue-500 focus-visible:ring-offset-1"
                             >

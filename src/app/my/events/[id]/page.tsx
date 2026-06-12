@@ -257,6 +257,7 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
         // endpoint and find the matching event/application in its response.
         const r = await fetch(`/api/admin/preview-student-data?student_id=${encodeURIComponent(adminPreviewParam!)}`, {
           headers: { Authorization: `Bearer ${adminToken}` },
+          cache: 'no-store',
         })
         const d = await r.json()
         if (!r.ok) { setErr(d?.error ?? 'Failed to load preview'); return }
