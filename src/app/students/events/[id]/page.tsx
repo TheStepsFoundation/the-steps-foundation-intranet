@@ -3067,13 +3067,14 @@ export default function EventDetailPage() {
   }
 
     const visibleColumns = useMemo(() => {
-    return allColumns.filter(c => {
-      if (hiddenCols.has(c.id)) return false
-      // Auto-hide status when filtering by a specific status
-      if (c.id === 'status' && statusFilter !== 'all') return false
-      return true
-    })
-  }, [allColumns, hiddenCols, statusFilter])
+    // NOTE: External status is NEVER auto-hidden. The tabs group by
+    // effectiveDecisionStatus (committed status OR internal mark), so even
+    // within one tab the true external status varies — e.g. the Shortlisted
+    // tab mixes committed 'shortlisted' rows with internally-marked rows the
+    // student still sees as 'submitted'. The old "hide status while a status
+    // tab is active" shortcut hid exactly that distinction.
+    return allColumns.filter(c => !hiddenCols.has(c.id))
+  }, [allColumns, hiddenCols])
 
   // Columns available to the exporter - mirrors the on-screen cell formatting
   // so an export reads the same as the table, and is built from the same
@@ -4165,8 +4166,6 @@ export default function EventDetailPage() {
                       id: c.id,
                       label: c.label,
                       group: c.kind === 'custom' ? 'Form question' : c.kind === 'standard' ? 'Standard Q' : undefined,
-                      disabled: c.id === 'status' && statusFilter !== 'all',
-                      disabledReason: 'Auto-hidden while filtering by status',
                     }))}
                     hidden={hiddenCols}
                     order={colOrder}
