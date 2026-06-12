@@ -2165,11 +2165,35 @@ export default function EventDetailPage() {
   // Internal review (draft decision, never notifies the student)
   // ---------------------------------------------------------------------------
 
+  // Marks that automatically grant test access: passing screening, and any
+  // shortlist — an internally-shortlisted student must be able to sit the
+  // test (Sam, 2026-06-12). Committed 'shortlisted' grants it too (below).
+  const INVITE_GRANTING_MARKS: ReadonlyArray<InternalReviewStatusCode> = ['screening_passed', 'shortlist']
+
+  /** Idempotently add the given applications' students to the test invite
+   *  list. Silent no-op when the event has no test; loud on DB failure. */
+  const grantTestInvites = async (appIds: string[]): Promise<void> => {
+    if (!eventTest || appIds.length === 0) return
+    const idSet = new Set(appIds)
+    const rows = applicants
+      .filter(a => idSet.has(a.id) && a.student_id)
+      .map(a => ({ test_id: eventTest.id, student_id: a.student_id, invited_by: teamMember?.auth_uuid ?? null }))
+    if (rows.length === 0) return
+    const { error } = await supabase
+      .from('test_invitations')
+      .upsert(rows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
+    if (error) {
+      window.alert(`Saved, but adding to the test invite list FAILED:\n\n${error.message}`)
+      return
+    }
+    setApplicants(prev => prev.map(a => (idSet.has(a.id) && a.student_id) ? { ...a, testInvited: true } : a))
+  }
+
   const updateInternalReviewStatus = async (appId: string, newInternal: InternalReviewStatusCode | null) => {
     setSaving(prev => new Set(prev).add(appId))
     const now = new Date().toISOString()
 
-    await supabase
+    const { error: rowErr } = await supabase
       .from('applications')
       .update({
         internal_review_status: newInternal,
@@ -2179,11 +2203,19 @@ export default function EventDetailPage() {
         updated_at: now,
       } as any)
       .eq('id', appId)
+    if (rowErr) {
+      window.alert(`Internal mark update FAILED — nothing was changed.\n\n${rowErr.message}`)
+      setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
+      return
+    }
 
     setApplicants(prev => prev.map(a =>
       a.id === appId ? { ...a, internal_review_status: newInternal } : a
     ))
     setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
+    if (newInternal && INVITE_GRANTING_MARKS.includes(newInternal)) {
+      await grantTestInvites([appId])
+    }
   }
 
   const bulkUpdateInternalReviewStatus = async (newInternal: InternalReviewStatusCode | null) => {
@@ -2209,6 +2241,9 @@ export default function EventDetailPage() {
     setApplicants(prev => prev.map(a =>
       ids.includes(a.id) ? { ...a, internal_review_status: newInternal } : a
     ))
+    if (newInternal && INVITE_GRANTING_MARKS.includes(newInternal)) {
+      await grantTestInvites(ids)
+    }
   }
 
   // Pass screening, INTERNAL ONLY — one action, two effects: sets the
@@ -2462,6 +2497,8 @@ export default function EventDetailPage() {
       }
       setApplicants(prev => prev.map(a => applied.has(a.id) ? { ...a, internal_review_status: applied.get(a.id)! } : a))
       setAiApplied(applied.size)
+      // Internally-shortlisted students must be able to sit the test.
+      await grantTestInvites(aiShortlistFinal)
     } catch (e) {
       setAiError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2581,6 +2618,9 @@ export default function EventDetailPage() {
         reviewed_at: now,
       } : a
     ))
+    if (newStatus === 'shortlisted') {
+      await grantTestInvites(changingIds)
+    }
     // Auto-promote from waitlist when accepted seats are vacated.
     // Count how many newly-withdrew rows came from the 'accepted' bucket —
     // that's how many seats freed up. Call promote_from_waitlist that many
@@ -3103,16 +3143,20 @@ export default function EventDetailPage() {
         .in('id', ids)
       if (stErr) {
         window.alert(`Emails were queued, but the status update FAILED:\n\n${stErr.message}`)
-      } else
-      setApplicants(prev => prev.map(a =>
-        ids.includes(a.id) ? {
-          ...a,
-          status: notifyAction,
-          reviewed_by: teamMember?.auth_uuid ?? null,
-          reviewer_name: teamMember?.name ?? null,
-          reviewed_at: now,
-        } : a
-      ))
+      } else {
+        setApplicants(prev => prev.map(a =>
+          ids.includes(a.id) ? {
+            ...a,
+            status: notifyAction,
+            reviewed_by: teamMember?.auth_uuid ?? null,
+            reviewer_name: teamMember?.name ?? null,
+            reviewed_at: now,
+          } : a
+        ))
+        if (notifyAction === 'shortlisted') {
+          await grantTestInvites(ids)
+        }
+      }
     }
 
     // Refresh the queue stats widget so the admin sees their new queued items
