@@ -58,7 +58,16 @@ function StudentTestPageInner() {
         </div>
       )}
       <TopNav homeHref="/my" />
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {!isAdminPreview && (
+          <Link
+            href="/my"
+            className="inline-flex items-center gap-1.5 mb-5 text-sm font-medium text-slate-500 hover:text-steps-dark transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            Back to my hub
+          </Link>
+        )}
         {authState === 'checking' && (
           <div className="max-w-2xl mx-auto skeleton-fade" role="status">
             <span className="sr-only">Checking your session…</span>

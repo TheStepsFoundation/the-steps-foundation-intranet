@@ -1404,16 +1404,18 @@ import { normalizeStatus } from '@/lib/application-status'
 // Tone palette — colour reflects the *highest* stage the student reached,
 // not the final outcome. So a "shortlisted then rejected" journey reads
 // violet (the stage they earned) with a "Not this time" label, never red.
-type Tone = 'accepted' | 'waitlist' | 'shortlisted' | 'pending' | 'neutral'
+type Tone = 'accepted' | 'waitlist' | 'shortlisted' | 'screening' | 'pending' | 'neutral'
 
 const TONE_BAR: Record<Tone, string> = {
   accepted:    'bg-emerald-500',
   waitlist:    'bg-steps-sunrise',
   shortlisted: 'bg-violet-500',
+  screening:   'bg-teal-500',
   pending:     'bg-steps-blue-600',
   neutral:     'bg-slate-400',
 }
 const TONE_LABEL: Record<Tone, string> = {
+  screening:   'text-teal-700',
   accepted:    'text-emerald-700',
   waitlist:    'text-steps-sunrise',
   shortlisted: 'text-violet-700',
@@ -1467,6 +1469,14 @@ function JourneyTimeline({ status, history, eventDate }: { status: string; histo
     void isPast // keep variable referenced for future use
   } else if (code === 'shortlisted') {
     steps = [{ key: 'decision', label: null, tone: 'shortlisted', fill: 50, active: true }]
+  } else if (code === 'screening_passed') {
+    // Screening is a real stage of the journey: passed (full teal), the
+    // online test is what's live now, the decision is still ahead.
+    steps = [
+      { key: 'screening', label: 'Screening', tone: 'screening', fill: 100, active: false },
+      { key: 'test',      label: 'Online test', tone: 'screening', fill: 35, active: true },
+      { key: 'decision',  label: 'Decision',  tone: 'screening', fill: 0,   active: false },
+    ]
   } else if (code === 'withdrew') {
     steps = [{ key: 'decision', label: null, tone: 'neutral', fill: 50, active: true }]
   } else if (code === 'ineligible') {
