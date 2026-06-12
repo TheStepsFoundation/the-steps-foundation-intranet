@@ -286,7 +286,42 @@ export default function EventTestAdminPage() {
           .update({ status: 'voided', voided_at: new Date().toISOString(), voided_by: u?.user?.id ?? null })
           .eq('id', attemptId)
         await load()
+        setAllAnswers(null)   // analytics excludes voided attempts — recrunch
         showToast(`Attempt voided — ${studentName ?? 'the student'} can retake the test.`)
+      },
+    })
+  }
+
+  /** Hard delete: the attempt row AND its answers (FK cascade) are gone for
+   *  good. Unlike voiding there is no trace left; a student gets a fresh
+   *  attempt either way. Main use: clearing practice clutter / test data. */
+  const deleteAttempt = async (a: AttemptRow, name?: string | null) => {
+    const label = name ?? a.team_email ?? 'this attempt'
+    setConfirmAction({
+      title: 'Delete this attempt?',
+      body: `${label}'s attempt and every recorded answer will be permanently deleted — unlike voiding, nothing is kept for the audit trail${a.kind === 'student' ? ', and they will be able to start a fresh attempt' : ''}. This cannot be undone.`,
+      confirmLabel: 'Delete attempt',
+      run: async () => {
+        const { error } = await supabase.from('test_attempts').delete().eq('id', a.id)
+        if (error) { window.alert(`Delete failed: ${error.message}`); return }
+        await load()
+        setAllAnswers(null)
+        showToast(`Attempt deleted — ${label}.`)
+      },
+    })
+  }
+
+  const deleteVoidedAttempts = async (ids: string[]) => {
+    setConfirmAction({
+      title: `Delete ${ids.length} voided attempt${ids.length === 1 ? '' : 's'}?`,
+      body: 'Voided attempts are already hidden from results and grant nothing — deleting them just removes the rows and their answers permanently. This cannot be undone.',
+      confirmLabel: `Delete ${ids.length} voided`,
+      run: async () => {
+        const { error } = await supabase.from('test_attempts').delete().in('id', ids)
+        if (error) { window.alert(`Delete failed: ${error.message}`); return }
+        await load()
+        setAllAnswers(null)
+        showToast(`Deleted ${ids.length} voided attempt${ids.length === 1 ? '' : 's'}.`)
       },
     })
   }
@@ -843,14 +878,24 @@ export default function EventTestAdminPage() {
                           <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{fmtDuration(a.started_at, a.submitted_at)}</td>
                           <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{fmtWhen(a.started_at)}</td>
                           <td className="py-2 pr-0 text-right">
-                            <button
-                              type="button"
-                              onClick={e => { e.stopPropagation(); void voidAttempt(a.id, who?.name) }}
-                              className="text-xs text-red-500 hover:text-red-700 font-medium"
-                              title="Void this attempt so the student can retake (tech-failure override)"
-                            >
-                              Void
-                            </button>
+                            <span className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); void voidAttempt(a.id, who?.name) }}
+                                className="text-xs text-red-500 hover:text-red-700 font-medium"
+                                title="Void this attempt so the student can retake (tech-failure override) — kept in the database"
+                              >
+                                Void
+                              </button>
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); void deleteAttempt(a, who?.name) }}
+                                className="text-xs text-gray-400 hover:text-red-700 font-medium"
+                                title="Permanently delete this attempt and its answers"
+                              >
+                                Delete
+                              </button>
+                            </span>
                           </td>
                         </tr>
                       )
@@ -860,7 +905,16 @@ export default function EventTestAdminPage() {
               </div>
             )}
             {voidedAttempts.length > 0 && (
-              <p className="text-xs text-gray-400 mt-3">{voidedAttempts.length} voided attempt{voidedAttempts.length === 1 ? '' : 's'} hidden.</p>
+              <p className="text-xs text-gray-400 mt-3">
+                {voidedAttempts.length} voided attempt{voidedAttempts.length === 1 ? '' : 's'} hidden.{' '}
+                <button
+                  type="button"
+                  onClick={() => void deleteVoidedAttempts(voidedAttempts.map(a => a.id))}
+                  className="text-gray-400 hover:text-red-700 underline underline-offset-2"
+                >
+                  Delete them permanently
+                </button>
+              </p>
             )}
             {teamAttempts.length > 0 && (
               <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
@@ -877,6 +931,7 @@ export default function EventTestAdminPage() {
                         {teamTh('accuracy', 'Accuracy')}
                         {teamTh('time', 'Time used')}
                         {teamTh('started', 'Started')}
+                        <th className="py-2 pr-0 font-medium"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50 dark:divide-gray-800/60">
@@ -904,6 +959,16 @@ export default function EventTestAdminPage() {
                             <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{a.status === 'in_progress' ? '—' : acc}</td>
                             <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{fmtDuration(a.started_at, a.submitted_at)}</td>
                             <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{fmtWhen(a.started_at)}</td>
+                            <td className="py-2 pr-0 text-right">
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); void deleteAttempt(a, a.team_email) }}
+                                className="text-xs text-gray-400 hover:text-red-700 font-medium"
+                                title="Permanently delete this practice run"
+                              >
+                                Delete
+                              </button>
+                            </td>
                           </tr>
                         )
                       })}
