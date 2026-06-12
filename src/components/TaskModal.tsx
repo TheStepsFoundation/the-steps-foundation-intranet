@@ -131,8 +131,8 @@ export function TaskModal({
     {/* Unsaved changes prompt */}
     {showUnsavedPrompt && (
       <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
-        <div className="bg-white rounded-xl p-6 max-w-sm shadow-2xl">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Unsaved Changes</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 max-w-sm shadow-2xl">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Unsaved Changes</h3>
           <p className="text-gray-600 mb-4">You have unsaved changes. Would you like to save them?</p>
           <div className="flex gap-3 justify-end">
             <button
@@ -154,11 +154,11 @@ export function TaskModal({
     
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={handleClose}>
       <div 
-        className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
+        className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-6 border-b flex-shrink-0">
-          <h2 className="text-xl font-semibold text-gray-900">Edit Task</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Edit Task</h2>
           <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 p-2">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -200,30 +200,30 @@ export function TaskModal({
             <div className="space-y-6">
               {/* Title */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Title *</label>
                 <input
                   type="text"
                   value={editedTask.title}
                   onChange={e => setEditedTask({ ...editedTask, title: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none"
+                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
                 <textarea
                   value={editedTask.description}
                   onChange={e => setEditedTask({ ...editedTask, description: e.target.value })}
                   rows={2}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none resize-none"
+                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none resize-none"
                 />
               </div>
 
               {/* Workflow Selection */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Main Workflow</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Main Workflow</label>
                   <select
                     value={editedTask.workflow || ''}
                     onChange={e => setEditedTask({ 
@@ -231,7 +231,7 @@ export function TaskModal({
                       workflow: e.target.value || null,
                       subWorkflow: e.target.value === editedTask.subWorkflow ? null : editedTask.subWorkflow
                     })}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
+                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
                   >
                     <option value="">None</option>
                     {workflows.filter(w => !w.archived).map(w => (
@@ -240,11 +240,11 @@ export function TaskModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Sub-Workflow</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sub-Workflow</label>
                   <select
                     value={editedTask.subWorkflow || ''}
                     onChange={e => setEditedTask({ ...editedTask, subWorkflow: e.target.value || null })}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
+                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
                   >
                     <option value="">None</option>
                     {workflows.filter(w => w.id !== editedTask.workflow && !w.archived).map(w => (
@@ -256,7 +256,7 @@ export function TaskModal({
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Status</label>
                   <select
                     value={editedTask.status}
                     onChange={e => {
@@ -271,7 +271,7 @@ export function TaskModal({
                         setEditedTask({ ...editedTask, status: newStatus })
                       }
                     }}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
+                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
                   >
                     <option value="todo">To Do</option>
                     <option value="in-progress">In Progress</option>
@@ -280,11 +280,11 @@ export function TaskModal({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Priority</label>
                   <select
                     value={editedTask.priority}
                     onChange={e => setEditedTask({ ...editedTask, priority: e.target.value as Priority })}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
+                    className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none bg-white"
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -295,17 +295,17 @@ export function TaskModal({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Due Date</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Due Date</label>
                 <input
                   type="date"
                   value={editedTask.dueDate}
                   onChange={e => setEditedTask({ ...editedTask, dueDate: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none"
+                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Assigned To</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Assigned To</label>
                 <div className="grid grid-cols-3 gap-2">
                   {teamMembers.map(member => (
                     <button
@@ -348,7 +348,7 @@ export function TaskModal({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Collaborators</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Collaborators</label>
                 <div className="grid grid-cols-3 gap-2">
                   {teamMembers.filter(m => m.id !== editedTask.assignee).map(member => (
                     <button
@@ -410,7 +410,7 @@ export function TaskModal({
                 ) : (
                   <div className="space-y-3">
                     {editedTask.subtasks.map((subtask, index) => (
-                      <div key={subtask.id} className={`flex gap-3 items-start p-3 rounded-lg ${subtask.completed ? 'bg-green-50' : 'bg-gray-50'}`}>
+                      <div key={subtask.id} className={`flex gap-3 items-start p-3 rounded-lg ${subtask.completed ? 'bg-green-50 dark:bg-green-900/20' : 'bg-gray-50 dark:bg-gray-800/60'}`}>
                         <button
                           type="button"
                           onClick={() => {
@@ -442,7 +442,7 @@ export function TaskModal({
                             newSubtasks[index] = { ...subtask, personId: parseInt(e.target.value) }
                             setEditedTask({ ...editedTask, subtasks: newSubtasks })
                           }}
-                          className={`px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none min-w-[120px] ${subtask.completed ? 'opacity-60' : ''}`}
+                          className={`px-3 py-2 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg text-sm bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none min-w-[120px] ${subtask.completed ? 'opacity-60' : ''}`}
                         >
                           <option value={0}>Unassigned</option>
                           {teamMembers.map(m => (
@@ -459,7 +459,7 @@ export function TaskModal({
                               setEditedTask({ ...editedTask, subtasks: newSubtasks })
                             }}
                             placeholder="What are they doing?"
-                            className={`w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none ${subtask.completed ? 'line-through opacity-60' : ''}`}
+                            className={`w-full px-3 py-2 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-lg text-sm focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none ${subtask.completed ? 'line-through opacity-60' : ''}`}
                           />
                         </div>
                         <select
@@ -582,7 +582,7 @@ export function TaskModal({
                   {editedTask.attachments.map(attachment => (
                     <div 
                       key={attachment.id}
-                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg"
+                      className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800/60 rounded-lg"
                     >
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                         attachment.type === 'image' ? 'bg-blue-100' :
@@ -600,7 +600,7 @@ export function TaskModal({
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{attachment.name}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{attachment.name}</p>
                         {attachment.type === 'note' && (
                           <p className="text-xs text-gray-500 truncate">{attachment.url.slice(0, 60)}...</p>
                         )}
@@ -637,7 +637,7 @@ export function TaskModal({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 p-6 border-t bg-gray-50">
+        <div className="flex items-center justify-between gap-3 p-6 border-t border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60">
           {/* Left side buttons */}
           <div className="flex gap-2">
             {/* Delete button */}

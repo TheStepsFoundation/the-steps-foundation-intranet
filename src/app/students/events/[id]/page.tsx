@@ -3798,7 +3798,7 @@ export default function EventDetailPage() {
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
                       event.format === 'online' ? 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400' :
                       event.format === 'hybrid' ? 'bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-400' :
-                      'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400'
+                      'bg-steps-blue-50 text-steps-blue-700 dark:bg-steps-blue-800/40 dark:text-steps-blue-300'
                     }`}>
                       {event.format === 'online' ? (
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
@@ -4637,7 +4637,7 @@ export default function EventDetailPage() {
                         if (col.id === 'test_score') return (
                           <td key={col.id} className="p-3 whitespace-nowrap">
                             {app.testStatus === 'in_progress' ? (
-                              <span className="text-xs font-medium text-blue-600 dark:text-blue-400">taking now…</span>
+                              <span className="text-xs font-medium text-steps-blue-500 dark:text-steps-blue-300">taking now…</span>
                             ) : app.testScore !== null ? (
                               <span className="font-medium tabular-nums text-gray-900 dark:text-gray-100">{app.testScore}</span>
                             ) : (

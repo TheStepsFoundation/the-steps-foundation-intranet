@@ -88,7 +88,7 @@ function fmtDuration(start: string, end: string | null): string {
 }
 
 const STATUS_BADGE: Record<string, string> = {
-  in_progress: 'bg-blue-100 text-blue-700',
+  in_progress: 'bg-steps-blue-100 text-steps-blue-700',
   submitted: 'bg-emerald-100 text-emerald-700',
   expired: 'bg-amber-100 text-amber-700',
   voided: 'bg-gray-100 text-gray-500',
