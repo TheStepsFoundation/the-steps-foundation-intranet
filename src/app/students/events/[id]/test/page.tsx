@@ -150,6 +150,9 @@ export default function EventTestAdminPage() {
   const [allAnswers, setAllAnswers] = useState<AnswerRow[] | null>(null)
   const [answersLoading, setAnswersLoading] = useState(false)
   const [analyticsSort, setAnalyticsSort] = useState<'wrong' | 'skipped' | 'slowest' | 'position'>('wrong')
+  // null = auto: team practice runs count while there are no real student
+  // attempts (so the team can sanity-check the bank), then drop out.
+  const [analyticsIncludeTeam, setAnalyticsIncludeTeam] = useState<boolean | null>(null)
   const [expandedAnalyticsQ, setExpandedAnalyticsQ] = useState<string | null>(null)
   // Results table controls
   const [resultSearch, setResultSearch] = useState('')
@@ -345,7 +348,7 @@ export default function EventTestAdminPage() {
     if (answersLoading) return
     setAnswersLoading(true)
     try {
-      const ids = attempts.filter(a => a.kind === 'student' && a.status !== 'voided').map(a => a.id)
+      const ids = attempts.filter(a => a.status !== 'voided').map(a => a.id)
       if (ids.length === 0) { setAllAnswers([]); return }
       const rows: AnswerRow[] = []
       for (let from = 0; ; from += 1000) {
@@ -383,10 +386,19 @@ export default function EventTestAdminPage() {
 
   // Per-question aggregates: reached (has an answers row), skipped
   // (selected_index null), % wrong among real answers, average time.
+  const hasStudentAttempts = attempts.some(a => a.kind === 'student' && a.status !== 'voided')
+  const includeTeamRuns = analyticsIncludeTeam ?? !hasStudentAttempts
+
   const analytics = useMemo(() => {
     if (!allAnswers) return null
+    const allowed = new Set(
+      attempts
+        .filter(a => a.status !== 'voided' && (a.kind === 'student' || includeTeamRuns))
+        .map(a => a.id),
+    )
     const agg: Record<string, { reached: number; skipped: number; answered: number; correct: number; timeSum: number; timeN: number }> = {}
     for (const r of allAnswers) {
+      if (!allowed.has(r.attempt_id)) continue
       const a = (agg[r.question_id] ??= { reached: 0, skipped: 0, answered: 0, correct: 0, timeSum: 0, timeN: 0 })
       a.reached += 1
       if (r.selected_index === null) a.skipped += 1
@@ -416,7 +428,7 @@ export default function EventTestAdminPage() {
       return (x.q!.position ?? 0) - (y.q!.position ?? 0)
     })
     return rows
-  }, [allAnswers, questionById, analyticsSort])
+  }, [allAnswers, attempts, includeTeamRuns, questionById, analyticsSort])
 
   const fmtMs = (ms: number | null | undefined) => ms == null ? '—' : ms < 1000 ? `${(ms / 1000).toFixed(1)}s` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
 
@@ -872,7 +884,12 @@ export default function EventTestAdminPage() {
                         const acc = a.answered_count > 0 && a.correct_count !== null
                           ? `${Math.round((a.correct_count / a.answered_count) * 100)}%` : '—'
                         return (
-                          <tr key={a.id}>
+                          <tr
+                            key={a.id}
+                            onClick={() => void openAudit(a)}
+                            className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+                            title="Click for the question-by-question breakdown"
+                          >
                             <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
                             <td className="py-2 pr-3 text-gray-900 dark:text-gray-100">{a.team_email}</td>
                             <td className="py-2 pr-3">
@@ -916,7 +933,15 @@ export default function EventTestAdminPage() {
                   Crunching every answer…
                 </div>
               ) : analytics.length === 0 ? (
-                <p className="text-sm text-gray-400 py-4">No answers recorded yet — analytics appear once students start answering.</p>
+                <div className="py-4 space-y-2">
+                  <p className="text-sm text-gray-400">
+                    No answers recorded yet{!includeTeamRuns ? ' from students' : ''} — analytics appear the moment someone starts answering.
+                  </p>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                    <input type="checkbox" checked={includeTeamRuns} onChange={e => setAnalyticsIncludeTeam(e.target.checked)} />
+                    Include team practice runs
+                  </label>
+                </div>
               ) : (
                 <div className="mt-4">
                   {(() => {
@@ -946,7 +971,15 @@ export default function EventTestAdminPage() {
                       <option value="slowest">Slowest</option>
                       <option value="position">Question number</option>
                     </select>
-                    <span className="text-xs text-gray-400">· {analytics.length} questions reached by at least one student · click a row for the full question</span>
+                    <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 ml-1">
+                      <input
+                        type="checkbox"
+                        checked={includeTeamRuns}
+                        onChange={e => setAnalyticsIncludeTeam(e.target.checked)}
+                      />
+                      Include team practice runs
+                    </label>
+                    <span className="text-xs text-gray-400">· {analytics.length} questions reached · click a row for the full question</span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
@@ -1102,6 +1135,7 @@ export default function EventTestAdminPage() {
       {/* Per-attempt audit modal — question-by-question breakdown */}
       {auditAttempt && (() => {
         const who = auditAttempt.student_id ? studentNames[auditAttempt.student_id] : null
+        const auditName = who?.name ?? auditAttempt.team_email ?? 'Attempt'
         const byQ: Record<string, AnswerRow> = {}
         for (const r of auditAnswers ?? []) byQ[r.question_id] = r
         const lastServedIdx = auditAttempt.question_order.reduce((acc, qid, idx) => byQ[qid] ? idx : acc, -1)
@@ -1114,12 +1148,13 @@ export default function EventTestAdminPage() {
               <div className="p-5 border-b border-gray-200 dark:border-gray-800 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 id="audit-title" className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
-                    {who?.name ?? 'Attempt'} <span className="font-normal text-gray-400">— question by question</span>
+                    {auditName} <span className="font-normal text-gray-400">— question by question</span>
                   </h3>
                   <MetaLine
                     className="mt-1 !text-xs"
                     items={[
                       { label: <Badge tone={STATUS_TONE[auditAttempt.status] ?? 'neutral'}>{auditAttempt.status === 'in_progress' ? 'in progress' : auditAttempt.status}</Badge> },
+                      ...(auditAttempt.kind === 'team' ? [{ label: <Badge tone="violet">team practice — not an applicant</Badge> }] : []),
                       { label: <>Score <strong className="text-gray-700 dark:text-gray-200">{auditAttempt.status === 'in_progress' ? '—' : auditAttempt.score ?? 0}</strong></> },
                       { label: <>Accuracy {auditAttempt.status === 'in_progress' ? '—' : acc}</> },
                       { label: <>{fmtDuration(auditAttempt.started_at, auditAttempt.submitted_at)}</> },
