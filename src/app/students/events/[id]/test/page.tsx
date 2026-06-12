@@ -156,6 +156,14 @@ export default function EventTestAdminPage() {
   const [expandedAnalyticsQ, setExpandedAnalyticsQ] = useState<string | null>(null)
   // Results table controls
   const [resultSearch, setResultSearch] = useState('')
+  // Multi-select for bulk void/delete on the results table.
+  const [selectedAttempts, setSelectedAttempts] = useState<Set<string>>(new Set())
+  // Synced horizontal scrollbar pinned to the viewport bottom — the table is
+  // wider than the card on most screens and its native scrollbar lives below
+  // a long list, so the actions column was effectively unreachable.
+  const resultsScrollRef = useRef<HTMLDivElement | null>(null)
+  const resultsBarRef = useRef<HTMLDivElement | null>(null)
+  const [resultsBar, setResultsBar] = useState<{ left: number; width: number; scrollWidth: number } | null>(null)
   const [resultSort, setResultSort] = useState<{ key: 'name' | 'status' | 'score' | 'answered' | 'accuracy' | 'started'; dir: 'asc' | 'desc' } | null>(null)
   // Team practice runs use the same database-view conventions (sortable
   // headers, one row per run) as every other data table on the site.
@@ -466,6 +474,56 @@ export default function EventTestAdminPage() {
   }, [allAnswers, attempts, includeTeamRuns, questionById, analyticsSort])
 
   const fmtMs = (ms: number | null | undefined) => ms == null ? '—' : ms < 1000 ? `${(ms / 1000).toFixed(1)}s` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
+
+  // Measure the results table for the pinned scrollbar (and re-measure on
+  // resize / when rows change).
+  useEffect(() => {
+    const measure = () => {
+      const e = resultsScrollRef.current
+      if (!e) { setResultsBar(null); return }
+      const r = e.getBoundingClientRect()
+      setResultsBar(e.scrollWidth > e.clientWidth + 2 ? { left: r.left, width: e.clientWidth, scrollWidth: e.scrollWidth } : null)
+    }
+    measure()
+    const t = setTimeout(measure, 100)
+    window.addEventListener('resize', measure)
+    return () => { window.removeEventListener('resize', measure); clearTimeout(t) }
+  }, [attempts, resultSearch, loaded])
+
+  const bulkVoidAttempts = (ids: string[]) => {
+    setConfirmAction({
+      title: `Void ${ids.length} attempt${ids.length === 1 ? '' : 's'}?`,
+      body: 'Each student will be able to take the test again from scratch — use this only for genuine technical failures. Voided attempts stay in the database but disappear from results. This cannot be undone.',
+      confirmLabel: `Void ${ids.length}`,
+      run: async () => {
+        const { data: u } = await supabase.auth.getUser()
+        const { error } = await supabase.from('test_attempts')
+          .update({ status: 'voided', voided_at: new Date().toISOString(), voided_by: u?.user?.id ?? null })
+          .in('id', ids)
+        if (error) { window.alert(`Void failed: ${error.message}`); return }
+        await load()
+        setAllAnswers(null)
+        setSelectedAttempts(new Set())
+        showToast(`Voided ${ids.length} attempt${ids.length === 1 ? '' : 's'}.`)
+      },
+    })
+  }
+
+  const bulkDeleteAttempts = (ids: string[]) => {
+    setConfirmAction({
+      title: `Delete ${ids.length} attempt${ids.length === 1 ? '' : 's'}?`,
+      body: 'The attempts and every recorded answer will be permanently deleted — unlike voiding, nothing is kept, and the students can start fresh attempts. This cannot be undone.',
+      confirmLabel: `Delete ${ids.length}`,
+      run: async () => {
+        const { error } = await supabase.from('test_attempts').delete().in('id', ids)
+        if (error) { window.alert(`Delete failed: ${error.message}`); return }
+        await load()
+        setAllAnswers(null)
+        setSelectedAttempts(new Set())
+        showToast(`Deleted ${ids.length} attempt${ids.length === 1 ? '' : 's'}.`)
+      },
+    })
+  }
 
   // Results view: name/email filter + click-to-sort headers.
   const displayAttempts = useMemo(() => {
@@ -823,7 +881,7 @@ export default function EventTestAdminPage() {
             {studentAttempts.length === 0 ? (
               <p className="text-sm text-gray-400">No attempts yet — they appear here the moment an invited student starts the test.</p>
             ) : (
-              <div className="overflow-x-auto">
+              <>
                 <input
                   type="search"
                   placeholder="Search by name or email…"
@@ -834,9 +892,22 @@ export default function EventTestAdminPage() {
                 {displayAttempts.length === 0 && (
                   <p className="text-sm text-gray-400 mb-2">No attempts match &quot;{resultSearch}&quot;.</p>
                 )}
+              <div
+                ref={resultsScrollRef}
+                onScroll={e => { if (resultsBarRef.current) resultsBarRef.current.scrollLeft = e.currentTarget.scrollLeft }}
+                className="overflow-x-auto"
+              >
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-800">
+                      <th className="py-2 pr-2 font-medium">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all shown"
+                          checked={displayAttempts.length > 0 && displayAttempts.every(a => selectedAttempts.has(a.id))}
+                          onChange={e => setSelectedAttempts(e.target.checked ? new Set(displayAttempts.map(a => a.id)) : new Set())}
+                        />
+                      </th>
                       <th className="py-2 pr-3 font-medium">#</th>
                       {sortableTh('name', 'Student')}
                       {sortableTh('status', 'Status')}
@@ -845,7 +916,7 @@ export default function EventTestAdminPage() {
                       {sortableTh('accuracy', 'Accuracy')}
                       <th className="py-2 pr-3 font-medium">Time used</th>
                       {sortableTh('started', 'Started')}
-                      <th className="py-2 pr-0 font-medium"></th>
+                      <th className="py-2 pr-2 pl-2 font-medium sticky right-0 bg-white dark:bg-gray-900"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 dark:divide-gray-800/60">
@@ -857,9 +928,21 @@ export default function EventTestAdminPage() {
                         <tr
                           key={a.id}
                           onClick={() => void openAudit(a)}
-                          className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+                          className="group cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
                           title="Click for the question-by-question breakdown"
                         >
+                          <td className="py-2 pr-2" onClick={e => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${who?.name ?? 'attempt'}`}
+                              checked={selectedAttempts.has(a.id)}
+                              onChange={e => setSelectedAttempts(prev => {
+                                const next = new Set(prev)
+                                if (e.target.checked) next.add(a.id); else next.delete(a.id)
+                                return next
+                              })}
+                            />
+                          </td>
                           <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
                           <td className="py-2 pr-3">
                             <div className="text-gray-900 dark:text-gray-100">{who?.name ?? '…'}</div>
@@ -877,7 +960,7 @@ export default function EventTestAdminPage() {
                           <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{a.status === 'in_progress' ? '—' : acc}</td>
                           <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{fmtDuration(a.started_at, a.submitted_at)}</td>
                           <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">{fmtWhen(a.started_at)}</td>
-                          <td className="py-2 pr-0 text-right">
+                          <td className="py-2 pr-2 pl-2 text-right sticky right-0 bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/40 transition-colors">
                             <span className="inline-flex items-center gap-2">
                               <button
                                 type="button"
@@ -903,6 +986,7 @@ export default function EventTestAdminPage() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
             {voidedAttempts.length > 0 && (
               <p className="text-xs text-gray-400 mt-3">
@@ -1324,6 +1408,49 @@ export default function EventTestAdminPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Bulk-select action bar — pinned above the bottom edge */}
+      {selectedAttempts.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 rounded-xl bg-gray-900 text-white shadow-2xl px-4 py-2.5 text-sm">
+          <span className="font-medium">{selectedAttempts.size} selected</span>
+          <span className="text-gray-600">|</span>
+          <button
+            type="button"
+            onClick={() => bulkVoidAttempts([...selectedAttempts])}
+            className="font-medium text-amber-300 hover:text-amber-200"
+            title="Voided attempts stay in the database; students can retake"
+          >
+            Void
+          </button>
+          <button
+            type="button"
+            onClick={() => bulkDeleteAttempts([...selectedAttempts])}
+            className="font-medium text-red-400 hover:text-red-300"
+            title="Permanently delete attempts and their answers"
+          >
+            Delete
+          </button>
+          <span className="text-gray-600">|</span>
+          <button type="button" onClick={() => setSelectedAttempts(new Set())} className="text-gray-300 hover:text-white">
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Pinned horizontal scrollbar for the results table — the table is
+          wider than the card, and its native scrollbar sits below the whole
+          list, so sideways scrolling was impossible mid-list. */}
+      {resultsBar && (
+        <div
+          ref={resultsBarRef}
+          onScroll={e => { if (resultsScrollRef.current) resultsScrollRef.current.scrollLeft = e.currentTarget.scrollLeft }}
+          className="fixed bottom-0 z-30 overflow-x-auto overflow-y-hidden bg-white/80 dark:bg-gray-900/80 backdrop-blur border-t border-gray-200 dark:border-gray-800"
+          style={{ left: resultsBar.left, width: resultsBar.width, height: 14 }}
+          aria-hidden="true"
+        >
+          <div style={{ width: resultsBar.scrollWidth, height: 1 }} />
         </div>
       )}
 
