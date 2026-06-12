@@ -5186,7 +5186,12 @@ export default function EventDetailPage() {
       </div>
 
       {/* Email Compose Modal */}
-      {showCompose && (
+      {/* Email Compose Modal — position:fixed, so while the applicants card is
+          true-fullscreen it must be portalled INTO the fullscreen element or
+          the Fullscreen API never paints it (same pattern as the student
+          profile overlay below). */}
+      {showCompose && (() => {
+        const composeModal = (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-2xl max-h-[85vh] flex flex-col">
             {/* Modal header */}
@@ -5417,7 +5422,11 @@ export default function EventDetailPage() {
             </div>
           </div>
         </div>
-      )}
+        )
+        return isApplicantsFullscreen && applicantsCardRef.current
+          ? createPortal(composeModal, applicantsCardRef.current)
+          : composeModal
+      })()}
       {editingTemplate && (
         <TemplateEditDialog
           initial={editingTemplate}
