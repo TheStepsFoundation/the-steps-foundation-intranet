@@ -110,6 +110,7 @@ export const APPLICATION_STATUSES = STATUSES
 // ---------------------------------------------------------------------------
 
 export type InternalReviewStatusCode =
+  | 'screening_passed'
   | 'accept'
   | 'shortlist'
   | 'waitlist'
@@ -126,6 +127,11 @@ type InternalReviewMeta = {
 }
 
 export const INTERNAL_REVIEW_STATUSES: Record<InternalReviewStatusCode, InternalReviewMeta> = {
+  // Earliest funnel stage: passed the initial screen, gets the online test.
+  // INTERNAL ONLY — there is deliberately no committed/external analog (the
+  // status FK has no 'screening_passed' row), so this can never reach a
+  // student. correspondsTo drives the admin filter tab.
+  screening_passed: { code: 'screening_passed', adminLabel: 'Screening passed (internal)', correspondsTo: 'screening_passed', badgeClasses: 'bg-teal-50 text-teal-700 ring-1 ring-teal-200 dark:bg-teal-950/30 dark:text-teal-300 dark:ring-teal-900/40' },
   accept:    { code: 'accept',    adminLabel: 'Accept (internal)',    correspondsTo: 'accepted',    badgeClasses: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40' },
   shortlist: { code: 'shortlist', adminLabel: 'Shortlist (internal)', correspondsTo: 'shortlisted', badgeClasses: 'bg-violet-50 text-violet-600 ring-1 ring-violet-200 dark:bg-violet-950/30 dark:text-violet-300 dark:ring-violet-900/40' },
   waitlist:  { code: 'waitlist',  adminLabel: 'Waitlist (internal)',  correspondsTo: 'waitlist',    badgeClasses: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40' },

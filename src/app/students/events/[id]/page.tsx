@@ -2211,9 +2211,70 @@ export default function EventDetailPage() {
     ))
   }
 
-  // Pass screening, INTERNAL ONLY: adds the selected students to the online
-  // test invite list (test_invitations is what gates /api/test/* and the
-  // student-hub surfacing). No email is sent and external status is untouched.
+  // Pass screening, INTERNAL ONLY — one action, two effects: sets the
+  // 'screening_passed' INTERNAL mark (only where no internal mark exists yet,
+  // so it never downgrades a later-stage shortlist/accept/reject draft) and
+  // adds the selected students to the online test invite list. No email is
+  // sent and the student-facing external status is untouched.
+  const bulkPassScreeningInternal = async () => {
+    if (selected.size === 0) return
+    if (!eventTest) {
+      window.alert('This event has no selection test yet — create one from the Selection test page first.')
+      return
+    }
+    const sel = applicants.filter(a => selected.has(a.id))
+    const toMark = sel.filter(a => !a.internal_review_status)
+    const keptMarks = sel.length - toMark.length
+    const inviteRows = sel
+      .filter(a => a.student_id)
+      .map(a => ({ test_id: eventTest.id, student_id: a.student_id, invited_by: teamMember?.auth_uuid ?? null }))
+    const ok = window.confirm(
+      `Pass screening for ${sel.length} selected student${sel.length === 1 ? '' : 's'}?\n\n` +
+      `Internal only — external status does NOT change and no email is sent.\n` +
+      `  \u2022 ${toMark.length} marked "Screening passed (internal)"\n` +
+      (keptMarks > 0 ? `  \u2022 ${keptMarks} already carry a later internal mark (kept as-is)\n` : '') +
+      `  \u2022 ${inviteRows.length} added to the online test invite list`
+    )
+    if (!ok) return
+    const now = new Date().toISOString()
+    if (toMark.length > 0) {
+      const { error: markErr } = await supabase
+        .from('applications')
+        .update({
+          internal_review_status: 'screening_passed',
+          internal_review_at: now,
+          internal_review_by: teamMember?.auth_uuid ?? null,
+          updated_by: teamMember?.auth_uuid ?? null,
+          updated_at: now,
+        } as any)
+        .in('id', toMark.map(a => a.id))
+      if (markErr) {
+        window.alert(`Screening mark FAILED — nothing was changed.\n\n${markErr.message}`)
+        return
+      }
+    }
+    if (inviteRows.length > 0) {
+      const { error: invErr } = await supabase
+        .from('test_invitations')
+        .upsert(inviteRows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
+      if (invErr) {
+        window.alert(`Internal marks were set, but opening the test FAILED:\n\n${invErr.message}`)
+        return
+      }
+    }
+    const markedIds = new Set(toMark.map(a => a.id))
+    setApplicants(prev => prev.map(a => {
+      if (!selected.has(a.id)) return a
+      return {
+        ...a,
+        internal_review_status: markedIds.has(a.id) ? ('screening_passed' as InternalReviewStatusCode) : a.internal_review_status,
+        testInvited: a.student_id ? true : a.testInvited,
+      }
+    }))
+    setSelected(new Set())
+  }
+
+  // Adds the selected students to the online test invite list only (no mark).
   const bulkGrantTestAccess = async () => {
     if (selected.size === 0) return
     if (!eventTest) {
@@ -2964,6 +3025,32 @@ export default function EventDetailPage() {
       setSendProgress({ sent: 0, failed: recipients.length, total: recipients.length })
       setEmailStep('done')
       return
+    }
+
+    // Test-invite sends also record the internal screening mark (where no
+    // internal mark exists yet — never downgrades a later-stage draft).
+    // INTERNAL only: external status is untouched by screening, by design.
+    if (notifyAction === 'screening_passed') {
+      const unmarked = recipients.filter(r => !r.internal_review_status).map(r => r.id)
+      if (unmarked.length > 0) {
+        const { error: scrErr } = await supabase
+          .from('applications')
+          .update({
+            internal_review_status: 'screening_passed',
+            internal_review_at: now,
+            internal_review_by: teamMember?.auth_uuid ?? null,
+            updated_by: teamMember?.auth_uuid ?? null,
+            updated_at: now,
+          } as any)
+          .in('id', unmarked)
+        if (scrErr) {
+          window.alert(`Emails were queued, but the internal screening mark FAILED:\n\n${scrErr.message}`)
+        } else {
+          setApplicants(prev => prev.map(a =>
+            unmarked.includes(a.id) ? { ...a, internal_review_status: 'screening_passed' as InternalReviewStatusCode } : a
+          ))
+        }
+      }
     }
 
     // Grant online test access — invitation rows are what gate /api/test/*
@@ -3976,7 +4063,12 @@ export default function EventDetailPage() {
           <div className="flex flex-wrap items-center gap-3">
             {/* Status filter tabs */}
             <div className="flex items-center gap-1 flex-wrap">
-              {[{ code: 'all', label: 'All' }, ...STATUSES].map(s => (
+              {[
+                { code: 'all', label: 'All' },
+                ...STATUSES.flatMap(s => s.code === 'submitted'
+                  ? [s, { code: 'screening_passed', label: 'Screening passed' }]
+                  : [s]),
+              ].map(s => (
                 <button
                   key={s.code}
                   onClick={() => { setStatusFilter(s.code); setSelected(new Set()) }}
@@ -4337,11 +4429,11 @@ export default function EventDetailPage() {
                         >
                           <button
                             role="menuitem"
-                            onClick={() => { setBulkMenuOpen(null); void bulkGrantTestAccess() }}
+                            onClick={() => { setBulkMenuOpen(null); void bulkPassScreeningInternal() }}
                             className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            title="Internal only — adds selected students to the test invite list. No email, no status change."
+                            title="Internal only — marks selected as Screening passed (internal) and adds them to the test invite list. No email, no external status change."
                           >
-                            Pass screening — open test (no email)
+                            Pass screening internally (mark + open test)
                           </button>
                           <button
                             role="menuitem"
@@ -4495,6 +4587,7 @@ export default function EventDetailPage() {
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-violet-50 border border-violet-200" /> Internal shortlist</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-amber-50 border border-amber-200" /> Internal waitlist</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-rose-50 border border-rose-200" /> Internal reject</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-teal-50 border border-teal-200" /> Screening passed (internal)</span>
             <span className="text-gray-300 dark:text-gray-700" aria-hidden>·</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-red-50 border border-red-200" /> Ineligible</span>
           </div>
@@ -4579,6 +4672,7 @@ export default function EventDetailPage() {
                   : app.internal_review_status === 'shortlist' ? 'bg-violet-50 dark:bg-violet-950/30'
                   : app.internal_review_status === 'waitlist'  ? 'bg-amber-50 dark:bg-amber-950/30'
                   : app.internal_review_status === 'reject'    ? 'bg-rose-50 dark:bg-rose-950/30'
+                  : app.internal_review_status === 'screening_passed' ? 'bg-teal-50 dark:bg-teal-950/30'
                   : app.eligibility === 'ineligible' ? 'bg-red-50 dark:bg-red-900/10'
                   : 'bg-white dark:bg-gray-900'
                   const isSel = selected.has(app.id)
