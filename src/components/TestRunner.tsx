@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import MetaLine from '@/components/MetaLine'
 import {
   testApi, videoEmbedUrl, formatClock,
   type TestMode, type InfoResponse, type AttemptState, type LiveQuestion, type PracticeQuestion,
@@ -532,12 +533,18 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
       <Card>
         <p className="text-xs font-semibold uppercase tracking-wider text-steps-blue-600 mb-1">{test.eventName}</p>
         <h1 className="font-display text-2xl font-bold text-steps-dark mb-3">{test.title}</h1>
-        <div className="flex flex-wrap gap-2 mb-4">
-          <Chip>⏱ {Math.round(test.durationSeconds / 60)} minutes</Chip>
-          <Chip>One attempt only</Chip>
-          <Chip>Finish early any time</Chip>
-          <Chip>Calculators allowed</Chip>
-        </div>
+        <MetaLine
+          className="mb-4"
+          items={[
+            {
+              icon: <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0" /></svg>,
+              label: `${Math.round(test.durationSeconds / 60)} minutes`,
+            },
+            { label: 'One attempt only' },
+            { label: 'Finish early any time' },
+            { label: 'Calculators allowed' },
+          ]}
+        />
         {test.instructions && (
           <p className="text-slate-600 leading-relaxed whitespace-pre-line">{test.instructions}</p>
         )}
@@ -614,10 +621,6 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
 
 function Card({ children }: { children: React.ReactNode }) {
   return <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 sm:p-6">{children}</div>
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-medium">{children}</span>
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

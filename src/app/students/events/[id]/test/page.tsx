@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import Badge, { type BadgeTone } from '@/components/Badge'
 import { PromptContent, OptionContent } from '@/components/TestRunner'
 
 // ---------------------------------------------------------------------------
@@ -87,11 +88,12 @@ function fmtDuration(start: string, end: string | null): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  in_progress: 'bg-steps-blue-100 text-steps-blue-700',
-  submitted: 'bg-emerald-100 text-emerald-700',
-  expired: 'bg-amber-100 text-amber-700',
-  voided: 'bg-gray-100 text-gray-500',
+// Attempt-status tones for the shared <Badge/> (the house status style).
+const STATUS_TONE: Record<string, BadgeTone> = {
+  in_progress: 'blue',
+  submitted: 'emerald',
+  expired: 'amber',
+  voided: 'neutral',
 }
 
 export default function EventTestAdminPage() {
@@ -431,13 +433,9 @@ export default function EventTestAdminPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
               Preview as a student
             </a>
-            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-              test.status === 'open' ? 'bg-emerald-100 text-emerald-700'
-              : test.status === 'closed' ? 'bg-gray-200 text-gray-600'
-              : 'bg-amber-100 text-amber-700'
-            }`}>
+            <Badge tone={test.status === 'open' ? 'emerald' : test.status === 'closed' ? 'neutral' : 'amber'}>
               {test.status === 'draft' ? 'Draft — not visible to students' : test.status === 'open' ? 'Open' : 'Closed'}
-            </span>
+            </Badge>
           </div>
         )}
       </div>
@@ -717,9 +715,7 @@ export default function EventTestAdminPage() {
                             <div className="text-xs text-gray-400">{who?.email ?? ''}</div>
                           </td>
                           <td className="py-2 pr-3">
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[a.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                              {a.status === 'in_progress' ? 'in progress' : a.status}
-                            </span>
+                            <Badge tone={STATUS_TONE[a.status] ?? 'neutral'}>{a.status === 'in_progress' ? 'in progress' : a.status}</Badge>
                           </td>
                           <td className="py-2 pr-3 font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                             {a.status === 'in_progress' ? '—' : a.score ?? 0}
@@ -776,9 +772,7 @@ export default function EventTestAdminPage() {
                             <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
                             <td className="py-2 pr-3 text-gray-900 dark:text-gray-100">{a.team_email}</td>
                             <td className="py-2 pr-3">
-                              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[a.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                                {a.status === 'in_progress' ? 'in progress' : a.status}
-                              </span>
+                              <Badge tone={STATUS_TONE[a.status] ?? 'neutral'}>{a.status === 'in_progress' ? 'in progress' : a.status}</Badge>
                             </td>
                             <td className="py-2 pr-3 font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                               {a.status === 'in_progress' ? '—' : a.score ?? 0}
