@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import MetaLine from '@/components/MetaLine'
 import Badge, { type BadgeTone } from '@/components/Badge'
 import { PromptContent, OptionContent } from '@/components/TestRunner'
 
@@ -52,6 +53,14 @@ type AttemptRow = {
   answered_count: number
   current_index: number
   question_order: string[]
+}
+
+type AnswerRow = {
+  attempt_id: string
+  question_id: string
+  selected_index: number | null
+  is_correct: boolean | null
+  time_ms: number | null
 }
 
 type QuestionRow = {
@@ -134,6 +143,14 @@ export default function EventTestAdminPage() {
     run: () => void | Promise<void>
   } | null>(null)
   const [confirmBusy, setConfirmBusy] = useState(false)
+  // Per-attempt audit modal + question analytics (lazy-loaded answers)
+  const [auditAttempt, setAuditAttempt] = useState<AttemptRow | null>(null)
+  const [auditAnswers, setAuditAnswers] = useState<AnswerRow[] | null>(null)
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const [allAnswers, setAllAnswers] = useState<AnswerRow[] | null>(null)
+  const [answersLoading, setAnswersLoading] = useState(false)
+  const [analyticsSort, setAnalyticsSort] = useState<'wrong' | 'skipped' | 'slowest' | 'position'>('wrong')
+  const [expandedAnalyticsQ, setExpandedAnalyticsQ] = useState<string | null>(null)
   // Results table controls
   const [resultSearch, setResultSearch] = useState('')
   const [resultSort, setResultSort] = useState<{ key: 'name' | 'status' | 'score' | 'answered' | 'accuracy' | 'started'; dir: 'asc' | 'desc' } | null>(null)
@@ -320,6 +337,88 @@ export default function EventTestAdminPage() {
   const studentAttempts = attempts.filter(a => a.kind === 'student' && a.status !== 'voided')
   const voidedAttempts = attempts.filter(a => a.kind === 'student' && a.status === 'voided')
   const teamAttempts = attempts.filter(a => a.kind === 'team')
+
+  // All answers across non-voided student attempts — powers the question
+  // analytics. Paginated reads: supabase caps a select at 1000 rows and a
+  // full cohort can produce ~6000 (100 students × 60 questions).
+  const loadAllAnswers = useCallback(async () => {
+    if (answersLoading) return
+    setAnswersLoading(true)
+    try {
+      const ids = attempts.filter(a => a.kind === 'student' && a.status !== 'voided').map(a => a.id)
+      if (ids.length === 0) { setAllAnswers([]); return }
+      const rows: AnswerRow[] = []
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await supabase
+          .from('test_answers')
+          .select('attempt_id, question_id, selected_index, is_correct, time_ms')
+          .in('attempt_id', ids)
+          .range(from, from + 999)
+        if (error) { console.error('loadAllAnswers:', error); break }
+        rows.push(...((data ?? []) as AnswerRow[]))
+        if (!data || data.length < 1000) break
+      }
+      setAllAnswers(rows)
+    } finally {
+      setAnswersLoading(false)
+    }
+  }, [attempts, answersLoading])
+
+  const openAudit = async (a: AttemptRow) => {
+    setAuditAttempt(a)
+    setAuditAnswers(null)
+    const { data, error } = await supabase
+      .from('test_answers')
+      .select('attempt_id, question_id, selected_index, is_correct, time_ms')
+      .eq('attempt_id', a.id)
+    if (error) { console.error('openAudit:', error); setAuditAnswers([]); return }
+    setAuditAnswers((data ?? []) as AnswerRow[])
+  }
+
+  const questionById = useMemo(() => {
+    const m: Record<string, QuestionRow> = {}
+    for (const q of questions) m[q.id] = q
+    return m
+  }, [questions])
+
+  // Per-question aggregates: reached (has an answers row), skipped
+  // (selected_index null), % wrong among real answers, average time.
+  const analytics = useMemo(() => {
+    if (!allAnswers) return null
+    const agg: Record<string, { reached: number; skipped: number; answered: number; correct: number; timeSum: number; timeN: number }> = {}
+    for (const r of allAnswers) {
+      const a = (agg[r.question_id] ??= { reached: 0, skipped: 0, answered: 0, correct: 0, timeSum: 0, timeN: 0 })
+      a.reached += 1
+      if (r.selected_index === null) a.skipped += 1
+      else {
+        a.answered += 1
+        if (r.is_correct) a.correct += 1
+      }
+      if (r.time_ms !== null) { a.timeSum += r.time_ms; a.timeN += 1 }
+    }
+    const rows = Object.entries(agg)
+      .map(([qid, a]) => ({
+        q: questionById[qid],
+        qid,
+        reached: a.reached,
+        skipped: a.skipped,
+        skipRate: a.reached > 0 ? a.skipped / a.reached : 0,
+        answered: a.answered,
+        correct: a.correct,
+        wrongRate: a.answered > 0 ? 1 - a.correct / a.answered : 0,
+        avgTimeMs: a.timeN > 0 ? a.timeSum / a.timeN : null,
+      }))
+      .filter(r => r.q && !r.q.is_practice)
+    rows.sort((x, y) => {
+      if (analyticsSort === 'wrong') return (y.answered > 0 ? y.wrongRate : -1) - (x.answered > 0 ? x.wrongRate : -1) || y.answered - x.answered
+      if (analyticsSort === 'skipped') return y.skipRate - x.skipRate || y.skipped - x.skipped
+      if (analyticsSort === 'slowest') return (y.avgTimeMs ?? -1) - (x.avgTimeMs ?? -1)
+      return (x.q!.position ?? 0) - (y.q!.position ?? 0)
+    })
+    return rows
+  }, [allAnswers, questionById, analyticsSort])
+
+  const fmtMs = (ms: number | null | undefined) => ms == null ? '—' : ms < 1000 ? `${(ms / 1000).toFixed(1)}s` : ms < 60000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
 
   // Results view: name/email filter + click-to-sort headers.
   const displayAttempts = useMemo(() => {
@@ -708,7 +807,12 @@ export default function EventTestAdminPage() {
                       const acc = a.answered_count > 0 && a.correct_count !== null
                         ? `${Math.round((a.correct_count / a.answered_count) * 100)}%` : '—'
                       return (
-                        <tr key={a.id}>
+                        <tr
+                          key={a.id}
+                          onClick={() => void openAudit(a)}
+                          className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+                          title="Click for the question-by-question breakdown"
+                        >
                           <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
                           <td className="py-2 pr-3">
                             <div className="text-gray-900 dark:text-gray-100">{who?.name ?? '…'}</div>
@@ -729,7 +833,7 @@ export default function EventTestAdminPage() {
                           <td className="py-2 pr-0 text-right">
                             <button
                               type="button"
-                              onClick={() => void voidAttempt(a.id, who?.name)}
+                              onClick={e => { e.stopPropagation(); void voidAttempt(a.id, who?.name) }}
                               className="text-xs text-red-500 hover:text-red-700 font-medium"
                               title="Void this attempt so the student can retake (tech-failure override)"
                             >
@@ -790,6 +894,133 @@ export default function EventTestAdminPage() {
                   </table>
                 </div>
               </div>
+            )}
+          </div>
+
+          {/* ── Question analytics (aggregate, lazy-loaded) ──────────── */}
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-5">
+            <button
+              type="button"
+              onClick={() => { if (!showAnalytics && allAnswers === null) void loadAllAnswers(); setShowAnalytics(v => !v) }}
+              className="w-full flex items-center justify-between text-left"
+            >
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Question analytics <span className="font-normal text-gray-400">— how the bank performed across all attempts</span>
+              </span>
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${showAnalytics ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {showAnalytics && (
+              answersLoading || analytics === null ? (
+                <div className="flex items-center gap-2 text-sm text-gray-400 py-6" role="status">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-steps-blue-600" />
+                  Crunching every answer…
+                </div>
+              ) : analytics.length === 0 ? (
+                <p className="text-sm text-gray-400 py-4">No answers recorded yet — analytics appear once students start answering.</p>
+              ) : (
+                <div className="mt-4">
+                  {(() => {
+                    const mostWrong = [...analytics].filter(r => r.answered >= 3).sort((x, y) => y.wrongRate - x.wrongRate)[0]
+                    const mostSkipped = [...analytics].sort((x, y) => y.skipped - x.skipped)[0]
+                    const slowest = [...analytics].filter(r => r.avgTimeMs !== null).sort((x, y) => (y.avgTimeMs ?? 0) - (x.avgTimeMs ?? 0))[0]
+                    return (
+                      <MetaLine
+                        className="mb-3"
+                        items={[
+                          mostWrong && mostWrong.wrongRate > 0 ? { label: <>Most missed: <strong className="text-gray-700 dark:text-gray-200">#{mostWrong.q!.position}</strong> ({Math.round(mostWrong.wrongRate * 100)}% wrong)</> } : null,
+                          mostSkipped && mostSkipped.skipped > 0 ? { label: <>Most skipped: <strong className="text-gray-700 dark:text-gray-200">#{mostSkipped.q!.position}</strong> ({mostSkipped.skipped}×)</> } : null,
+                          slowest ? { label: <>Slowest: <strong className="text-gray-700 dark:text-gray-200">#{slowest.q!.position}</strong> ({fmtMs(slowest.avgTimeMs)} avg)</> } : null,
+                        ].filter(Boolean) as { label: React.ReactNode }[]}
+                      />
+                    )
+                  })()}
+                  <div className="flex items-center gap-2 mb-3">
+                    <label className="text-xs text-gray-500">Sort by</label>
+                    <select
+                      value={analyticsSort}
+                      onChange={e => setAnalyticsSort(e.target.value as typeof analyticsSort)}
+                      className="text-xs rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-800 px-2 py-1"
+                    >
+                      <option value="wrong">Most wrong</option>
+                      <option value="skipped">Most skipped</option>
+                      <option value="slowest">Slowest</option>
+                      <option value="position">Question number</option>
+                    </select>
+                    <span className="text-xs text-gray-400">· {analytics.length} questions reached by at least one student · click a row for the full question</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-800">
+                          <th className="py-2 pr-3 font-medium">#</th>
+                          <th className="py-2 pr-3 font-medium">Question</th>
+                          <th className="py-2 pr-3 font-medium">Difficulty</th>
+                          <th className="py-2 pr-3 font-medium">Reached</th>
+                          <th className="py-2 pr-3 font-medium">Skipped</th>
+                          <th className="py-2 pr-3 font-medium">Wrong</th>
+                          <th className="py-2 pr-0 font-medium">Avg time</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 dark:divide-gray-800/60">
+                        {analytics.map(r => {
+                          const q = r.q!
+                          const hasFigure = q.prompt.includes('<svg')
+                          const textOnly = q.prompt.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/\s+/g, ' ').trim()
+                          const preview = `${hasFigure ? '[figure] ' : ''}${textOnly}`.slice(0, 90) || '[figure]'
+                          const expanded = expandedAnalyticsQ === r.qid
+                          return (
+                            <Fragment key={r.qid}>
+                              <tr
+                                onClick={() => setExpandedAnalyticsQ(expanded ? null : r.qid)}
+                                className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+                              >
+                                <td className="py-2 pr-3 text-gray-400">#{q.position}</td>
+                                <td className="py-2 pr-3 text-gray-900 dark:text-gray-100 max-w-[320px]">
+                                  <span className="block truncate" title={textOnly}>{preview}</span>
+                                  <span className="text-xs text-gray-400">{q.category}</span>
+                                </td>
+                                <td className="py-2 pr-3 text-gray-600 dark:text-gray-300">{q.difficulty === 1 ? 'easy' : q.difficulty === 2 ? 'medium' : 'hard'}</td>
+                                <td className="py-2 pr-3 tabular-nums text-gray-600 dark:text-gray-300">{r.reached}</td>
+                                <td className="py-2 pr-3 tabular-nums">
+                                  <span className={r.skipped > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-gray-600 dark:text-gray-300'}>
+                                    {r.skipped}{r.reached > 0 && r.skipped > 0 ? ` (${Math.round(r.skipRate * 100)}%)` : ''}
+                                  </span>
+                                </td>
+                                <td className="py-2 pr-3 tabular-nums">
+                                  <span className={r.answered === 0 ? 'text-gray-400' : r.wrongRate >= 0.5 ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-gray-600 dark:text-gray-300'}>
+                                    {r.answered === 0 ? '—' : `${r.answered - r.correct}/${r.answered} (${Math.round(r.wrongRate * 100)}%)`}
+                                  </span>
+                                </td>
+                                <td className="py-2 pr-0 tabular-nums text-gray-600 dark:text-gray-300">{fmtMs(r.avgTimeMs)}</td>
+                              </tr>
+                              {expanded && (
+                                <tr>
+                                  <td colSpan={7} className="py-3 pr-3">
+                                    <div className="border border-gray-100 dark:border-gray-800 rounded-lg p-3 bg-gray-50/50 dark:bg-gray-800/30">
+                                      <PromptContent text={q.prompt} className="text-sm text-gray-900 dark:text-gray-100 mb-1.5" />
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {q.options.map((opt, oi) => (
+                                          <span key={oi} className={`text-xs px-2 py-0.5 border ${opt.includes('<svg') ? 'rounded-lg' : 'rounded-full'} ${
+                                            oi === q.correct_index
+                                              ? 'border-emerald-300 bg-emerald-50 text-emerald-700 font-medium'
+                                              : 'border-gray-200 dark:border-gray-700 text-gray-500'
+                                          }`}>
+                                            {String.fromCharCode(65 + oi)}. <OptionContent opt={opt} />
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
             )}
           </div>
 
@@ -867,6 +1098,103 @@ export default function EventTestAdminPage() {
           </div>
         </>
       )}
+
+      {/* Per-attempt audit modal — question-by-question breakdown */}
+      {auditAttempt && (() => {
+        const who = auditAttempt.student_id ? studentNames[auditAttempt.student_id] : null
+        const byQ: Record<string, AnswerRow> = {}
+        for (const r of auditAnswers ?? []) byQ[r.question_id] = r
+        const lastServedIdx = auditAttempt.question_order.reduce((acc, qid, idx) => byQ[qid] ? idx : acc, -1)
+        const notReached = auditAttempt.question_order.length - (lastServedIdx + 1)
+        const acc = auditAttempt.answered_count > 0 && auditAttempt.correct_count !== null
+          ? `${Math.round((auditAttempt.correct_count / auditAttempt.answered_count) * 100)}%` : '—'
+        return (
+          <div role="dialog" aria-modal="true" aria-labelledby="audit-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setAuditAttempt(null)}>
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="p-5 border-b border-gray-200 dark:border-gray-800 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 id="audit-title" className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    {who?.name ?? 'Attempt'} <span className="font-normal text-gray-400">— question by question</span>
+                  </h3>
+                  <MetaLine
+                    className="mt-1 !text-xs"
+                    items={[
+                      { label: <Badge tone={STATUS_TONE[auditAttempt.status] ?? 'neutral'}>{auditAttempt.status === 'in_progress' ? 'in progress' : auditAttempt.status}</Badge> },
+                      { label: <>Score <strong className="text-gray-700 dark:text-gray-200">{auditAttempt.status === 'in_progress' ? '—' : auditAttempt.score ?? 0}</strong></> },
+                      { label: <>Accuracy {auditAttempt.status === 'in_progress' ? '—' : acc}</> },
+                      { label: <>{fmtDuration(auditAttempt.started_at, auditAttempt.submitted_at)}</> },
+                      { label: <>{fmtWhen(auditAttempt.started_at)}</> },
+                    ]}
+                  />
+                </div>
+                <button type="button" onClick={() => setAuditAttempt(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" aria-label="Close">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="p-5 overflow-y-auto flex-1 space-y-3">
+                {auditAnswers === null ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-400 py-6" role="status">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-steps-blue-600" />
+                    Loading their answers…
+                  </div>
+                ) : lastServedIdx < 0 ? (
+                  <p className="text-sm text-gray-400">No questions served yet.</p>
+                ) : (
+                  <>
+                    {auditAttempt.question_order.slice(0, lastServedIdx + 1).map((qid, idx) => {
+                      const q = questionById[qid]
+                      const ans = byQ[qid]
+                      if (!q) return null
+                      const outcome: { tone: BadgeTone; label: string } = !ans
+                        ? { tone: 'neutral', label: 'not served' }
+                        : ans.selected_index === null
+                        ? { tone: 'amber', label: 'skipped' }
+                        : ans.is_correct
+                        ? { tone: 'emerald', label: 'correct' }
+                        : { tone: 'red', label: 'wrong' }
+                      return (
+                        <div key={qid} className="border border-gray-100 dark:border-gray-800 rounded-lg p-3">
+                          <div className="flex items-center gap-2 text-xs text-gray-400 mb-1.5 flex-wrap">
+                            <span className="font-medium text-gray-500">Q{idx + 1}</span>
+                            <Badge tone={outcome.tone}>{outcome.label}</Badge>
+                            <span>bank #{q.position} · {q.category} · {q.difficulty === 1 ? 'easy' : q.difficulty === 2 ? 'medium' : 'hard'}</span>
+                            {ans?.time_ms != null && <span>· {fmtMs(ans.time_ms)}</span>}
+                          </div>
+                          <PromptContent text={q.prompt} className="text-sm text-gray-900 dark:text-gray-100 mb-1.5" />
+                          <div className="flex flex-wrap gap-1.5">
+                            {q.options.map((opt, oi) => {
+                              const isCorrect = oi === q.correct_index
+                              const isTheirs = ans?.selected_index === oi
+                              return (
+                                <span key={oi} className={`text-xs px-2 py-0.5 border ${opt.includes('<svg') ? 'rounded-lg' : 'rounded-full'} ${
+                                  isCorrect
+                                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700 font-medium'
+                                    : isTheirs
+                                    ? 'border-red-300 bg-red-50 text-red-700 font-medium'
+                                    : 'border-gray-200 dark:border-gray-700 text-gray-500'
+                                }`}>
+                                  {isTheirs && <span aria-hidden>{ans!.is_correct ? '✓ ' : '✗ '}</span>}
+                                  {String.fromCharCode(65 + oi)}. <OptionContent opt={opt} />
+                                  {isTheirs && <span className="ml-1 opacity-70">(their answer)</span>}
+                                </span>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {notReached > 0 && (
+                      <p className="text-xs text-gray-400 text-center py-1">
+                        {notReached} more question{notReached === 1 ? '' : 's'} never reached{auditAttempt.status === 'in_progress' ? ' (yet — attempt still in progress)' : ''}.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Destructive-action confirm modal (replaces window.confirm) */}
       {confirmAction && (
