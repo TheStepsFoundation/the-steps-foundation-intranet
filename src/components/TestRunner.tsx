@@ -385,9 +385,15 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
           />
         </div>
         <div className="flex items-center justify-between mb-4">
+          {/* Students never see their question position — no number, no total.
+              Only team practice (not admin student-preview) shows progress. */}
           <span className="text-sm font-medium text-slate-500">
-            Question {q ? q.number : minNumberRef.current}
-            {q?.total != null && !studentView && <span className="text-slate-400"> of {q.total}</span>}
+            {mode === 'team' && !studentView ? (
+              <>
+                Question {q ? q.number : minNumberRef.current}
+                {q?.total != null && <span className="text-slate-400"> of {q.total}</span>}
+              </>
+            ) : null}
           </span>
           <span
             className={`inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-2xl font-bold tabular-nums ${urgent ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}

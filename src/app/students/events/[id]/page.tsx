@@ -155,12 +155,11 @@ const STATUS_MAP = Object.fromEntries(STATUSES.map(s => [s.code, s]))
 // internalCode: the matching internal-review draft mark, or null when the
 // status has no internal analog (screening pass is conveyed immediately).
 const NOTIFY_STATUSES: Array<{ code: string; label: string; templateType: string; color: string; verb: string; internalCode: InternalReviewStatusCode | null; changesStatus?: boolean }> = [
-  // changesStatus: false — screening pass is INTERNAL ONLY. It grants test
-  // access (invite list) and optionally emails the test link; it must NEVER
-  // change the student-facing status (Sam, 2026-06-10). There is also no
-  // application_statuses FK row for 'screening_passed', so a status write
-  // would be rejected by the DB anyway.
-  { code: 'screening_passed', label: 'Send test invites', templateType: 'test_invite', color: 'bg-teal-600 hover:bg-teal-700', verb: 'Pass screening', internalCode: null, changesStatus: false },
+  // Screening pass (Sam, 2026-06-12): the EXTERNAL status carries online
+  // test access (granted on commit, revoked on rejection/withdrawal); the
+  // INTERNAL mark (menu option below) is team-only staging with NO access.
+  // Lookup row added in 0060 — the status FK accepts it now.
+  { code: 'screening_passed', label: 'Pass Screening & Notify', templateType: 'test_invite', color: 'bg-teal-600 hover:bg-teal-700', verb: 'Pass screening', internalCode: 'screening_passed' },
   { code: 'shortlisted', label: 'Shortlist & Notify', templateType: 'shortlist', color: 'bg-violet-600 hover:bg-violet-700', verb: 'Shortlist', internalCode: 'shortlist' },
   { code: 'accepted',    label: 'Accept & Notify',    templateType: 'acceptance', color: 'bg-emerald-600 hover:bg-emerald-700', verb: 'Accept', internalCode: 'accept' },
   { code: 'waitlist',    label: 'Waitlist & Notify',  templateType: 'waitlist',   color: 'bg-amber-600 hover:bg-amber-700', verb: 'Waitlist', internalCode: 'waitlist' },
@@ -2159,17 +2158,38 @@ export default function EventDetailPage() {
       } : a
     ))
     setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
+    if (newStatus === 'screening_passed') await grantTestInvites([appId])
+    else if (REVOKING_STATUSES.includes(newStatus)) await revokeTestInvites([appId])
   }
 
   // ---------------------------------------------------------------------------
   // Internal review (draft decision, never notifies the student)
   // ---------------------------------------------------------------------------
 
-  // Invite-list lifecycle (Sam, 2026-06-12): NOBODY is on the test invite
-  // list until the test invite email is actually sent (the only grant point
-  // is sendEmails' openTestAccess block). Any rejection — internal mark or
-  // committed rejected/withdrew — revokes access dynamically.
+  // Invite-list lifecycle (Sam, 2026-06-12): the EXTERNAL 'screening_passed'
+  // status IS test access — granted wherever that status is committed, and
+  // revoked dynamically by any rejection (internal mark or committed
+  // rejected/withdrew). The INTERNAL screening mark grants nothing.
   const REVOKING_STATUSES: ReadonlyArray<string> = ['rejected', 'withdrew', 'ineligible']
+
+  /** Idempotently add the given applications' students to the test invite
+   *  list. Silent no-op when the event has no test; loud on DB failure. */
+  const grantTestInvites = async (appIds: string[]): Promise<void> => {
+    if (!eventTest || appIds.length === 0) return
+    const idSet = new Set(appIds)
+    const rows = applicants
+      .filter(a => idSet.has(a.id) && a.student_id)
+      .map(a => ({ test_id: eventTest.id, student_id: a.student_id, invited_by: teamMember?.auth_uuid ?? null }))
+    if (rows.length === 0) return
+    const { error } = await supabase
+      .from('test_invitations')
+      .upsert(rows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
+    if (error) {
+      window.alert(`Saved, but granting test access FAILED:\n\n${error.message}`)
+      return
+    }
+    setApplicants(prev => prev.map(a => (idSet.has(a.id) && a.student_id) ? { ...a, testInvited: true } : a))
+  }
 
   /** Remove the given applications' students from the test invite list.
    *  Silent no-op when the event has no test; loud on DB failure. */
@@ -2475,10 +2495,6 @@ export default function EventDetailPage() {
 
   const bulkUpdateStatus = async (newStatus: string, reasonOverride?: string | null) => {
     if (selected.size === 0) return
-    if (newStatus === 'screening_passed') {
-      window.alert('Screening pass is internal-only — use the Pass screening menu to open the test. External status never changes from screening.')
-      return
-    }
     const ids = [...selected]
     // Breakdown by current status so the admin sees what's actually changing.
     // Rows already on the target status are dropped from the UPDATE — that avoids
@@ -2568,7 +2584,9 @@ export default function EventDetailPage() {
         reviewed_at: now,
       } : a
     ))
-    if (REVOKING_STATUSES.includes(newStatus)) {
+    if (newStatus === 'screening_passed') {
+      await grantTestInvites(changingIds)
+    } else if (REVOKING_STATUSES.includes(newStatus)) {
       await revokeTestInvites(changingIds)
     }
     // Auto-promote from waitlist when accepted seats are vacated.
@@ -3017,32 +3035,6 @@ export default function EventDetailPage() {
       return
     }
 
-    // Test-invite sends also record the internal screening mark (where no
-    // internal mark exists yet — never downgrades a later-stage draft).
-    // INTERNAL only: external status is untouched by screening, by design.
-    if (notifyAction === 'screening_passed') {
-      const unmarked = recipients.filter(r => !r.internal_review_status).map(r => r.id)
-      if (unmarked.length > 0) {
-        const { error: scrErr } = await supabase
-          .from('applications')
-          .update({
-            internal_review_status: 'screening_passed',
-            internal_review_at: now,
-            internal_review_by: teamMember?.auth_uuid ?? null,
-            updated_by: teamMember?.auth_uuid ?? null,
-            updated_at: now,
-          } as any)
-          .in('id', unmarked)
-        if (scrErr) {
-          window.alert(`Emails were queued, but the internal screening mark FAILED:\n\n${scrErr.message}`)
-        } else {
-          setApplicants(prev => prev.map(a =>
-            unmarked.includes(a.id) ? { ...a, internal_review_status: 'screening_passed' as InternalReviewStatusCode } : a
-          ))
-        }
-      }
-    }
-
     // Grant online test access — invitation rows are what gate /api/test/*
     // and make the test appear on the student hub. Idempotent upsert, so
     // re-sending to an already-invited student is harmless.
@@ -3103,7 +3095,9 @@ export default function EventDetailPage() {
             reviewed_at: now,
           } : a
         ))
-        if (notifyAction && REVOKING_STATUSES.includes(notifyAction)) {
+        if (notifyAction === 'screening_passed') {
+          await grantTestInvites(ids)
+        } else if (notifyAction && REVOKING_STATUSES.includes(notifyAction)) {
           await revokeTestInvites(ids)
         }
       }
@@ -4057,12 +4051,7 @@ export default function EventDetailPage() {
           <div className="flex flex-wrap items-center gap-3">
             {/* Status filter tabs */}
             <div className="flex items-center gap-1 flex-wrap">
-              {[
-                { code: 'all', label: 'All' },
-                ...STATUSES.flatMap(s => s.code === 'submitted'
-                  ? [s, { code: 'screening_passed', label: 'Screening passed' }]
-                  : [s]),
-              ].map(s => (
+              {[{ code: 'all', label: 'All' }, ...STATUSES].map(s => (
                 <button
                   key={s.code}
                   onClick={() => { setStatusFilter(s.code); setSelected(new Set()) }}
@@ -4419,27 +4408,32 @@ export default function EventDetailPage() {
                       {isOpen && ns.code === 'screening_passed' && (
                         <div
                           role="menu"
-                          className="absolute z-40 mt-1 left-0 min-w-[250px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs text-gray-700 dark:text-gray-200"
+                          className="absolute z-40 mt-1 left-0 min-w-[260px] rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-lg py-1 text-xs text-gray-700 dark:text-gray-200"
                         >
+                          <button
+                            role="menuitem"
+                            onClick={() => { setBulkMenuOpen(null); openCompose(ns.code) }}
+                            className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            title="Sets the EXTERNAL Screening passed status (student-visible, grants test access) and opens the composer — pick any template, e.g. today's update email."
+                          >
+                            Pass screening &amp; notify
+                          </button>
                           <button
                             role="menuitem"
                             onClick={() => { setBulkMenuOpen(null); void bulkPassScreeningInternal() }}
                             className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            title="Internal only — marks selected as Screening passed (internal). No email, no external status change, no test access yet."
+                            title="Internal mark only — team staging. No email, no external status change, no test access. Never downgrades a later-stage internal mark."
                           >
                             Pass screening internally (mark only)
                           </button>
                           <button
                             role="menuitem"
-                            onClick={() => { setBulkMenuOpen(null); openCompose(ns.code) }}
+                            onClick={() => { setBulkMenuOpen(null); bulkUpdateStatus(ns.code) }}
                             className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            title="Opens the composer with the test-invite template. Sending the email is what puts recipients on the test invite list. External status does NOT change."
+                            title="Sets the EXTERNAL Screening passed status (student-visible on their hub, grants test access) without sending any email"
                           >
-                            Send test invite email… (grants access)
+                            Just pass screening (no email)
                           </button>
-                          <div className="px-3 py-1.5 text-[10px] text-gray-400 border-t border-gray-100 dark:border-gray-700">
-                            Screening never changes external status.
-                          </div>
                         </div>
                       )}
                       {isOpen && ns.code !== 'screening_passed' && (
@@ -4572,6 +4566,7 @@ export default function EventDetailPage() {
               not yet sent to the student. */}
           <div className="px-4 py-2.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[11px] text-gray-600 dark:text-gray-400">
             <span className="font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-500">Row colours:</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-teal-100/90 border border-teal-200" /> Screening passed</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-emerald-100/90 border border-emerald-200" /> Accepted</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-violet-100/90 border border-violet-200" /> Shortlisted</span>
             <span className="inline-flex items-center gap-1.5"><span className="w-4 h-3 rounded bg-amber-100/90 border border-amber-200" /> Waitlist</span>
@@ -4658,7 +4653,8 @@ export default function EventDetailPage() {
                   // Selection adds a left rim accent (border-l-4) — doesn't override
                   // the status tint, so you can still read the row's state at a glance.
                   const rowBg =
-                    app.status === 'accepted'    ? 'bg-emerald-100/70 dark:bg-emerald-900/30'
+                    app.status === 'screening_passed' ? 'bg-teal-100/70 dark:bg-teal-900/30'
+                  : app.status === 'accepted'    ? 'bg-emerald-100/70 dark:bg-emerald-900/30'
                   : app.status === 'shortlisted' ? 'bg-violet-100/70 dark:bg-violet-900/30'
                   : app.status === 'waitlist'    ? 'bg-amber-100/70 dark:bg-amber-900/30'
                   : app.status === 'rejected'    ? 'bg-rose-100/70 dark:bg-rose-900/30'
@@ -4846,7 +4842,7 @@ export default function EventDetailPage() {
                             ) : app.testScore !== null ? (
                               <span className="font-medium tabular-nums text-gray-900 dark:text-gray-100">{app.testScore}</span>
                             ) : app.testInvited ? (
-                              <span className="text-xs font-medium text-teal-600 dark:text-teal-400" title="Test invite email sent — has access, not started yet">invited</span>
+                              <span className="text-xs font-medium text-teal-600 dark:text-teal-400" title="Has test access (externally screening-passed) — not started yet">invited</span>
                             ) : (
                               <span className="text-gray-400 dark:text-gray-600">—</span>
                             )}
@@ -5208,7 +5204,6 @@ export default function EventDetailPage() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {getRecipients().length} recipient{getRecipients().length !== 1 ? 's' : ''}
                   {actionChangesStatus(notifyAction) && ` — status will change to "${STATUS_MAP[notifyAction ?? '']?.label ?? notifyAction}"`}
-                  {notifyAction === 'screening_passed' && ' — test invite only; external status does NOT change'}
                   {getRecipients().length < selected.size && (
                     <span className="text-amber-600 dark:text-amber-400"> ({selected.size - getRecipients().length} without email — skipped)</span>
                   )}
@@ -5323,9 +5318,7 @@ export default function EventDetailPage() {
                       {actionChangesStatus(notifyAction) && (
                         <div>After sending, all {getRecipients().length} selected applicant{getRecipients().length !== 1 ? 's' : ''} will be marked as <strong>{STATUS_MAP[notifyAction ?? '']?.label ?? notifyAction}</strong>.</div>
                       )}
-                      {notifyAction === 'screening_passed' && (
-                        <div>External status will <strong>not</strong> change — this only sends the test invite.</div>
-                      )}
+
                       {openTestAccess && eventTest && (
                         <div>
                           All recipients will be added to the <strong>online test</strong> invite list.
