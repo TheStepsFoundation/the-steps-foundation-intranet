@@ -566,9 +566,8 @@ export default function TestRunner({ slug, mode, getToken, studentView = false }
             <h2 className="font-semibold text-steps-dark mb-1">The test isn&apos;t open yet</h2>
             <p className="text-sm text-slate-600">
               {test.opensAt
-                ? <>It opens on <strong>{new Date(test.opensAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</strong>.</>
-                : <>We&apos;ll email you as soon as it opens.</>}
-              {' '}You can watch the briefing and try the warm-up questions now — the Start button will appear right here when the test opens.
+                ? <>It opens on <strong>{new Date(test.opensAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</strong>.{' '}You can try the warm-up questions now — in a few days you&apos;ll see a video briefing here, and the Start button will appear when the test opens.</>
+                : <>In a few days, you&apos;ll see a video briefing here — and the Start button will be right here when the test opens. In the meantime, feel free to try the warm-up questions below.</>}
             </p>
           </>
         ) : (<>
