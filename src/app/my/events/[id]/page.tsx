@@ -447,6 +447,7 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
           <div className="flex flex-wrap items-center gap-2 mb-3">
             {journey && (
               <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${journey.badgeClasses}`}>
+                {journey.icon && <span aria-hidden="true" className="mr-1">{journey.icon}</span>}
                 {journey.prefix ? (
                   <>
                     <span className="opacity-70 mr-1">{journey.prefix}</span>
@@ -752,7 +753,7 @@ function EventOverviewPageInner({ params }: { params: { id: string } }) {
               You can re-apply while applications are still open — but once the deadline passes, you won’t be able to submit again.
             </p>
             {withdrawErr && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">{withdrawErr}</p>}
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-6">
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-2 mt-6">
               <button type="button" onClick={() => setShowWithdrawModal(false)} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900 font-medium rounded-xl hover:bg-slate-100 transition">
                 Keep my application
               </button>

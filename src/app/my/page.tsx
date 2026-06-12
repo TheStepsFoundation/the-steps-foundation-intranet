@@ -903,6 +903,7 @@ function StudentHubInner() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-display text-lg sm:text-xl font-bold text-steps-dark group-hover:text-steps-blue-700 transition-colors">{app.event.name}</h3>
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${journey.badgeClasses}`}>
+                            {journey.icon && <span aria-hidden="true" className="mr-1">{journey.icon}</span>}
                             {journey.prefix ? (
                               <>
                                 <span className="opacity-70 mr-1">{journey.prefix}</span>
@@ -966,6 +967,16 @@ function StudentHubInner() {
                               {app.rsvp === 'pending' ? 'RSVP now' : 'Change RSVP'}
                             </a>
                           </div>
+                        )}
+                        {!isPast && app.status === 'withdrew' && (
+                          <p className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                            You withdrew this application — you can re-apply from the event page while applications are still open.
+                          </p>
+                        )}
+                        {!isPast && app.status === 'rejected' && (
+                          <p className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                            Not this time — but we&apos;d love to see you apply to our future events. We&apos;ll email you when the next one opens.
+                          </p>
                         )}
                         {!isPast && app.status !== 'withdrew' && app.status !== 'rejected' && (
                           <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap gap-2">
@@ -1318,7 +1329,7 @@ function StudentHubInner() {
               <p role="alert" className="mb-4 text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2">{withdrawError}</p>
             )}
 
-            <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+            <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
               <button type="button" onClick={() => { setWithdrawTarget(null); setWithdrawError(null) }} disabled={withdrawLoading} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 rounded-xl hover:bg-slate-100 transition disabled:opacity-50">
                 Keep my application
               </button>

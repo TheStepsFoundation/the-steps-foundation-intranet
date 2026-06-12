@@ -1190,7 +1190,7 @@ export default function ApplyPage() {
                       >
                         {isComplete ? '\u2713' : i + 1}
                       </span>
-                      <span className={`text-xs font-semibold hidden sm:inline ${
+                      <span className={`text-xs font-semibold ${isActive ? 'inline' : 'hidden sm:inline'} ${
                         isActive ? 'text-steps-blue-700' : isComplete ? 'text-steps-blue-700/80' : 'text-slate-400'
                       }`}>{STEP_LABELS[s]}</span>
                     </div>
@@ -1207,7 +1207,7 @@ export default function ApplyPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-xl text-red-800 text-sm flex items-start gap-3 shadow-sm" role="alert" aria-live="polite">
+        <div className="mb-6 p-4 bg-red-50 border-2 border-red-300 rounded-xl text-red-800 text-base flex items-start gap-3 shadow-sm" role="alert" aria-live="polite">
           <svg className="w-5 h-5 flex-shrink-0 text-red-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
           <div><strong className="block mb-0.5">There’s a problem with your form</strong>{error}</div>
         </div>
@@ -2024,6 +2024,25 @@ export default function ApplyPage() {
                 : <>Thanks for applying to the {event.name}. We&apos;ll review your application and be in touch via email with next steps.</>
               }
             </p>
+          </div>
+
+          {/* Receipt + what-happens-next — proof it saved, and a timeline so
+              students aren't left wondering (most are first-gen; nobody at
+              home has done this before). */}
+          <div className="max-w-md mx-auto text-left bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
+            <p className="text-xs text-gray-500">
+              <span className="font-semibold text-gray-700">{alreadyApplied ? 'Updated' : 'Submitted'}</span>{' '}
+              {new Date().toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+              {email ? <> · <span className="text-gray-600">{email}</span></> : null}
+            </p>
+            <div className="border-t border-slate-200 mt-3 pt-3">
+              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">What happens next</p>
+              <ol className="space-y-1.5 text-sm text-gray-600">
+                <li className="flex gap-2"><span className="text-steps-blue-600 font-bold" aria-hidden="true">1.</span><span>We review every application after the deadline.</span></li>
+                <li className="flex gap-2"><span className="text-steps-blue-600 font-bold" aria-hidden="true">2.</span><span>You&apos;ll hear from us by email — sometimes with an extra step first, like a short online test.</span></li>
+                <li className="flex gap-2"><span className="text-steps-blue-600 font-bold" aria-hidden="true">3.</span><span>You can check your status any time on your Student Hub.</span></li>
+              </ol>
+            </div>
           </div>
 
           {!passwordSaved && !hasPassword && !alreadyApplied ? (

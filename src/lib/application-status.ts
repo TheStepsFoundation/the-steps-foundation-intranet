@@ -29,21 +29,24 @@ type StatusMeta = {
   adminLabel: string
   /** Light-mode Tailwind classes: `bg-* text-*`. Includes dark mode variants. */
   badgeClasses: string
+  /** Small glyph rendered before the student-facing label so statuses are
+   *  never distinguished by colour alone (colour-blind accessibility). */
+  icon?: string
 }
 
 const STATUSES: Record<ApplicationStatusCode, StatusMeta> = {
-  submitted:   { code: 'submitted',   studentLabel: 'Submitted',    adminLabel: 'Submitted',    badgeClasses: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400' },
+  submitted:   { code: 'submitted',   studentLabel: 'Submitted',    adminLabel: 'Submitted',    badgeClasses: 'bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300', icon: '\u25CB' },
   // 'screening_passed' = passed the initial eligibility/grades screen and has
   // been invited to the online selection test. NOT shortlisted — the
   // shortlist (capacity x 1.5) comes after test results. Conveyed to the
   // student by the 'Pass screening & notify' composer flow.
-  screening_passed: { code: 'screening_passed', studentLabel: 'Screening passed', adminLabel: 'Screening passed', badgeClasses: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300' },
-  shortlisted: { code: 'shortlisted', studentLabel: 'Shortlisted',  adminLabel: 'Shortlisted',  badgeClasses: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' },
-  accepted:    { code: 'accepted',    studentLabel: 'Accepted',     adminLabel: 'Accepted',     badgeClasses: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  waitlist:    { code: 'waitlist',    studentLabel: 'Waitlisted',   adminLabel: 'Waitlist',     badgeClasses: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
-  rejected:    { code: 'rejected',    studentLabel: 'Unsuccessful', adminLabel: 'Rejected',     badgeClasses: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-  withdrew:    { code: 'withdrew',    studentLabel: 'Withdrawn',    adminLabel: 'Withdrew',     badgeClasses: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
-  ineligible:  { code: 'ineligible',  studentLabel: 'Not eligible', adminLabel: 'Ineligible',   badgeClasses: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+  screening_passed: { code: 'screening_passed', studentLabel: 'Screening passed', adminLabel: 'Screening passed', badgeClasses: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300', icon: '\u2713' },
+  shortlisted: { code: 'shortlisted', studentLabel: 'Shortlisted',  adminLabel: 'Shortlisted',  badgeClasses: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300', icon: '\u2605' },
+  accepted:    { code: 'accepted',    studentLabel: 'Accepted',     adminLabel: 'Accepted',     badgeClasses: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300', icon: '\u2713' },
+  waitlist:    { code: 'waitlist',    studentLabel: 'Waitlisted',   adminLabel: 'Waitlist',     badgeClasses: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300', icon: '\u25D0' },
+  rejected:    { code: 'rejected',    studentLabel: 'Unsuccessful', adminLabel: 'Rejected',     badgeClasses: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300', icon: '\u2715' },
+  withdrew:    { code: 'withdrew',    studentLabel: 'Withdrawn',    adminLabel: 'Withdrew',     badgeClasses: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', icon: '\u2212' },
+  ineligible:  { code: 'ineligible',  studentLabel: 'Not eligible', adminLabel: 'Ineligible',   badgeClasses: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', icon: '\u2212' },
 }
 
 // Historical or alternate spellings. Keep this list conservative — if a new
@@ -182,6 +185,8 @@ export type JourneyLabel = {
   /** Small-print prefix chip, e.g. "Shortlisted" when final is "Unsuccessful". */
   prefix?: string
   badgeClasses: string
+  /** Glyph so the badge never relies on colour alone. */
+  icon?: string
 }
 
 function historyEverHad(history: StatusHistoryRow[] | null | undefined, code: ApplicationStatusCode): boolean {
@@ -207,15 +212,15 @@ export function getJourneyAwareLabel(
   // Precedence: shortlisted > waitlisted > screening passed (furthest along wins).
   if (code === 'rejected') {
     if (historyEverHad(history, 'shortlisted')) {
-      return { primary: 'Unsuccessful', prefix: 'Shortlisted', badgeClasses: SOFT_UNSUCCESSFUL }
+      return { primary: 'Unsuccessful', prefix: 'Shortlisted', badgeClasses: SOFT_UNSUCCESSFUL, icon: '\u2715' }
     }
     if (historyEverHad(history, 'waitlist')) {
-      return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
+      return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL, icon: '\u2715' }
     }
     if (historyEverHad(history, 'screening_passed')) {
-      return { primary: 'Unsuccessful', prefix: 'Screening passed', badgeClasses: SOFT_UNSUCCESSFUL }
+      return { primary: 'Unsuccessful', prefix: 'Screening passed', badgeClasses: SOFT_UNSUCCESSFUL, icon: '\u2715' }
     }
-    return { primary: 'Unsuccessful', badgeClasses: SOFT_UNSUCCESSFUL }
+    return { primary: 'Unsuccessful', badgeClasses: SOFT_UNSUCCESSFUL, icon: '\u2715' }
   }
 
   // Case 2: still on the waitlist but the event is already over — they were
@@ -223,9 +228,9 @@ export function getJourneyAwareLabel(
   if (code === 'waitlist' && eventEndDate) {
     const end = eventEndDate instanceof Date ? eventEndDate : new Date(eventEndDate)
     if (!Number.isNaN(end.getTime()) && end.getTime() < Date.now()) {
-      return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL }
+      return { primary: 'Unsuccessful', prefix: 'Waitlisted', badgeClasses: SOFT_UNSUCCESSFUL, icon: '\u2715' }
     }
   }
 
-  return { primary: meta.studentLabel, badgeClasses: meta.badgeClasses }
+  return { primary: meta.studentLabel, badgeClasses: meta.badgeClasses, icon: meta.icon }
 }

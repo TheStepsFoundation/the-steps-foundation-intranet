@@ -147,7 +147,7 @@ export default function QualificationsEditor({ value, onChange, error, onInterac
               ))}
             </select>
 
-            <div className={`grid gap-2 ${q.qualType === 'ib' ? 'grid-cols-3' : 'grid-cols-2'}`}>
+            <div className={`grid gap-2 ${q.qualType === 'ib' ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2'}`}>
               <select value={q.subject}
                 onChange={e => update(idx, 'subject', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition">
