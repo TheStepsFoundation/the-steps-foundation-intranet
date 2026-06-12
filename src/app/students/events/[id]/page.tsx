@@ -2165,28 +2165,31 @@ export default function EventDetailPage() {
   // Internal review (draft decision, never notifies the student)
   // ---------------------------------------------------------------------------
 
-  // Marks that automatically grant test access: passing screening, and any
-  // shortlist — an internally-shortlisted student must be able to sit the
-  // test (Sam, 2026-06-12). Committed 'shortlisted' grants it too (below).
-  const INVITE_GRANTING_MARKS: ReadonlyArray<InternalReviewStatusCode> = ['screening_passed', 'shortlist']
+  // Invite-list lifecycle (Sam, 2026-06-12): NOBODY is on the test invite
+  // list until the test invite email is actually sent (the only grant point
+  // is sendEmails' openTestAccess block). Any rejection — internal mark or
+  // committed rejected/withdrew — revokes access dynamically.
+  const REVOKING_STATUSES: ReadonlyArray<string> = ['rejected', 'withdrew', 'ineligible']
 
-  /** Idempotently add the given applications' students to the test invite
-   *  list. Silent no-op when the event has no test; loud on DB failure. */
-  const grantTestInvites = async (appIds: string[]): Promise<void> => {
+  /** Remove the given applications' students from the test invite list.
+   *  Silent no-op when the event has no test; loud on DB failure. */
+  const revokeTestInvites = async (appIds: string[]): Promise<void> => {
     if (!eventTest || appIds.length === 0) return
     const idSet = new Set(appIds)
-    const rows = applicants
-      .filter(a => idSet.has(a.id) && a.student_id)
-      .map(a => ({ test_id: eventTest.id, student_id: a.student_id, invited_by: teamMember?.auth_uuid ?? null }))
-    if (rows.length === 0) return
+    const studentIds = applicants
+      .filter(a => idSet.has(a.id) && a.student_id && a.testInvited)
+      .map(a => a.student_id)
+    if (studentIds.length === 0) return
     const { error } = await supabase
       .from('test_invitations')
-      .upsert(rows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
+      .delete()
+      .eq('test_id', eventTest.id)
+      .in('student_id', studentIds)
     if (error) {
-      window.alert(`Saved, but adding to the test invite list FAILED:\n\n${error.message}`)
+      window.alert(`Saved, but revoking test access FAILED:\n\n${error.message}`)
       return
     }
-    setApplicants(prev => prev.map(a => (idSet.has(a.id) && a.student_id) ? { ...a, testInvited: true } : a))
+    setApplicants(prev => prev.map(a => (idSet.has(a.id) && a.student_id) ? { ...a, testInvited: false } : a))
   }
 
   const updateInternalReviewStatus = async (appId: string, newInternal: InternalReviewStatusCode | null) => {
@@ -2213,8 +2216,8 @@ export default function EventDetailPage() {
       a.id === appId ? { ...a, internal_review_status: newInternal } : a
     ))
     setSaving(prev => { const n = new Set(prev); n.delete(appId); return n })
-    if (newInternal && INVITE_GRANTING_MARKS.includes(newInternal)) {
-      await grantTestInvites([appId])
+    if (newInternal === 'reject') {
+      await revokeTestInvites([appId])
     }
   }
 
@@ -2241,105 +2244,52 @@ export default function EventDetailPage() {
     setApplicants(prev => prev.map(a =>
       ids.includes(a.id) ? { ...a, internal_review_status: newInternal } : a
     ))
-    if (newInternal && INVITE_GRANTING_MARKS.includes(newInternal)) {
-      await grantTestInvites(ids)
+    if (newInternal === 'reject') {
+      await revokeTestInvites(ids)
     }
   }
 
-  // Pass screening, INTERNAL ONLY — one action, two effects: sets the
-  // 'screening_passed' INTERNAL mark (only where no internal mark exists yet,
-  // so it never downgrades a later-stage shortlist/accept/reject draft) and
-  // adds the selected students to the online test invite list. No email is
-  // sent and the student-facing external status is untouched.
+  // Pass screening, INTERNAL ONLY — sets the 'screening_passed' internal
+  // mark (only where no internal mark exists yet, so it never downgrades a
+  // later-stage shortlist/accept/reject draft). It does NOT grant test
+  // access: nobody is invited until the test invite email is actually sent
+  // (Sam, 2026-06-12) — use "Send test invite email…" for that.
   const bulkPassScreeningInternal = async () => {
     if (selected.size === 0) return
-    if (!eventTest) {
-      window.alert('This event has no selection test yet — create one from the Selection test page first.')
-      return
-    }
     const sel = applicants.filter(a => selected.has(a.id))
     const toMark = sel.filter(a => !a.internal_review_status)
     const keptMarks = sel.length - toMark.length
-    const inviteRows = sel
-      .filter(a => a.student_id)
-      .map(a => ({ test_id: eventTest.id, student_id: a.student_id, invited_by: teamMember?.auth_uuid ?? null }))
+    if (toMark.length === 0) {
+      window.alert('All selected applicants already carry an internal mark — nothing to change.')
+      return
+    }
     const ok = window.confirm(
       `Pass screening for ${sel.length} selected student${sel.length === 1 ? '' : 's'}?\n\n` +
-      `Internal only — external status does NOT change and no email is sent.\n` +
-      `  \u2022 ${toMark.length} marked "Screening passed (internal)"\n` +
-      (keptMarks > 0 ? `  \u2022 ${keptMarks} already carry a later internal mark (kept as-is)\n` : '') +
-      `  \u2022 ${inviteRows.length} added to the online test invite list`
+      `Internal only — external status does NOT change, no email is sent, and they are NOT yet invited to the test (sending the invite email does that).\n` +
+      `  \u2022 ${toMark.length} marked "Screening passed (internal)"` +
+      (keptMarks > 0 ? `\n  \u2022 ${keptMarks} already carry a later internal mark (kept as-is)` : '')
     )
     if (!ok) return
     const now = new Date().toISOString()
-    if (toMark.length > 0) {
-      const { error: markErr } = await supabase
-        .from('applications')
-        .update({
-          internal_review_status: 'screening_passed',
-          internal_review_at: now,
-          internal_review_by: teamMember?.auth_uuid ?? null,
-          updated_by: teamMember?.auth_uuid ?? null,
-          updated_at: now,
-        } as any)
-        .in('id', toMark.map(a => a.id))
-      if (markErr) {
-        window.alert(`Screening mark FAILED — nothing was changed.\n\n${markErr.message}`)
-        return
-      }
-    }
-    if (inviteRows.length > 0) {
-      const { error: invErr } = await supabase
-        .from('test_invitations')
-        .upsert(inviteRows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
-      if (invErr) {
-        window.alert(`Internal marks were set, but opening the test FAILED:\n\n${invErr.message}`)
-        return
-      }
+    const { error: markErr } = await supabase
+      .from('applications')
+      .update({
+        internal_review_status: 'screening_passed',
+        internal_review_at: now,
+        internal_review_by: teamMember?.auth_uuid ?? null,
+        updated_by: teamMember?.auth_uuid ?? null,
+        updated_at: now,
+      } as any)
+      .in('id', toMark.map(a => a.id))
+    if (markErr) {
+      window.alert(`Screening mark FAILED — nothing was changed.\n\n${markErr.message}`)
+      return
     }
     const markedIds = new Set(toMark.map(a => a.id))
-    setApplicants(prev => prev.map(a => {
-      if (!selected.has(a.id)) return a
-      return {
-        ...a,
-        internal_review_status: markedIds.has(a.id) ? ('screening_passed' as InternalReviewStatusCode) : a.internal_review_status,
-        testInvited: a.student_id ? true : a.testInvited,
-      }
-    }))
+    setApplicants(prev => prev.map(a =>
+      markedIds.has(a.id) ? { ...a, internal_review_status: 'screening_passed' as InternalReviewStatusCode } : a
+    ))
     setSelected(new Set())
-  }
-
-  // Adds the selected students to the online test invite list only (no mark).
-  const bulkGrantTestAccess = async () => {
-    if (selected.size === 0) return
-    if (!eventTest) {
-      window.alert('This event has no selection test yet — create one from the Selection test page first.')
-      return
-    }
-    const rows = applicants
-      .filter(a => selected.has(a.id) && a.student_id)
-      .map(a => ({ test_id: eventTest.id, student_id: a.student_id, invited_by: teamMember?.auth_uuid ?? null }))
-    if (rows.length === 0) return
-    const ok = window.confirm(
-      `Pass screening for ${rows.length} selected student${rows.length === 1 ? '' : 's'}?\n\n` +
-      'Internal only: they are added to the online test invite list. ' +
-      'No email is sent and their external status does NOT change.'
-    )
-    if (!ok) return
-    const { error } = await supabase
-      .from('test_invitations')
-      .upsert(rows, { onConflict: 'test_id,student_id', ignoreDuplicates: true })
-    if (error) {
-      window.alert(`Could not open the test for the selected students:\n\n${error.message}`)
-      return
-    }
-    setApplicants(prev => prev.map(a => (selected.has(a.id) && a.student_id) ? { ...a, testInvited: true } : a))
-    setSelected(new Set())
-    window.alert(
-      `Done — ${rows.length} student${rows.length === 1 ? '' : 's'} added to the test invite list ` +
-      `(see the "invited" tag in the Test score column).` +
-      (eventTest.status !== 'open' ? `\n\nNote: the test is still ${eventTest.status} — open it from the Selection test page when ready.` : '')
-    )
   }
 
   // ---------------------------------------------------------------------------
@@ -2497,8 +2447,8 @@ export default function EventDetailPage() {
       }
       setApplicants(prev => prev.map(a => applied.has(a.id) ? { ...a, internal_review_status: applied.get(a.id)! } : a))
       setAiApplied(applied.size)
-      // Internally-shortlisted students must be able to sit the test.
-      await grantTestInvites(aiShortlistFinal)
+      // Internal rejection revokes any existing test access.
+      await revokeTestInvites(aiPlan.reject)
     } catch (e) {
       setAiError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -2618,8 +2568,8 @@ export default function EventDetailPage() {
         reviewed_at: now,
       } : a
     ))
-    if (newStatus === 'shortlisted') {
-      await grantTestInvites(changingIds)
+    if (REVOKING_STATUSES.includes(newStatus)) {
+      await revokeTestInvites(changingIds)
     }
     // Auto-promote from waitlist when accepted seats are vacated.
     // Count how many newly-withdrew rows came from the 'accepted' bucket —
@@ -3153,8 +3103,8 @@ export default function EventDetailPage() {
             reviewed_at: now,
           } : a
         ))
-        if (notifyAction === 'shortlisted') {
-          await grantTestInvites(ids)
+        if (notifyAction && REVOKING_STATUSES.includes(notifyAction)) {
+          await revokeTestInvites(ids)
         }
       }
     }
@@ -4475,17 +4425,17 @@ export default function EventDetailPage() {
                             role="menuitem"
                             onClick={() => { setBulkMenuOpen(null); void bulkPassScreeningInternal() }}
                             className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            title="Internal only — marks selected as Screening passed (internal) and adds them to the test invite list. No email, no external status change."
+                            title="Internal only — marks selected as Screening passed (internal). No email, no external status change, no test access yet."
                           >
-                            Pass screening internally (mark + open test)
+                            Pass screening internally (mark only)
                           </button>
                           <button
                             role="menuitem"
                             onClick={() => { setBulkMenuOpen(null); openCompose(ns.code) }}
                             className="block w-full text-left px-3 py-1.5 hover:bg-gray-100 dark:hover:bg-gray-700"
-                            title="Opens the composer with the test-invite template. External status does NOT change."
+                            title="Opens the composer with the test-invite template. Sending the email is what puts recipients on the test invite list. External status does NOT change."
                           >
-                            Send test invite email…
+                            Send test invite email… (grants access)
                           </button>
                           <div className="px-3 py-1.5 text-[10px] text-gray-400 border-t border-gray-100 dark:border-gray-700">
                             Screening never changes external status.
@@ -4896,7 +4846,7 @@ export default function EventDetailPage() {
                             ) : app.testScore !== null ? (
                               <span className="font-medium tabular-nums text-gray-900 dark:text-gray-100">{app.testScore}</span>
                             ) : app.testInvited ? (
-                              <span className="text-xs font-medium text-teal-600 dark:text-teal-400" title="On the test invite list (screening passed) — not started yet">invited</span>
+                              <span className="text-xs font-medium text-teal-600 dark:text-teal-400" title="Test invite email sent — has access, not started yet">invited</span>
                             ) : (
                               <span className="text-gray-400 dark:text-gray-600">—</span>
                             )}
