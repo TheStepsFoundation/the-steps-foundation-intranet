@@ -544,6 +544,9 @@ export function TemplateEditDialog(props: TemplateEditDialogProps) {
               >
                 {templateTypes.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
               </select>
+              <p className="mt-1 text-[11px] leading-snug text-gray-400">
+                Type decides which flow auto-picks this template — e.g. &quot;Reject &amp; Notify&quot; loads the Rejection template, &quot;Pass Screening &amp; Notify&quot; loads Test invite. Use Custom for anything else.
+              </p>
             </div>
           </div>
 

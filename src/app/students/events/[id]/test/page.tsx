@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -115,6 +115,26 @@ export default function EventTestAdminPage() {
   const [showInvitedOnly, setShowInvitedOnly] = useState(false)
 
   const [attempts, setAttempts] = useState<AttemptRow[]>([])
+  // Lightweight feedback + safety chrome (replaces window.confirm/alert):
+  // toast = transient confirmation after an action; confirmAction = modal
+  // describing exactly what a destructive click will do before it does it.
+  const [toast, setToast] = useState<string | null>(null)
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const showToast = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast(msg)
+    toastTimer.current = setTimeout(() => setToast(null), 3500)
+  }
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string
+    body: string
+    confirmLabel: string
+    run: () => void | Promise<void>
+  } | null>(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  // Results table controls
+  const [resultSearch, setResultSearch] = useState('')
+  const [resultSort, setResultSort] = useState<{ key: 'name' | 'status' | 'score' | 'answered' | 'accuracy' | 'started'; dir: 'asc' | 'desc' } | null>(null)
   const [studentNames, setStudentNames] = useState<Record<string, { name: string; email: string | null }>>({})
   const [questions, setQuestions] = useState<QuestionRow[]>([])
   const [showQuestions, setShowQuestions] = useState(false)
@@ -230,13 +250,20 @@ export default function EventTestAdminPage() {
     setInviteBusy(false)
   }
 
-  const voidAttempt = async (attemptId: string) => {
-    if (!window.confirm('Void this attempt? The student will be able to take the test again from scratch. This cannot be undone.')) return
-    const { data: u } = await supabase.auth.getUser()
-    await supabase.from('test_attempts')
-      .update({ status: 'voided', voided_at: new Date().toISOString(), voided_by: u?.user?.id ?? null })
-      .eq('id', attemptId)
-    await load()
+  const voidAttempt = async (attemptId: string, studentName?: string) => {
+    setConfirmAction({
+      title: 'Void this attempt?',
+      body: `${studentName ?? 'The student'} will be able to take the test again from scratch — use this only for genuine technical failures. The voided attempt stays in the database but disappears from results. This cannot be undone.`,
+      confirmLabel: 'Void attempt',
+      run: async () => {
+        const { data: u } = await supabase.auth.getUser()
+        await supabase.from('test_attempts')
+          .update({ status: 'voided', voided_at: new Date().toISOString(), voided_by: u?.user?.id ?? null })
+          .eq('id', attemptId)
+        await load()
+        showToast(`Attempt voided — ${studentName ?? 'the student'} can retake the test.`)
+      },
+    })
   }
 
   // names for attempts
@@ -289,6 +316,50 @@ export default function EventTestAdminPage() {
   const voidedAttempts = attempts.filter(a => a.kind === 'student' && a.status === 'voided')
   const teamAttempts = attempts.filter(a => a.kind === 'team')
 
+  // Results view: name/email filter + click-to-sort headers.
+  const displayAttempts = useMemo(() => {
+    const q = resultSearch.trim().toLowerCase()
+    let rows = studentAttempts
+    if (q) {
+      rows = rows.filter(a => {
+        const who = a.student_id ? studentNames[a.student_id] : null
+        return (who?.name ?? '').toLowerCase().includes(q) || (who?.email ?? '').toLowerCase().includes(q)
+      })
+    }
+    if (!resultSort) return rows
+    const { key, dir } = resultSort
+    const mul = dir === 'asc' ? 1 : -1
+    const val = (a: AttemptRow): string | number => {
+      switch (key) {
+        case 'name': return (a.student_id ? studentNames[a.student_id]?.name ?? '' : '').toLowerCase()
+        case 'status': return a.status
+        case 'score': return a.status === 'in_progress' ? -1 : Number(a.score ?? 0)
+        case 'answered': return a.status === 'in_progress' ? a.current_index : a.answered_count
+        case 'accuracy': return a.answered_count > 0 && a.correct_count !== null ? a.correct_count / a.answered_count : -1
+        case 'started': return new Date(a.started_at).getTime()
+      }
+    }
+    return [...rows].sort((x, y) => { const a = val(x); const b = val(y); return a < b ? -mul : a > b ? mul : 0 })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempts, studentNames, resultSearch, resultSort])
+
+  const sortableTh = (key: NonNullable<typeof resultSort>['key'], label: string) => {
+    const active = resultSort?.key === key
+    return (
+      <th className="py-2 pr-3 font-medium">
+        <button
+          type="button"
+          onClick={() => setResultSort(prev => prev?.key === key ? (prev.dir === 'desc' ? { key, dir: 'asc' } : null) : { key, dir: key === 'name' || key === 'status' ? 'asc' : 'desc' })}
+          className={`inline-flex items-center gap-0.5 hover:text-gray-600 dark:hover:text-gray-200 ${active ? 'text-gray-700 dark:text-gray-200' : ''}`}
+          title="Sort"
+        >
+          {label}
+          <span aria-hidden="true" className={active ? '' : 'opacity-30'}>{active ? (resultSort?.dir === 'asc' ? '\u25B4' : '\u25BE') : '\u25BE'}</span>
+        </button>
+      </th>
+    )
+  }
+
   if (!loaded) {
     return (
       <div className="flex items-center justify-center py-24" role="status">
@@ -331,6 +402,29 @@ export default function EventTestAdminPage() {
           </div>
         )}
       </div>
+
+      {test && test.status !== 'open' && (
+        <div className={`rounded-xl border p-4 flex items-start gap-3 ${
+          test.status === 'draft'
+            ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20'
+            : 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60'
+        }`}>
+          <svg className={`w-5 h-5 flex-shrink-0 mt-0.5 ${test.status === 'draft' ? 'text-amber-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <div className="text-sm">
+            {test.status === 'draft' ? (
+              <>
+                <p className="font-semibold text-amber-900 dark:text-amber-200">This test is a draft — students can&apos;t see or start it, even if invited.</p>
+                <p className="text-amber-800/80 dark:text-amber-300/80 mt-0.5">Emailed test links will show &quot;not currently open&quot;. Set <strong>Status</strong> to Open and save before (or right after) sending invite emails.</p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold text-gray-800 dark:text-gray-200">This test is closed.</p>
+                <p className="text-gray-600 dark:text-gray-400 mt-0.5">Invited students can no longer start or continue it. Re-open it from Settings if someone still needs to sit it.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {!test && (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6">
@@ -467,7 +561,7 @@ export default function EventTestAdminPage() {
                 <button
                   type="button"
                   disabled={inviteBusy}
-                  onClick={() => void setInvitedFor(nonRejectedIds, true)}
+                  onClick={async () => { await setInvitedFor(nonRejectedIds, true); showToast(`Invited ${nonRejectedIds.length} students.`) }}
                   className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60"
                 >
                   Invite all non-rejected ({nonRejectedIds.length})
@@ -475,8 +569,17 @@ export default function EventTestAdminPage() {
                 <button
                   type="button"
                   disabled={inviteBusy || invited.size === 0}
-                  onClick={() => { if (window.confirm('Remove ALL invitations?')) void setInvitedFor([...invited], false) }}
-                  className="px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60"
+                  onClick={() => setConfirmAction({
+                    title: 'Remove all invitations?',
+                    body: `All ${invited.size} invited students will lose access to the test (anyone mid-attempt keeps their attempt). Their emailed links will stop working until re-invited.`,
+                    confirmLabel: `Remove ${invited.size} invitation${invited.size === 1 ? '' : 's'}`,
+                    run: async () => {
+                      const n = invited.size
+                      await setInvitedFor([...invited], false)
+                      showToast(`Removed ${n} invitation${n === 1 ? '' : 's'}.`)
+                    },
+                  })}
+                  className="px-3 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-60"
                 >
                   Remove all
                 </button>
@@ -535,25 +638,35 @@ export default function EventTestAdminPage() {
               Scores also appear in the applicants table on the event page.
             </p>
             {studentAttempts.length === 0 ? (
-              <p className="text-sm text-gray-400">No attempts yet.</p>
+              <p className="text-sm text-gray-400">No attempts yet — they appear here the moment an invited student starts the test.</p>
             ) : (
               <div className="overflow-x-auto">
+                <input
+                  type="search"
+                  placeholder="Search by name or email…"
+                  value={resultSearch}
+                  onChange={e => setResultSearch(e.target.value)}
+                  className="w-full sm:w-72 text-sm rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-800 px-3 py-1.5 mb-3"
+                />
+                {displayAttempts.length === 0 && (
+                  <p className="text-sm text-gray-400 mb-2">No attempts match &quot;{resultSearch}&quot;.</p>
+                )}
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-800">
                       <th className="py-2 pr-3 font-medium">#</th>
-                      <th className="py-2 pr-3 font-medium">Student</th>
-                      <th className="py-2 pr-3 font-medium">Status</th>
-                      <th className="py-2 pr-3 font-medium">Score</th>
-                      <th className="py-2 pr-3 font-medium">Answered</th>
-                      <th className="py-2 pr-3 font-medium">Accuracy</th>
+                      {sortableTh('name', 'Student')}
+                      {sortableTh('status', 'Status')}
+                      {sortableTh('score', 'Score')}
+                      {sortableTh('answered', 'Answered')}
+                      {sortableTh('accuracy', 'Accuracy')}
                       <th className="py-2 pr-3 font-medium">Time used</th>
-                      <th className="py-2 pr-3 font-medium">Started</th>
+                      {sortableTh('started', 'Started')}
                       <th className="py-2 pr-0 font-medium"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 dark:divide-gray-800/60">
-                    {studentAttempts.map((a, i) => {
+                    {displayAttempts.map((a, i) => {
                       const who = a.student_id ? studentNames[a.student_id] : null
                       const acc = a.answered_count > 0 && a.correct_count !== null
                         ? `${Math.round((a.correct_count / a.answered_count) * 100)}%` : '—'
@@ -581,7 +694,7 @@ export default function EventTestAdminPage() {
                           <td className="py-2 pr-0 text-right">
                             <button
                               type="button"
-                              onClick={() => void voidAttempt(a.id)}
+                              onClick={() => void voidAttempt(a.id, who?.name)}
                               className="text-xs text-red-500 hover:text-red-700 font-medium"
                               title="Void this attempt so the student can retake (tech-failure override)"
                             >
@@ -685,6 +798,45 @@ export default function EventTestAdminPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* Destructive-action confirm modal (replaces window.confirm) */}
+      {confirmAction && (
+        <div role="dialog" aria-modal="true" aria-labelledby="test-confirm-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 max-w-md w-full p-5">
+            <h3 id="test-confirm-title" className="text-base font-semibold text-gray-900 dark:text-gray-100">{confirmAction.title}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mt-2">{confirmAction.body}</p>
+            <div className="flex flex-col sm:flex-row sm:justify-end gap-2 mt-5">
+              <button
+                type="button"
+                disabled={confirmBusy}
+                onClick={() => setConfirmAction(null)}
+                className="px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={confirmBusy}
+                onClick={async () => {
+                  setConfirmBusy(true)
+                  try { await confirmAction.run() } finally { setConfirmBusy(false); setConfirmAction(null) }
+                }}
+                className="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {confirmBusy ? 'Working…' : confirmAction.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action toast */}
+      {toast && (
+        <div role="status" className="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl bg-gray-900 text-white text-sm px-4 py-3 shadow-2xl flex items-center gap-2">
+          <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+          {toast}
+        </div>
       )}
     </div>
   )
