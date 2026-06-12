@@ -1007,6 +1007,18 @@ export default function EventTestAdminPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-xs text-gray-400 border-b border-gray-100 dark:border-gray-800">
+                        <th className="py-2 pr-2 font-medium">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all practice runs"
+                            checked={sortedTeamAttempts.length > 0 && sortedTeamAttempts.every(a => selectedAttempts.has(a.id))}
+                            onChange={e => setSelectedAttempts(prev => {
+                              const next = new Set(prev)
+                              for (const a of sortedTeamAttempts) { if (e.target.checked) next.add(a.id); else next.delete(a.id) }
+                              return next
+                            })}
+                          />
+                        </th>
                         <th className="py-2 pr-3 font-medium">#</th>
                         {teamTh('member', 'Team member')}
                         {teamTh('status', 'Status')}
@@ -1029,6 +1041,18 @@ export default function EventTestAdminPage() {
                             className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
                             title="Click for the question-by-question breakdown"
                           >
+                            <td className="py-2 pr-2" onClick={e => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${a.team_email ?? 'practice run'}`}
+                                checked={selectedAttempts.has(a.id)}
+                                onChange={e => setSelectedAttempts(prev => {
+                                  const next = new Set(prev)
+                                  if (e.target.checked) next.add(a.id); else next.delete(a.id)
+                                  return next
+                                })}
+                              />
+                            </td>
                             <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
                             <td className="py-2 pr-3 text-gray-900 dark:text-gray-100">{a.team_email}</td>
                             <td className="py-2 pr-3">
