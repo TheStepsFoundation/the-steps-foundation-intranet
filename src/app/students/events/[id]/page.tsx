@@ -2521,6 +2521,29 @@ export default function EventDetailPage() {
       return n
     })
   }
+  // Shift-click selects the whole range between the last-clicked row and this
+  // one (Gmail-style: the range takes the state this click produces). Plain
+  // clicks toggle as before; the anchor follows every click.
+  const lastSelIndexRef = useRef<number | null>(null)
+  const handleSelectClick = (e: React.MouseEvent<HTMLInputElement>, id: string, index: number) => {
+    if (e.shiftKey && lastSelIndexRef.current !== null && lastSelIndexRef.current !== index) {
+      const willSelect = !selected.has(id)
+      const from = Math.min(lastSelIndexRef.current, index)
+      const to = Math.max(lastSelIndexRef.current, index)
+      setSelected(prev => {
+        const n = new Set(prev)
+        for (let i = from; i <= to; i++) {
+          const row = paged[i]
+          if (!row) continue
+          if (willSelect) n.add(row.id); else n.delete(row.id)
+        }
+        return n
+      })
+    } else {
+      toggleSelect(id)
+    }
+    lastSelIndexRef.current = index
+  }
   const toggleSelectAll = () => {
     const pageIds = paged.map(a => a.id)
     const allPageSelected = pageIds.every(id => selected.has(id))
@@ -4387,7 +4410,7 @@ export default function EventDetailPage() {
             <table className="text-sm w-full border-collapse">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-800 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                  <th className="p-3 w-8 sticky left-0 z-20 bg-white dark:bg-gray-900">
+                  <th className="p-3 w-8 sticky left-0 z-20 bg-white dark:bg-gray-900 align-middle">
                     <input
                       type="checkbox"
                       checked={paged.length > 0 && paged.every(a => selected.has(a.id))}
@@ -4397,7 +4420,7 @@ export default function EventDetailPage() {
                   </th>
                   {!hiddenCols.has('name') && (
                     <th
-                      className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900 select-none"
+                      className="p-3 min-w-[160px] sticky left-8 z-20 bg-white dark:bg-gray-900 select-none align-middle"
                       style={{ boxShadow: '4px 0 8px -4px rgba(0,0,0,0.08)', ...colWidthStyle('name') }}
                     >
                       <button
@@ -4420,7 +4443,7 @@ export default function EventDetailPage() {
                     return (
                       <th
                         key={col.id}
-                        className={`p-3 relative select-none align-bottom ${
+                        className={`p-3 relative select-none align-middle ${
                           col.id.startsWith('cf_')
                             ? 'min-w-[260px] max-w-[320px] leading-snug'
                             : 'whitespace-nowrap max-w-[200px]'
@@ -4445,7 +4468,7 @@ export default function EventDetailPage() {
                 </tr>
               </thead>
               <tbody>
-                {paged.map(app => {
+                {paged.map((app, appIdx) => {
                   const badge = STATUS_MAP[app.status] ?? STATUS_MAP.submitted
                   const post16 = app.qualifications.filter(q =>
                     /a.?level|ib|btec/i.test(q.qualType) || q.level === 'post-16'
@@ -4477,8 +4500,11 @@ export default function EventDetailPage() {
                         <input
                           type="checkbox"
                           checked={selected.has(app.id)}
-                          onChange={() => toggleSelect(app.id)}
-                          className="rounded border-gray-300 dark:border-gray-600"
+                          readOnly
+                          onClick={e => handleSelectClick(e, app.id, appIdx)}
+                          onMouseDown={e => { if (e.shiftKey) e.preventDefault() }}
+                          title="Click to select · shift-click to select a range"
+                          className="rounded border-gray-300 dark:border-gray-600 cursor-pointer"
                         />
                       </td>
                       {!hiddenCols.has('name') && (
