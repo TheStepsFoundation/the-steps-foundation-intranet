@@ -380,6 +380,17 @@ def seq_panel(st):
 _MORPH_CYC = [3, 4, 5, 6]
 _MORPH_WAVES = ([3, 4, 5, 4], [4, 5, 6, 5])
 
+def _alt_hyps(domain):
+    """Period-2 alternation between any two distinct values. Added 2026-06-13
+    after Sam's #105 catch: a wave hiding its apex (3,4,?,4,3) is equally
+    consistent with plain alternation (3,4,3,4,3) - and since every wrong
+    side-count is offered as a distractor, the alternation answer was a
+    second defensible option. Same for a cycle hiding its only pentagon.
+    These hypotheses make unique_completion reject such gaps."""
+    vals = sorted(set(domain))
+    return [lambda t, x=x, y=y: (x, y)[t % 2]
+            for x in vals for y in vals if x != y]
+
 def _morph_hyps():
     hyps = []
     for d in (1, -1):
@@ -388,6 +399,7 @@ def _morph_hyps():
     for wave in _MORPH_WAVES:
         for ph in range(4):
             hyps.append(lambda t, wave=wave, ph=ph: wave[(ph + t) % 4])
+    hyps += _alt_hyps(_MORPH_CYC)
     return hyps
 
 def gen_seq_dial(difficulty):
@@ -497,6 +509,7 @@ def _pip_hyps():
             for a in range(1, 6) for ph in range(4)]
     hyps.append(lambda t: 1 + 2 * t)
     hyps.append(lambda t: 9 - 2 * t)
+    hyps += _alt_hyps(range(1, 10))
     return hyps
 
 def seq_easy_panel(st):
@@ -554,12 +567,14 @@ def _bat_hyps():
             for a in range(0, 3) for ph in range(4)]
     hyps.append(lambda t: t)
     hyps.append(lambda t: 4 - t)
+    hyps += _alt_hyps(range(0, 5))
     return hyps
 
 def _tri_morph_hyps():
     hyps = [lambda t, d=d, ph=ph: [3, 4, 5][(ph + d * t) % 3]
             for d in (1, -1) for ph in range(3)]
     hyps += [lambda t, ph=ph: [3, 4, 5, 4][(ph + t) % 4] for ph in range(4)]
+    hyps += _alt_hyps([3, 4, 5])
     return hyps
 
 def seq_med_panel(st):
@@ -1104,6 +1119,10 @@ def gen_nets(difficulty):
 # ---------- assemble -------------------------------------------------------------
 
 def sql_str(s): return "'" + s.replace("'", "''") + "'"
+
+import os as _os
+if _os.environ.get("NVR_DEFS_ONLY") == "1":
+    raise SystemExit(0)   # callers exec() this file for its functions only
 
 t0 = time.time()
 rows = []
