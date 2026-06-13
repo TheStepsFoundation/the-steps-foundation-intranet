@@ -185,6 +185,23 @@ export default function ApplyPage() {
     if (LOCKED_STD_IDS.has(id)) return false
     return stdOverrides[id]?.hidden === true
   }
+  // Set-once lock: profile fields the student has ALREADY saved (in any prior
+  // application, or via the hub) can't be changed here — enforced server-side
+  // by students_set_once (0062/0063). Render them read-only so returning
+  // applicants can't try and hit a save error. Name, additional context and
+  // every event-specific question stay fully editable. First-time applicants
+  // (no existingStudent row) see normal inputs.
+  const sx = existingStudent
+  const lockSchool = !!(sx && (sx.school_id || sx.school_name_raw))
+  const lockYear = !!(sx && sx.year_group != null)
+  const lockSchoolType = !!(sx && sx.school_type != null)
+  const lockIncome = !!(sx && sx.parental_income_band != null)
+  const lockFsm = !!(sx && sx.free_school_meals != null)
+  const lockFirstGen = !!(sx && sx.first_generation_uni != null)
+  const lockGcse = !!(sx && sx.gcse_results)
+  const lockQuals = !!(sx && Array.isArray(sx.qualifications) && sx.qualifications.length > 0)
+  const anyProfileLocked = lockSchool || lockYear || lockSchoolType || lockIncome || lockFsm || lockFirstGen || lockGcse || lockQuals
+
   // Word-count helpers used in validation below.
   const wordCount = (s: string | null | undefined) => {
     if (!s) return 0
@@ -1498,7 +1515,11 @@ export default function ApplyPage() {
             {stdDesc('std_school') && (
               <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_school')) }} />
             )}
-            <SchoolPicker value={school} onChange={v => { setSchool(v); clearFieldError('school') }} placeholder="Search for your school…" id="school" />
+            {lockSchool ? (
+              <div id="school" className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-600 cursor-not-allowed">{school.schoolNameRaw ?? 'Your school'}</div>
+            ) : (
+              <SchoolPicker value={school} onChange={v => { setSchool(v); clearFieldError('school') }} placeholder="Search for your school…" id="school" />
+            )}
             {fieldErrors.school && <p className="mt-1 text-xs text-red-600">{fieldErrors.school}</p>}
           </div>
 
@@ -1511,9 +1532,9 @@ export default function ApplyPage() {
               {stdDesc('std_year_group') && (
                 <p className="text-xs text-gray-400 mb-2" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_year_group')) }} />
               )}
-              <select id="yearGroup" value={yearGroup}
+              <select id="yearGroup" value={yearGroup} disabled={lockYear}
                 onChange={e => { setYearGroup(e.target.value ? Number(e.target.value) : ''); clearFieldError('yearGroup') }}
-                className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white ${fieldErrors.yearGroup ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}>
+                className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition ${lockYear ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : 'bg-white'} ${fieldErrors.yearGroup ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}>
                 <option value="">Select…</option>
                 <option value={12}>Year 12</option>
                 <option value={13}>Year 13</option>
@@ -1529,6 +1550,11 @@ export default function ApplyPage() {
             <p className="text-gray-500 text-xs mb-4">
               This helps us ensure our events reach students from underrepresented backgrounds.
             </p>
+            {anyProfileLocked && (
+              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-4">
+                Some of your details are saved from before and can&apos;t be changed here. If anything&apos;s wrong, email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a> and we&apos;ll update it.
+              </p>
+            )}
 
             {!stdHidden('std_school_type') && (isIndependentSchool(school.typeGroup) ? (
               <fieldset className="mb-4" data-error-key="schoolType">
@@ -1543,11 +1569,11 @@ export default function ApplyPage() {
                   { value: 'independent_bursary', label: 'Yes — I receive a 90%+ bursary or scholarship' },
                 ].map(opt => (
                   <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
-                    <input type="radio" name="schoolType" value={opt.value}
+                    <input type="radio" name="schoolType" value={opt.value} disabled={lockSchoolType}
                       checked={schoolType === opt.value}
                       onChange={e => { setSchoolType(e.target.value); clearFieldError('schoolType') }}
-                      className="mt-0.5 accent-steps-blue-600" />
-                    <span className="text-sm text-gray-700">{opt.label}</span>
+                      className="mt-0.5 accent-steps-blue-600 disabled:opacity-60" />
+                    <span className={`text-sm ${lockSchoolType ? 'text-gray-500' : 'text-gray-700'}`}>{opt.label}</span>
                   </label>
                 ))}
                 {fieldErrors.schoolType && <p className="mt-1 text-xs text-red-600">{fieldErrors.schoolType}</p>}
@@ -1562,11 +1588,11 @@ export default function ApplyPage() {
                 )}
                 {SCHOOL_TYPE_OPTIONS.map(opt => (
                   <label key={opt.value} className="flex items-start gap-3 py-1.5 cursor-pointer">
-                    <input type="radio" name="schoolType" value={opt.value}
+                    <input type="radio" name="schoolType" value={opt.value} disabled={lockSchoolType}
                       checked={schoolType === opt.value}
                       onChange={e => { setSchoolType(e.target.value); clearFieldError('schoolType') }}
-                      className="mt-0.5 accent-steps-blue-600" />
-                    <span className="text-sm text-gray-700">{opt.label}</span>
+                      className="mt-0.5 accent-steps-blue-600 disabled:opacity-60" />
+                    <span className={`text-sm ${lockSchoolType ? 'text-gray-500' : 'text-gray-700'}`}>{opt.label}</span>
                   </label>
                 ))}
                 {fieldErrors.schoolType && <p className="mt-1 text-xs text-red-600">{fieldErrors.schoolType}</p>}
@@ -1583,9 +1609,9 @@ export default function ApplyPage() {
               )}
               {[{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }, { v: 'prefer_not_to_say', l: 'Prefer not to say' }].map(opt => (
                 <label key={opt.v} className="flex items-center gap-3 py-1.5 cursor-pointer">
-                  <input type="radio" name="income" value={opt.v} checked={householdIncome === opt.v}
-                    onChange={e => { setHouseholdIncome(e.target.value); clearFieldError('householdIncome') }} className="accent-steps-blue-600" />
-                  <span className="text-sm text-gray-700">{opt.l}</span>
+                  <input type="radio" name="income" value={opt.v} disabled={lockIncome} checked={householdIncome === opt.v}
+                    onChange={e => { setHouseholdIncome(e.target.value); clearFieldError('householdIncome') }} className="accent-steps-blue-600 disabled:opacity-60" />
+                  <span className={`text-sm ${lockIncome ? 'text-gray-500' : 'text-gray-700'}`}>{opt.l}</span>
                 </label>
               ))}
               {fieldErrors.householdIncome && <p className="mt-1 text-xs text-red-600">{fieldErrors.householdIncome}</p>}
@@ -1606,11 +1632,11 @@ export default function ApplyPage() {
                 { v: 'no', l: 'Not eligible' },
               ].map(opt => (
                 <label key={opt.v} className="flex items-center gap-3 py-1.5 cursor-pointer">
-                  <input type="radio" name="fsm" value={opt.v}
+                  <input type="radio" name="fsm" value={opt.v} disabled={lockFsm}
                     checked={freeSchoolMeals === opt.v}
                     onChange={e => { setFreeSchoolMeals(e.target.value); clearFieldError('freeSchoolMeals') }}
-                    className="accent-steps-blue-600" />
-                  <span className="text-sm text-gray-700">{opt.l}</span>
+                    className="accent-steps-blue-600 disabled:opacity-60" />
+                  <span className={`text-sm ${lockFsm ? 'text-gray-500' : 'text-gray-700'}`}>{opt.l}</span>
                 </label>
               ))}
               {fieldErrors.freeSchoolMeals && <p className="mt-1 text-xs text-red-600">{fieldErrors.freeSchoolMeals}</p>}
@@ -1627,11 +1653,11 @@ export default function ApplyPage() {
               )}
               {[{ v: 'yes', l: 'Yes' }, { v: 'no', l: 'No' }].map(opt => (
                 <label key={opt.v} className="flex items-center gap-3 py-1.5 cursor-pointer">
-                  <input type="radio" name="firstGenerationUni" value={opt.v}
+                  <input type="radio" name="firstGenerationUni" value={opt.v} disabled={lockFirstGen}
                     checked={firstGenerationUni === opt.v}
                     onChange={e => { setFirstGenerationUni(e.target.value as 'yes' | 'no'); clearFieldError('firstGenerationUni') }}
-                    className="accent-steps-blue-600" />
-                  <span className="text-sm text-gray-700">{opt.l}</span>
+                    className="accent-steps-blue-600 disabled:opacity-60" />
+                  <span className={`text-sm ${lockFirstGen ? 'text-gray-500' : 'text-gray-700'}`}>{opt.l}</span>
                 </label>
               ))}
               {fieldErrors.firstGenerationUni && <p className="mt-1 text-xs text-red-600">{fieldErrors.firstGenerationUni}</p>}
@@ -1689,9 +1715,10 @@ export default function ApplyPage() {
                 inputMode="numeric"
                 pattern="[0-9]*"
                 value={gcseResults}
+                readOnly={lockGcse}
                 onChange={e => { setGcseResults(e.target.value.replace(/\D/g, '')); clearFieldError('gcseResults') }}
                 placeholder="e.g. 999887766"
-                className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition font-mono tracking-wider ${fieldErrors.gcseResults ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}
+                className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition font-mono tracking-wider ${lockGcse ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''} ${fieldErrors.gcseResults ? 'border-red-400 bg-red-50/30' : 'border-gray-200'}`}
               />
               {fieldErrors.gcseResults && <p className="mt-1 text-xs text-red-600">{fieldErrors.gcseResults}</p>}
             </div>
@@ -1705,12 +1732,22 @@ export default function ApplyPage() {
             </label>
             <p className="text-xs text-gray-400 mb-3" dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stdDesc('std_qualifications', 'Add each subject you study. Select your qualification type, subject, and current predicted (or achieved) grade.')) }} />
 
-            <QualificationsEditor
-              value={qualifications}
-              onChange={setQualifications}
-              error={fieldErrors.qualifications}
-              onInteract={() => clearFieldError('qualifications')}
-            />
+            {lockQuals ? (
+              <div className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-gray-50 text-gray-600">
+                {qualifications.filter(q => q.subject && q.grade).map((q) => {
+                  const subj = q.subject === '__other' ? 'Other' : q.subject
+                  const lvl = q.qualType === 'ib' && q.level ? ` (${q.level.split(' ')[0]})` : ''
+                  return `${subj}${lvl} — ${q.grade}`
+                }).join(', ')}
+              </div>
+            ) : (
+              <QualificationsEditor
+                value={qualifications}
+                onChange={setQualifications}
+                error={fieldErrors.qualifications}
+                onInteract={() => clearFieldError('qualifications')}
+              />
+            )}
           </div>
           )}
 
