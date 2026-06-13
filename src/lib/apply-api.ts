@@ -551,24 +551,39 @@ export async function submitProfile(
       ? 'over_40k'
       : 'prefer_na'
 
-  // Build student payload — includes the new profile columns (gcse_results,
-  // qualifications, additional_context, first_generation_uni). RLS allows the
-  // student to write their own row. `coalesce(... , null)` semantics via
-  // `?? null` keep empty strings out of text columns.
+  // Read the student's existing row first. Set-once fields (school, year
+  // group, school type, FSM, income, first-gen, GCSEs, qualifications) are
+  // locked by the students_set_once trigger (migrations 0062/0063): once a
+  // value is present, only the team can change it. A returning applicant
+  // resubmitting the apply form must therefore send back the STORED value
+  // for any already-set locked field — otherwise normalisation differences
+  // (trimmed text, re-serialised qualifications jsonb) make the trigger
+  // reject the whole save. `pick` keeps the existing value when non-null,
+  // else takes the freshly-entered one.
+  const existing = await runWithRetry(
+    () => supabase.from('students')
+      .select('school_id, school_name_raw, year_group, school_type, bursary_90plus, free_school_meals, parental_income_band, first_generation_uni, gcse_results, qualifications')
+      .eq('personal_email', email).maybeSingle(),
+    'students.existing',
+  )
+  const ex = (existing.data ?? null) as Record<string, unknown> | null
+  const lockedNotNull = (k: string) => ex != null && ex[k] != null
+  const pick = <T,>(k: string, fresh: T): T => (lockedNotNull(k) ? (ex![k] as T) : fresh)
+
   const studentPayload = {
     first_name: normalizeName(profile.firstName),
     last_name: normalizeName(profile.lastName),
     personal_email: email,
-    school_id: profile.schoolId,
-    school_name_raw: profile.schoolNameRaw,
-    year_group: profile.yearGroup,
-    school_type: profile.schoolType,
-    bursary_90plus: profile.schoolType === 'independent_bursary' ? true : null,
-    free_school_meals: profile.freeSchoolMeals,
-    parental_income_band: incomeBand,
-    first_generation_uni: profile.firstGenerationUni,
-    gcse_results: profile.gcseResults?.trim() || null,
-    qualifications: profile.qualifications?.length ? profile.qualifications : null,
+    school_id: pick('school_id', profile.schoolId),
+    school_name_raw: pick('school_name_raw', profile.schoolNameRaw),
+    year_group: pick('year_group', profile.yearGroup),
+    school_type: pick('school_type', profile.schoolType),
+    bursary_90plus: pick('bursary_90plus', profile.schoolType === 'independent_bursary' ? true : null),
+    free_school_meals: pick('free_school_meals', profile.freeSchoolMeals),
+    parental_income_band: pick('parental_income_band', incomeBand),
+    first_generation_uni: pick('first_generation_uni', profile.firstGenerationUni),
+    gcse_results: pick('gcse_results', profile.gcseResults?.trim() || null),
+    qualifications: pick('qualifications', profile.qualifications?.length ? profile.qualifications : null),
     additional_context: profile.additionalContext?.trim() || null,
   }
 

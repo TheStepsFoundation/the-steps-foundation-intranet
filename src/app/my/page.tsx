@@ -424,8 +424,10 @@ function StudentHubInner() {
       free_school_meals: profile.free_school_meals ?? freeSchoolMeals,
       parental_income_band: profile.parental_income_band ?? (incomeBand || null),
       first_generation_uni: profile.first_generation_uni ?? (firstGenerationUni === 'yes' ? false : firstGenerationUni === 'no' ? true : null),
-      gcse_results: gcseResults.trim() || null,
-      qualifications: filledQuals.length > 0 ? filledQuals : null,
+      gcse_results: profile.gcse_results ?? (gcseResults.trim() || null),
+      qualifications: (Array.isArray(profile.qualifications) && profile.qualifications.length > 0)
+        ? profile.qualifications
+        : (filledQuals.length > 0 ? filledQuals : null),
       additional_context: additionalContext.trim() || null,
     }
 
@@ -1122,9 +1124,6 @@ function StudentHubInner() {
                     <option value={14}>Gap year</option>
                   </select>
                 </div>
-                <p className="text-xs text-slate-500">
-                  School and year group <strong>lock once saved</strong>, so double-check them — if you need a change later, email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a>.
-                </p>
                 {saveMsg && <p className={`text-sm ${saveMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-600'}`} role="status">{saveMsg}</p>}
                 <PressableButton onClick={handleCreateProfile} disabled={saving} size="sm">{saving ? 'Saving…' : 'Save my details'}</PressableButton>
               </div>
@@ -1226,14 +1225,32 @@ function StudentHubInner() {
 
                 <div>
                   <label htmlFor="gcse-hub" className="block text-sm font-medium text-slate-700 mb-1">Achieved GCSE results</label>
-                  <p className="text-xs text-slate-400 mb-2">Enter your grades as numbers only, highest to lowest (e.g. 999887766).</p>
-                  <input id="gcse-hub" type="text" inputMode="numeric" pattern="[0-9]*" value={gcseResults} onChange={e => setGcseResults(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 999887766" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition font-mono tracking-wider" />
+                  {profile.gcse_results ? (
+                    <div id="gcse-hub" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 font-mono tracking-wider">{profile.gcse_results}</div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-400 mb-2">Enter your grades as numbers only, highest to lowest (e.g. 999887766).</p>
+                      <input id="gcse-hub" type="text" inputMode="numeric" pattern="[0-9]*" value={gcseResults} onChange={e => setGcseResults(e.target.value.replace(/\D/g, ''))} placeholder="e.g. 999887766" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition font-mono tracking-wider" />
+                    </>
+                  )}
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Subjects and predicted/achieved grades</label>
-                  <p className="text-xs text-slate-400 mb-3">Add each subject you study. Select your qualification type, subject, and current predicted (or achieved) grade.</p>
-                  <QualificationsEditor value={qualifications} onChange={setQualifications} error={qualificationsError} onInteract={() => setQualificationsError(null)} />
+                  {(Array.isArray(profile.qualifications) && profile.qualifications.length > 0) ? (
+                    <div className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">
+                      {profile.qualifications.map((q) => {
+                        const subj = q.subject === '__other' ? 'Other' : q.subject
+                        const lvl = q.qualType === 'ib' && q.level ? ` (${q.level.split(' ')[0]})` : ''
+                        return `${subj}${lvl} — ${q.grade}`
+                      }).join(', ')}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-slate-400 mb-3">Add each subject you study. Select your qualification type, subject, and current predicted (or achieved) grade.</p>
+                      <QualificationsEditor value={qualifications} onChange={setQualifications} error={qualificationsError} onInteract={() => setQualificationsError(null)} />
+                    </>
+                  )}
                 </div>
 
                 <div>
@@ -1242,9 +1259,6 @@ function StudentHubInner() {
                   <textarea id="addcontext-hub" value={additionalContext} onChange={e => setAdditionalContext(e.target.value)} rows={3} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition resize-none" />
                 </div>
 
-                <p className="text-xs text-slate-500">
-                  School, year group, school type and financial circumstances <strong>lock once they&apos;re set</strong> — if something&apos;s wrong, email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a> and we&apos;ll update it for you.
-                </p>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => { setEditing(false); if (profile) populateForm(profile) }} className="px-6 py-2.5 border border-slate-200 text-slate-700 font-medium rounded-xl hover:bg-slate-50 transition text-sm">Cancel</button>
                   <PressableButton onClick={handleSave} disabled={saving} size="sm" fullWidth>{saving ? 'Saving…' : 'Save changes'}</PressableButton>
@@ -1279,7 +1293,7 @@ function StudentHubInner() {
                 <Detail label="Additional context" className="col-span-2" value={profile.additional_context} />
               </dl>
               <p className="text-xs text-slate-500 mt-5 pt-4 border-t border-slate-100">
-                Need to change your school, year group or financial circumstances? Email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a> and we&apos;ll update them for you.
+                Some of your details can only be changed by us. If anything here is wrong, email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a> and we&apos;ll sort it.
               </p>
               </>
             )}
