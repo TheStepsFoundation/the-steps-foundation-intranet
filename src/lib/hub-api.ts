@@ -142,6 +142,33 @@ export async function updateProfile(
   return { error: null }
 }
 
+export type ProfileCreate = {
+  first_name: string
+  last_name: string
+  school_id: string | null
+  school_name_raw: string | null
+  year_group: number | null
+}
+
+/** Create the students row for a signed-in account that has never applied —
+ *  so returning-cohort students can set their details up before their next
+ *  application. Only the basics are set here; socio-economic fields stay
+ *  null until first answered, and everything sensitive locks once set
+ *  (students_set_once trigger, migration 0062). */
+export async function createProfile(p: ProfileCreate): Promise<{ error: string | null }> {
+  const email = await currentUserEmail()
+  if (!email) return { error: 'Not signed in' }
+  const { error } = await supabase.from('students').insert({
+    first_name: p.first_name.trim(),
+    last_name: p.last_name.trim(),
+    personal_email: email,
+    school_id: p.school_id,
+    school_name_raw: p.school_name_raw,
+    year_group: p.year_group,
+  })
+  return { error: error?.message ?? null }
+}
+
 // ---------------------------------------------------------------------------
 // Fetch student's applications (with event details)
 // ---------------------------------------------------------------------------

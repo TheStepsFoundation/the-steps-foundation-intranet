@@ -12,6 +12,7 @@ import {
   signOut, getAuthEmail, withdrawApplication, setMailingSubscription, fetchMyEventOptouts, fetchMyEventOptoutsVisible, setEventOptout, fetchLiveEvents, fetchScheduledEvents,
   type HubApplication, type HubEvent, type ProfileUpdate,
   fetchMyTestInfo, type StudentTestInfo,
+  createProfile,
 } from '@/lib/hub-api'
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
 import { getDisplayLocation } from '@/lib/event-display'
@@ -408,16 +409,21 @@ function StudentHubInner() {
       return
     }
 
+    // Set-once fields (school, year group, school type, FSM, income,
+    // first-gen) keep their existing value once present — the UI renders
+    // them read-only and the students_set_once trigger (0062) enforces it
+    // server-side for every path.
+    const schoolLocked = !!(profile.school_id || profile.school_name_raw)
     const updates: ProfileUpdate = {
       first_name: firstName.trim(),
       last_name: lastName.trim(),
-      school_id: school.schoolId,
-      school_name_raw: school.schoolNameRaw,
+      school_id: schoolLocked ? profile.school_id : school.schoolId,
+      school_name_raw: schoolLocked ? profile.school_name_raw : school.schoolNameRaw,
       year_group: yearGroupLocked ? profile.year_group : (yearGroup === '' ? null : Number(yearGroup)),
-      school_type: schoolType || null,
-      free_school_meals: freeSchoolMeals,
-      parental_income_band: incomeBand || null,
-      first_generation_uni: firstGenerationUni === 'yes' ? false : firstGenerationUni === 'no' ? true : null,
+      school_type: profile.school_type ?? (schoolType || null),
+      free_school_meals: profile.free_school_meals ?? freeSchoolMeals,
+      parental_income_band: profile.parental_income_band ?? (incomeBand || null),
+      first_generation_uni: profile.first_generation_uni ?? (firstGenerationUni === 'yes' ? false : firstGenerationUni === 'no' ? true : null),
       gcse_results: gcseResults.trim() || null,
       qualifications: filledQuals.length > 0 ? filledQuals : null,
       additional_context: additionalContext.trim() || null,
@@ -428,6 +434,29 @@ function StudentHubInner() {
     if (error) { setSaveMsg('Error: ' + error); return }
     setSaveMsg('Saved!')
     setEditing(false)
+    setTimeout(() => setSaveMsg(null), 3000)
+    const fresh = await fetchProfile()
+    if (fresh) { setProfile(fresh); populateForm(fresh) }
+  }
+
+  // First-time profile creation — for accounts that signed in but have
+  // never applied (e.g. a past cohort invited to a new event).
+  const handleCreateProfile = async () => {
+    if (!firstName.trim() || !lastName.trim()) {
+      setSaveMsg('Error: please fill in your first and last name.')
+      return
+    }
+    setSaving(true)
+    const { error } = await createProfile({
+      first_name: firstName,
+      last_name: lastName,
+      school_id: school.schoolId,
+      school_name_raw: school.schoolNameRaw,
+      year_group: yearGroup === '' ? null : Number(yearGroup),
+    })
+    setSaving(false)
+    if (error) { setSaveMsg('Error: ' + error); return }
+    setSaveMsg('Saved!')
     setTimeout(() => setSaveMsg(null), 3000)
     const fresh = await fetchProfile()
     if (fresh) { setProfile(fresh); populateForm(fresh) }
@@ -1068,7 +1097,37 @@ function StudentHubInner() {
 
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             {!profile ? (
-              <p className="text-slate-500 text-sm">No profile found. Apply to an event to create your profile.</p>
+              <div className="space-y-4">
+                <p className="text-sm text-slate-600">Set your details up once and they&apos;ll be ready on every application.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="hub-new-firstname" className="block text-sm font-medium text-slate-700 mb-1">First name</label>
+                    <input id="hub-new-firstname" type="text" value={firstName} autoComplete="given-name" onChange={e => setFirstName(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition" />
+                  </div>
+                  <div>
+                    <label htmlFor="hub-new-lastname" className="block text-sm font-medium text-slate-700 mb-1">Last name</label>
+                    <input id="hub-new-lastname" type="text" value={lastName} autoComplete="family-name" onChange={e => setLastName(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">School <span className="text-slate-400 font-normal">(optional for now)</span></label>
+                  <SchoolPicker value={school} onChange={setSchool} placeholder="Search for your school…" id="hub-new-school" />
+                </div>
+                <div>
+                  <label htmlFor="hub-new-yeargroup" className="block text-sm font-medium text-slate-700 mb-1">Year group <span className="text-slate-400 font-normal">(optional for now)</span></label>
+                  <select id="hub-new-yeargroup" value={yearGroup} onChange={e => setYearGroup(e.target.value ? Number(e.target.value) : '')} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
+                    <option value="">Select…</option>
+                    <option value={12}>Year 12</option>
+                    <option value={13}>Year 13</option>
+                    <option value={14}>Gap year</option>
+                  </select>
+                </div>
+                <p className="text-xs text-slate-500">
+                  School and year group <strong>lock once saved</strong>, so double-check them — if you need a change later, email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a>.
+                </p>
+                {saveMsg && <p className={`text-sm ${saveMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-600'}`} role="status">{saveMsg}</p>}
+                <PressableButton onClick={handleCreateProfile} disabled={saving} size="sm">{saving ? 'Saving…' : 'Save my details'}</PressableButton>
+              </div>
             ) : editing ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1084,7 +1143,11 @@ function StudentHubInner() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">School</label>
-                  <SchoolPicker value={school} onChange={setSchool} placeholder="Search for your school…" id="hub-school" />
+                  {(profile.school_id || profile.school_name_raw) ? (
+                    <div className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">{profile.school_name_raw ?? 'Set'}</div>
+                  ) : (
+                    <SchoolPicker value={school} onChange={setSchool} placeholder="Search for your school…" id="hub-school" />
+                  )}
                 </div>
 
                 <div>
@@ -1094,9 +1157,6 @@ function StudentHubInner() {
                       <div id="hub-yeargroup" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">
                         {profile.year_group === 14 ? 'Gap year' : `Year ${profile.year_group}`}
                       </div>
-                      <p className="text-xs text-slate-500 mt-1.5">
-                        Wrong year? <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">Contact hello@thestepsfoundation.com</a> to update this.
-                      </p>
                     </>
                   ) : (
                     <select id="hub-yeargroup" value={yearGroup} onChange={e => setYearGroup(e.target.value ? Number(e.target.value) : '')} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
@@ -1110,42 +1170,58 @@ function StudentHubInner() {
 
                 <div>
                   <label htmlFor="hub-schooltype" className="block text-sm font-medium text-slate-700 mb-1">School type</label>
-                  <select id="hub-schooltype" value={schoolType} onChange={e => setSchoolType(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
-                    <option value="">Select…</option>
-                    {SCHOOL_TYPE_OPTIONS.map(o => (<option key={o.value} value={o.value}>{o.label}</option>))}
-                  </select>
+                  {profile.school_type ? (
+                    <div id="hub-schooltype" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">{SCHOOL_TYPE_OPTIONS.find(o => o.value === profile.school_type)?.label ?? profile.school_type}</div>
+                  ) : (
+                    <select id="hub-schooltype" value={schoolType} onChange={e => setSchoolType(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
+                      <option value="">Select…</option>
+                      {SCHOOL_TYPE_OPTIONS.map(o => (<option key={o.value} value={o.value}>{o.label}</option>))}
+                    </select>
+                  )}
                 </div>
 
                 <fieldset>
                   <legend className="block text-sm font-medium text-slate-700 mb-1">Eligible for Free School Meals?</legend>
-                  <div className="flex gap-4">
-                    {[{ v: true, l: 'Yes' }, { v: false, l: 'No' }].map(opt => (
-                      <label key={String(opt.v)} className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="fsm" checked={freeSchoolMeals === opt.v} onChange={() => setFreeSchoolMeals(opt.v)} className="accent-steps-blue-600" />
-                        <span className="text-sm text-slate-700">{opt.l}</span>
-                      </label>
-                    ))}
-                  </div>
+                  {profile.free_school_meals != null ? (
+                    <div className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">{profile.free_school_meals ? 'Yes' : 'No'}</div>
+                  ) : (
+                    <div className="flex gap-4">
+                      {[{ v: true, l: 'Yes' }, { v: false, l: 'No' }].map(opt => (
+                        <label key={String(opt.v)} className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" name="fsm" checked={freeSchoolMeals === opt.v} onChange={() => setFreeSchoolMeals(opt.v)} className="accent-steps-blue-600" />
+                          <span className="text-sm text-slate-700">{opt.l}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </fieldset>
 
                 <div>
                   <label htmlFor="hub-income" className="block text-sm font-medium text-slate-700 mb-1">Household income under £40k?</label>
-                  <select id="hub-income" value={incomeBand} onChange={e => setIncomeBand(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
-                    <option value="">Select…</option>
-                    {INCOME_OPTIONS.map(o => (<option key={o.value} value={o.value}>{o.label}</option>))}
-                  </select>
+                  {profile.parental_income_band ? (
+                    <div id="hub-income" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">{INCOME_OPTIONS.find(o => o.value === profile.parental_income_band)?.label ?? profile.parental_income_band}</div>
+                  ) : (
+                    <select id="hub-income" value={incomeBand} onChange={e => setIncomeBand(e.target.value)} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
+                      <option value="">Select…</option>
+                      {INCOME_OPTIONS.map(o => (<option key={o.value} value={o.value}>{o.label}</option>))}
+                    </select>
+                  )}
                 </div>
 
                 <fieldset>
                   <legend className="block text-sm font-medium text-slate-700 mb-1">Did you grow up in a household where at least one parent went to university?</legend>
-                  <div className="flex gap-4">
-                    {[{ v: 'yes' as const, l: 'Yes' }, { v: 'no' as const, l: 'No' }].map(opt => (
-                      <label key={opt.v} className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="firstGenUni" checked={firstGenerationUni === opt.v} onChange={() => setFirstGenerationUni(opt.v)} className="accent-steps-blue-600" />
-                        <span className="text-sm text-slate-700">{opt.l}</span>
-                      </label>
-                    ))}
-                  </div>
+                  {profile.first_generation_uni != null ? (
+                    <div className="w-full px-4 py-2.5 border border-slate-200 rounded-xl bg-slate-50 text-slate-700">{profile.first_generation_uni ? 'No' : 'Yes'}</div>
+                  ) : (
+                    <div className="flex gap-4">
+                      {[{ v: 'yes' as const, l: 'Yes' }, { v: 'no' as const, l: 'No' }].map(opt => (
+                        <label key={opt.v} className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" name="firstGenUni" checked={firstGenerationUni === opt.v} onChange={() => setFirstGenerationUni(opt.v)} className="accent-steps-blue-600" />
+                          <span className="text-sm text-slate-700">{opt.l}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </fieldset>
 
                 <div>
@@ -1166,12 +1242,16 @@ function StudentHubInner() {
                   <textarea id="addcontext-hub" value={additionalContext} onChange={e => setAdditionalContext(e.target.value)} rows={3} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition resize-none" />
                 </div>
 
+                <p className="text-xs text-slate-500">
+                  School, year group, school type and financial circumstances <strong>lock once they&apos;re set</strong> — if something&apos;s wrong, email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a> and we&apos;ll update it for you.
+                </p>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => { setEditing(false); if (profile) populateForm(profile) }} className="px-6 py-2.5 border border-slate-200 text-slate-700 font-medium rounded-xl hover:bg-slate-50 transition text-sm">Cancel</button>
                   <PressableButton onClick={handleSave} disabled={saving} size="sm" fullWidth>{saving ? 'Saving…' : 'Save changes'}</PressableButton>
                 </div>
               </div>
             ) : (
+              <>
               <dl className="grid grid-cols-2 gap-y-4 gap-x-8">
                 <Detail label="First name" value={profile.first_name} />
                 <Detail label="Last name" value={profile.last_name} />
@@ -1198,6 +1278,10 @@ function StudentHubInner() {
                 />
                 <Detail label="Additional context" className="col-span-2" value={profile.additional_context} />
               </dl>
+              <p className="text-xs text-slate-500 mt-5 pt-4 border-t border-slate-100">
+                Need to change your school, year group or financial circumstances? Email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a> and we&apos;ll update them for you.
+              </p>
+              </>
             )}
           </div>
         </section>
