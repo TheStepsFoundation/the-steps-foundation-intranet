@@ -1453,8 +1453,11 @@ export default function ApplyPage() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8">
           {existingStudent && (
             <div className="mb-6 p-4 bg-steps-blue-50 border border-steps-blue-100 rounded-xl text-steps-blue-700 text-sm">
-              Welcome back! We&apos;ve pre-filled your details from your last application.
-              Please review and update anything that&apos;s changed.
+              {anyProfileLocked ? (
+                <>Welcome back! We&apos;ve pre-filled your details from before. The greyed-out ones can&apos;t be changed here — if any of them are wrong, email <a href="mailto:hello@thestepsfoundation.com" className="font-medium underline">hello@thestepsfoundation.com</a> and we&apos;ll update them. Please update anything else that&apos;s changed.</>
+              ) : (
+                <>Welcome back! We&apos;ve pre-filled your details from your last application. Please review and update anything that&apos;s changed.</>
+              )}
             </div>
           )}
           {restoredFromWithdrawn && (
@@ -1550,11 +1553,6 @@ export default function ApplyPage() {
             <p className="text-gray-500 text-xs mb-4">
               This helps us ensure our events reach students from underrepresented backgrounds.
             </p>
-            {anyProfileLocked && (
-              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-4">
-                Some of your details are saved from before and can&apos;t be changed here. If anything&apos;s wrong, email <a href="mailto:hello@thestepsfoundation.com" className="text-steps-blue-600 hover:underline">hello@thestepsfoundation.com</a> and we&apos;ll update it.
-              </p>
-            )}
 
             {!stdHidden('std_school_type') && (isIndependentSchool(school.typeGroup) ? (
               <fieldset className="mb-4" data-error-key="schoolType">
