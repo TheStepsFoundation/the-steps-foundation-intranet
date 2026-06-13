@@ -6,6 +6,7 @@ import { sendOtp, verifyOtp, signInWithPassword, getExistingSession } from '@/li
 import { supabase } from '@/lib/supabase-student'
 import Link from 'next/link'
 import Image from 'next/image'
+import { fetchOpenEvents, type HubEvent } from '@/lib/hub-api'
 import { PressableButton } from '@/components/PressableButton'
 import { OtpResendLink } from '@/components/OtpResendLink'
 
@@ -56,6 +57,16 @@ function HubSignInInner() {
   const [step, setStep] = useState<Step>('email')
   const [method, setMethod] = useState<Method>(preferPassword ? 'password' : 'otp')
   const [error, setError] = useState<string | null>(null)
+  // Events with applications currently open — drives the "applying to X?"
+  // shortcut for people who land on sign-in by mistake. Replaces a hardcoded
+  // Man Group banner that went stale the moment its applications closed:
+  // this renders for whatever is open right now and vanishes by itself.
+  const [openApplyEvents, setOpenApplyEvents] = useState<HubEvent[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetchOpenEvents().then(evs => { if (!cancelled) setOpenApplyEvents(evs.slice(0, 2)) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -166,25 +177,30 @@ function HubSignInInner() {
             <p className="text-slate-500 mt-2 text-sm">First time? Use a code &mdash; no password needed.</p>
           </div>
 
-          {/* Man Group applicant shortcut — for people who landed here by mistake */}
-          <Link
-            href="/apply/man-group-office-visit"
-            className="group block mb-5 rounded-2xl border border-steps-sunrise/40 bg-gradient-to-br from-orange-50 to-white px-5 py-4 hover:border-steps-sunrise hover:shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-sunrise focus-visible:ring-offset-2"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-steps-sunrise font-semibold">
-                  Applying to the Man Group office visit?
-                </p>
-                <p className="text-sm font-semibold text-steps-dark mt-0.5">
-                  Start your application — no account needed
-                </p>
+          {/* Open-applications shortcut — for people who landed here by
+              mistake. Driven by live data; renders nothing when no event has
+              applications open (no more stale hardcoded banners). */}
+          {openApplyEvents.map(ev => (
+            <Link
+              key={ev.id}
+              href={`/apply/${ev.slug}`}
+              className="group block mb-5 rounded-2xl border border-steps-sunrise/40 bg-gradient-to-br from-orange-50 to-white px-5 py-4 hover:border-steps-sunrise hover:shadow-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-steps-sunrise focus-visible:ring-offset-2"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-steps-sunrise font-semibold">
+                    Applying to {ev.name}?
+                  </p>
+                  <p className="text-sm font-semibold text-steps-dark mt-0.5">
+                    Start your application — no account needed
+                  </p>
+                </div>
+                <svg aria-hidden className="w-5 h-5 text-steps-sunrise transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                </svg>
               </div>
-              <svg aria-hidden className="w-5 h-5 text-steps-sunrise transition-transform group-hover:translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-              </svg>
-            </div>
-          </Link>
+            </Link>
+          ))}
 
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 sm:p-6 space-y-4">
             {/* Method tabs — only on the email step, not OTP step */}
