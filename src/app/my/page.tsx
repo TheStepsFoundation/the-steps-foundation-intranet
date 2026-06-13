@@ -1110,11 +1110,11 @@ function StudentHubInner() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">School <span className="text-slate-400 font-normal">(optional for now)</span></label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">School <span className="text-slate-400 font-normal">(leave blank if unsure — you can add it later)</span></label>
                   <SchoolPicker value={school} onChange={setSchool} placeholder="Search for your school…" id="hub-new-school" />
                 </div>
                 <div>
-                  <label htmlFor="hub-new-yeargroup" className="block text-sm font-medium text-slate-700 mb-1">Year group <span className="text-slate-400 font-normal">(optional for now)</span></label>
+                  <label htmlFor="hub-new-yeargroup" className="block text-sm font-medium text-slate-700 mb-1">Year group <span className="text-slate-400 font-normal">(leave blank if unsure — you can add it later)</span></label>
                   <select id="hub-new-yeargroup" value={yearGroup} onChange={e => setYearGroup(e.target.value ? Number(e.target.value) : '')} className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-steps-blue-500 focus:border-transparent outline-none transition bg-white">
                     <option value="">Select…</option>
                     <option value={12}>Year 12</option>
