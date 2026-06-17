@@ -91,6 +91,7 @@
   .about-card h3{font-size:clamp(1.1rem,1.7vw,1.4rem);margin-bottom:.25rem;}
   .about-card .role{color:var(--accent);font-weight:600;font-size:clamp(.9rem,1.3vw,1.08rem);}
   .about-card .desc{margin-top:.9rem;font-size:clamp(1rem,1.4vw,1.2rem);}
+  .title-slide .about-card{position:absolute;top:50%;right:5%;transform:translateY(-50%);width:min(36%,460px);}
 
   /* ---------- Title slide ---------- */
   .title-slide{background:linear-gradient(160deg,#ffffff 0%,#eef2f8 100%);}
@@ -193,6 +194,7 @@
   @media (max-width:720px){
     .cols,.grid,.about,.media,.year-split,.gallery,.travel-split,.closing-split{grid-template-columns:1fr;}
     .slide{padding:6vh 7vw;}
+    .title-slide .about-card{position:static;transform:none;width:auto;}
   }
 
   /* ---------- Print / Save as PDF (one slide per landscape page) ---------- */
