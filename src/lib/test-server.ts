@@ -19,6 +19,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { effectiveTestStatusRow } from '@/lib/test-client'
 
 export const ANSWER_GRACE_MS = 3000
 
@@ -122,10 +123,10 @@ export async function fetchTestBySlug(svc: ServiceClient, slug: string): Promise
  *  passed closes_at always win. Invited students can SEE the test before it
  *  opens — this gate only controls starting it. */
 export function testOpenNow(test: TestRow, now = Date.now()): boolean {
-  if (test.status === 'closed') return false
-  if (test.closes_at && now > new Date(test.closes_at).getTime()) return false
-  if (test.status === 'open') return true
-  return !!test.opens_at && now >= new Date(test.opens_at).getTime()
+  // Single source of truth: a test is open iff its derived effective status
+  // is 'open' (see effectiveTestStatus in test-client). Keeps the access gate
+  // and every status badge in lock-step.
+  return effectiveTestStatusRow(test, now) === 'open'
 }
 
 export async function isInvited(svc: ServiceClient, testId: string, studentId: string): Promise<boolean> {

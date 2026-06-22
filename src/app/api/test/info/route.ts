@@ -4,6 +4,7 @@ import {
   fetchTestBySlug, testOpenNow, isInvited, findAttempt, expireIfOverdue,
   upcomingQuestions, attemptStatePayload, jsonError,
 } from '@/lib/test-server'
+import { effectiveTestStatusRow } from '@/lib/test-client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -82,6 +83,7 @@ export async function POST(req: NextRequest) {
       opensAt: test.opens_at,
       closesAt: test.closes_at,
       status: mode === 'team' ? 'open' : test.status,
+      effectiveStatus: mode === 'team' ? 'open' : effectiveTestStatusRow(test),
     },
     invited,
     attempt: attempt ? attemptStatePayload(attempt, includeTotals) : null,

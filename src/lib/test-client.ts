@@ -17,6 +17,10 @@ export type TestInfo = {
   opensAt: string | null
   closesAt: string | null
   status: 'draft' | 'open' | 'closed'
+  /** Date-aware status: a 'draft' test whose opens_at has passed reads
+   *  'open'; a draft with a future opens_at reads 'scheduled'. Mirrors the
+   *  server gate (testOpenNow) so UI never contradicts access. */
+  effectiveStatus: EffectiveTestStatus
 }
 
 export type AttemptState = {
@@ -109,4 +113,48 @@ export function videoEmbedUrl(url: string): string | null {
 export function formatClock(totalSeconds: number): string {
   const s = Math.max(0, totalSeconds)
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+
+// ---------------------------------------------------------------------------
+// Effective (date-aware) test status — the single source of truth shared by
+// the access gate (testOpenNow, server) and every status badge (admin + my).
+//
+// A test's raw `status` column is admin intent; the value students actually
+// experience also depends on opens_at / closes_at. This mirrors the events
+// pattern (computeEventEffectiveStatus): we DERIVE the live status rather than
+// mutating the column on a schedule.
+//
+//   closed      — status='closed', or closes_at has passed
+//   open        — status='open', OR status='draft' and opens_at has passed
+//   scheduled   — status='draft' and opens_at is set but still in the future
+//                 (invited students see a locked preview until then)
+//   draft       — status='draft' with no opens_at set (not yet scheduled)
+//
+// testOpenNow(...) === (effectiveTestStatus(...) === 'open').
+// ---------------------------------------------------------------------------
+export type EffectiveTestStatus = 'draft' | 'scheduled' | 'open' | 'closed'
+
+export function effectiveTestStatus(
+  status: 'draft' | 'open' | 'closed',
+  opensAt: string | null,
+  closesAt: string | null,
+  now: number = Date.now(),
+): EffectiveTestStatus {
+  if (status === 'closed') return 'closed'
+  if (closesAt && now > new Date(closesAt).getTime()) return 'closed'
+  if (status === 'open') return 'open'
+  // status === 'draft' from here
+  if (opensAt && now >= new Date(opensAt).getTime()) return 'open'
+  if (opensAt) return 'scheduled'
+  return 'draft'
+}
+
+/** Convenience for the snake_cased TestRow shape used server-side / in the
+ *  admin client (which read `opens_at` / `closes_at` straight from the DB). */
+export function effectiveTestStatusRow(
+  t: { status: 'draft' | 'open' | 'closed'; opens_at: string | null; closes_at: string | null },
+  now: number = Date.now(),
+): EffectiveTestStatus {
+  return effectiveTestStatus(t.status, t.opens_at, t.closes_at, now)
 }

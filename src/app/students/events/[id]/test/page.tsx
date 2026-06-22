@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import MetaLine from '@/components/MetaLine'
 import Badge, { type BadgeTone } from '@/components/Badge'
+import { effectiveTestStatusRow } from '@/lib/test-client'
 import { PromptContent, OptionContent } from '@/components/TestRunner'
 
 // ---------------------------------------------------------------------------
@@ -614,6 +615,11 @@ export default function EventTestAdminPage() {
     )
   }
 
+  // Date-aware status drives every badge/banner so the admin view can never
+  // contradict what students experience (a draft past opens_at IS open).
+  const effStatus = test ? effectiveTestStatusRow(test) : null
+  const opensAtLabel = test?.opens_at ? new Date(test.opens_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : null
+
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -637,25 +643,33 @@ export default function EventTestAdminPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
               Preview as a student
             </a>
-            <Badge tone={test.status === 'open' ? 'emerald' : test.status === 'closed' ? 'neutral' : 'amber'}>
-              {test.status === 'draft' ? 'Draft — not visible to students' : test.status === 'open' ? 'Open' : 'Closed'}
+            <Badge tone={effStatus === 'open' ? 'emerald' : effStatus === 'closed' ? 'neutral' : 'amber'}>
+              {effStatus === 'open'
+                ? (test.status === 'draft' ? 'Open (auto-opened)' : 'Open')
+                : effStatus === 'closed' ? 'Closed'
+                : effStatus === 'scheduled' ? 'Scheduled' : 'Draft — not visible to students'}
             </Badge>
           </div>
         )}
       </div>
 
-      {test && test.status !== 'open' && (
+      {test && effStatus !== 'open' && (
         <div className={`rounded-xl border p-4 flex items-start gap-3 ${
-          test.status === 'draft'
-            ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20'
-            : 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60'
+          effStatus === 'closed'
+            ? 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60'
+            : 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20'
         }`}>
-          <svg className={`w-5 h-5 flex-shrink-0 mt-0.5 ${test.status === 'draft' ? 'text-amber-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+          <svg className={`w-5 h-5 flex-shrink-0 mt-0.5 ${effStatus === 'closed' ? 'text-gray-500' : 'text-amber-600'}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
           <div className="text-sm">
-            {test.status === 'draft' ? (
+            {effStatus === 'scheduled' ? (
               <>
-                <p className="font-semibold text-amber-900 dark:text-amber-200">This test is a draft — students can&apos;t see or start it, even if invited.</p>
-                <p className="text-amber-800/80 dark:text-amber-300/80 mt-0.5">Emailed test links will show &quot;not currently open&quot;. Set <strong>Status</strong> to Open and save before (or right after) sending invite emails.</p>
+                <p className="font-semibold text-amber-900 dark:text-amber-200">Scheduled — opens automatically{opensAtLabel ? ` on ${opensAtLabel}` : ''}.</p>
+                <p className="text-amber-800/80 dark:text-amber-300/80 mt-0.5">Invited students see a locked preview until then, and can start the moment it opens — no further action needed. To open it early, set <strong>Status</strong> to Open and save.</p>
+              </>
+            ) : effStatus === 'draft' ? (
+              <>
+                <p className="font-semibold text-amber-900 dark:text-amber-200">Draft — no open date set, so invited students can&apos;t start it yet.</p>
+                <p className="text-amber-800/80 dark:text-amber-300/80 mt-0.5">Set an <strong>Opens at</strong> date (it will open automatically then) or set <strong>Status</strong> to Open to open immediately, and save.</p>
               </>
             ) : (
               <>
