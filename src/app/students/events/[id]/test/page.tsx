@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import MetaLine from '@/components/MetaLine'
 import Badge, { type BadgeTone } from '@/components/Badge'
 import { effectiveTestStatusRow } from '@/lib/test-client'
+import { scoreHistogram, scoreStats, normalPdf } from '@/lib/test-analytics'
 import { PromptContent, OptionContent } from '@/components/TestRunner'
 
 // ---------------------------------------------------------------------------
@@ -102,8 +103,16 @@ function fmtDuration(start: string, end: string | null): string {
 const STATUS_TONE: Record<string, BadgeTone> = {
   in_progress: 'blue',
   submitted: 'emerald',
-  expired: 'amber',
+  expired: 'neutral', // running out of time is a normal outcome, not a problem — calm grey, not alarming amber
   voided: 'neutral',
+}
+// Human-friendly labels. 'expired' reads as "time up" — the student simply ran
+// out of time on a timed test; nothing went wrong.
+const STATUS_LABEL: Record<string, string> = {
+  in_progress: 'in progress',
+  submitted: 'submitted',
+  expired: 'time up',
+  voided: 'voided',
 }
 
 export default function EventTestAdminPage() {
@@ -892,6 +901,85 @@ export default function EventTestAdminPage() {
               Score = questions answered correctly (no guessing penalty). Accuracy and questions reached are the tiebreakers.
               Scores also appear in the applicants table on the event page.
             </p>
+
+            {/* ── Score distribution + summary stats (recomputes live as attempts finalise) ── */}
+            {(() => {
+              const completed = studentAttempts.filter(a => a.status !== 'in_progress')
+              const scores = completed.map(a => Number(a.score ?? 0))
+              if (scores.length === 0) return null
+              const stats = scoreStats(scores)
+              const bins = scoreHistogram(scores)
+              const finished = completed.filter(a => a.status === 'submitted').length
+              const timeUp = completed.filter(a => a.status === 'expired').length
+              const maxCount = Math.max(1, ...bins.map(b => b.count))
+              const W = 760, H = 220, padL = 30, padR = 12, padT = 16, padB = 26
+              const innerW = W - padL - padR, innerH = H - padT - padB
+              const nb = bins.length
+              const slot = innerW / nb
+              const xOf = (score: number) => padL + (score + 0.5) * slot
+              const showCurve = stats.n >= 8 && stats.stdev > 0
+              let curve = ''
+              if (showCurve) {
+                const pdfMax = normalPdf(stats.mean, stats.mean, stats.stdev)
+                const pts: string[] = []
+                for (let x = 0; x <= stats.max; x += 0.2) {
+                  const y = padT + innerH - (normalPdf(x, stats.mean, stats.stdev) / pdfMax) * innerH * 0.96
+                  pts.push(xOf(x).toFixed(1) + ',' + y.toFixed(1))
+                }
+                curve = pts.join(' ')
+              }
+              const labelStep = Math.max(1, Math.ceil(nb / 16))
+              const tiles: Array<{ label: string; value: React.ReactNode; sub?: string }> = [
+                { label: 'Candidates', value: stats.n, sub: `${finished} finished \u00b7 ${timeUp} time up` },
+                { label: 'Mean', value: stats.mean.toFixed(1) },
+                { label: 'Median', value: stats.median % 1 ? stats.median.toFixed(1) : String(stats.median) },
+                { label: 'Top score', value: stats.max },
+                { label: 'Spread (\u03c3)', value: stats.stdev.toFixed(1) },
+              ]
+              return (
+                <div className="mb-5">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+                    {tiles.map(t => (
+                      <div key={t.label} className="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/40 px-3 py-2">
+                        <div className="text-[11px] uppercase tracking-wide text-gray-400">{t.label}</div>
+                        <div className="text-lg font-semibold text-gray-800 dark:text-gray-100 tabular-nums leading-tight">{t.value}</div>
+                        {t.sub && <div className="text-[11px] text-gray-400">{t.sub}</div>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200">Score distribution</h3>
+                      <span className="text-[11px] text-gray-400">students per score{showCurve ? ' \u00b7 curve = fitted normal' : ''}</span>
+                    </div>
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Histogram of candidate scores">
+                      <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="currentColor" className="text-gray-300 dark:text-gray-700" strokeWidth={1} />
+                      {bins.map(b => {
+                        const h = (b.count / maxCount) * innerH
+                        const x = padL + b.score * slot + slot * 0.12
+                        const w = slot * 0.76
+                        return (
+                          <g key={b.score}>
+                            <rect x={x} y={padT + innerH - h} width={w} height={h} rx={Math.min(2, w / 3)} className="fill-steps-blue-500/85 dark:fill-steps-blue-500/70">
+                              <title>{`Score ${b.score}: ${b.count} student${b.count === 1 ? '' : 's'}`}</title>
+                            </rect>
+                            {b.count > 0 && (
+                              <text x={x + w / 2} y={padT + innerH - h - 3} textAnchor="middle" className="fill-gray-500 dark:fill-gray-400" fontSize={9}>{b.count}</text>
+                            )}
+                            {b.score % labelStep === 0 && (
+                              <text x={x + w / 2} y={padT + innerH + 14} textAnchor="middle" className="fill-gray-400" fontSize={9}>{b.score}</text>
+                            )}
+                          </g>
+                        )
+                      })}
+                      {showCurve && <polyline points={curve} fill="none" stroke="currentColor" className="text-violet-500/80" strokeWidth={2} />}
+                      <line x1={xOf(stats.mean)} y1={padT} x2={xOf(stats.mean)} y2={padT + innerH} stroke="currentColor" className="text-rose-400" strokeWidth={1} strokeDasharray="3 3" />
+                      <text x={xOf(stats.mean)} y={padT - 4} textAnchor="middle" className="fill-rose-400" fontSize={9}>mean {stats.mean.toFixed(1)}</text>
+                    </svg>
+                  </div>
+                </div>
+              )
+            })()}
             {studentAttempts.length === 0 ? (
               <p className="text-sm text-gray-400">No attempts yet — they appear here the moment an invited student starts the test.</p>
             ) : (
@@ -963,7 +1051,7 @@ export default function EventTestAdminPage() {
                             <div className="text-xs text-gray-400">{who?.email ?? ''}</div>
                           </td>
                           <td className="py-2 pr-3">
-                            <Badge tone={STATUS_TONE[a.status] ?? 'neutral'}>{a.status === 'in_progress' ? 'in progress' : a.status}</Badge>
+                            <Badge tone={STATUS_TONE[a.status] ?? 'neutral'}>{STATUS_LABEL[a.status] ?? a.status}</Badge>
                           </td>
                           <td className="py-2 pr-3 font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                             {a.status === 'in_progress' ? '—' : a.score ?? 0}
@@ -1070,7 +1158,7 @@ export default function EventTestAdminPage() {
                             <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
                             <td className="py-2 pr-3 text-gray-900 dark:text-gray-100">{a.team_email}</td>
                             <td className="py-2 pr-3">
-                              <Badge tone={STATUS_TONE[a.status] ?? 'neutral'}>{a.status === 'in_progress' ? 'in progress' : a.status}</Badge>
+                              <Badge tone={STATUS_TONE[a.status] ?? 'neutral'}>{STATUS_LABEL[a.status] ?? a.status}</Badge>
                             </td>
                             <td className="py-2 pr-3 font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                               {a.status === 'in_progress' ? '—' : a.score ?? 0}
@@ -1340,7 +1428,7 @@ export default function EventTestAdminPage() {
                   <MetaLine
                     className="mt-1 !text-xs"
                     items={[
-                      { label: <Badge tone={STATUS_TONE[auditAttempt.status] ?? 'neutral'}>{auditAttempt.status === 'in_progress' ? 'in progress' : auditAttempt.status}</Badge> },
+                      { label: <Badge tone={STATUS_TONE[auditAttempt.status] ?? 'neutral'}>{STATUS_LABEL[auditAttempt.status] ?? auditAttempt.status}</Badge> },
                       ...(auditAttempt.kind === 'team' ? [{ label: <Badge tone="violet">team practice — not an applicant</Badge> }] : []),
                       { label: <>Score <strong className="text-gray-700 dark:text-gray-200">{auditAttempt.status === 'in_progress' ? '—' : auditAttempt.score ?? 0}</strong></> },
                       { label: <>Accuracy {auditAttempt.status === 'in_progress' ? '—' : acc}</> },
