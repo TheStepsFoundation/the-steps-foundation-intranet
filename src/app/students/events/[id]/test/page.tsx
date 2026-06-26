@@ -112,7 +112,7 @@ const STATUS_LABEL: Record<string, string> = {
   in_progress: 'in progress',
   submitted: 'submitted',
   expired: 'time up',
-  voided: 'voided',
+  voided: 'reset',
 }
 
 export default function EventTestAdminPage() {
@@ -179,6 +179,7 @@ export default function EventTestAdminPage() {
   // headers, one row per run) as every other data table on the site.
   const [teamSort, setTeamSort] = useState<{ key: 'member' | 'status' | 'score' | 'answered' | 'accuracy' | 'time' | 'started'; dir: 'asc' | 'desc' }>({ key: 'score', dir: 'desc' })
   const [studentNames, setStudentNames] = useState<Record<string, { name: string; email: string | null }>>({})
+  const [hoverScore, setHoverScore] = useState<number | null>(null) // score-distribution hover
   const [questions, setQuestions] = useState<QuestionRow[]>([])
   const [showQuestions, setShowQuestions] = useState(false)
   const [qCategory, setQCategory] = useState('all')
@@ -295,9 +296,9 @@ export default function EventTestAdminPage() {
 
   const voidAttempt = async (attemptId: string, studentName?: string) => {
     setConfirmAction({
-      title: 'Void this attempt?',
-      body: `${studentName ?? 'The student'} will be able to take the test again from scratch — use this only for genuine technical failures. The voided attempt stays in the database but disappears from results. This cannot be undone.`,
-      confirmLabel: 'Void attempt',
+      title: 'Reset this test?',
+      body: `${studentName ?? 'The student'} will be able to take the test again from scratch, as if they never took it. Their previous attempt is kept in the record (marked reset) but no longer counts or shows in results. This cannot be undone.`,
+      confirmLabel: 'Reset test',
       run: async () => {
         const { data: u } = await supabase.auth.getUser()
         await supabase.from('test_attempts')
@@ -305,7 +306,7 @@ export default function EventTestAdminPage() {
           .eq('id', attemptId)
         await load()
         setAllAnswers(null)   // analytics excludes voided attempts — recrunch
-        showToast(`Attempt voided — ${studentName ?? 'the student'} can retake the test.`)
+        showToast(`Test reset — ${studentName ?? 'the student'} can take it again from scratch.`)
       },
     })
   }
@@ -502,9 +503,9 @@ export default function EventTestAdminPage() {
 
   const bulkVoidAttempts = (ids: string[]) => {
     setConfirmAction({
-      title: `Void ${ids.length} attempt${ids.length === 1 ? '' : 's'}?`,
-      body: 'Each student will be able to take the test again from scratch — use this only for genuine technical failures. Voided attempts stay in the database but disappear from results. This cannot be undone.',
-      confirmLabel: `Void ${ids.length}`,
+      title: `Reset ${ids.length} test${ids.length === 1 ? '' : 's'}?`,
+      body: 'Each student will be able to take the test again from scratch, as if they never took it. Their previous attempts are kept in the record (marked reset) but no longer count. This cannot be undone.',
+      confirmLabel: `Reset ${ids.length}`,
       run: async () => {
         const { data: u } = await supabase.auth.getUser()
         const { error } = await supabase.from('test_attempts')
@@ -514,7 +515,7 @@ export default function EventTestAdminPage() {
         await load()
         setAllAnswers(null)
         setSelectedAttempts(new Set())
-        showToast(`Voided ${ids.length} attempt${ids.length === 1 ? '' : 's'}.`)
+        showToast(`Reset ${ids.length} test${ids.length === 1 ? '' : 's'}.`)
       },
     })
   }
@@ -950,32 +951,54 @@ export default function EventTestAdminPage() {
                   <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
                     <div className="flex items-center justify-between mb-1">
                       <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200">Score distribution</h3>
-                      <span className="text-[11px] text-gray-400">students per score{showCurve ? ' \u00b7 curve = fitted normal' : ''}</span>
+                      <span className="text-[11px] text-gray-400">hover a bar for detail{showCurve ? ' \u00b7 curve = fitted normal' : ''}</span>
                     </div>
-                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Histogram of candidate scores">
-                      <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="currentColor" className="text-gray-300 dark:text-gray-700" strokeWidth={1} />
-                      {bins.map(b => {
+                    <div className="relative">
+                      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto select-none" role="img" aria-label="Histogram of candidate scores" onMouseLeave={() => setHoverScore(null)}>
+                        <line x1={padL} y1={padT + innerH} x2={W - padR} y2={padT + innerH} stroke="currentColor" className="text-gray-300 dark:text-gray-700" strokeWidth={1} />
+                        {bins.map((b, i) => {
+                          const h = (b.count / maxCount) * innerH
+                          const x = padL + b.score * slot + slot * 0.12
+                          const w = slot * 0.76
+                          const active = hoverScore === b.score
+                          return (
+                            <g key={b.score}>
+                              {h > 0 && (
+                                <rect x={x} y={padT + innerH - h} width={w} height={h} rx={Math.min(2, w / 3)}
+                                  className={`tsf-grow-bar transition-[fill] duration-150 ${active ? 'fill-steps-blue-600 dark:fill-steps-blue-400' : 'fill-steps-blue-500/85 dark:fill-steps-blue-500/70'}`}
+                                  style={{ animationDelay: `${i * 22}ms` }} />
+                              )}
+                              {b.count > 0 && (
+                                <text x={x + w / 2} y={padT + innerH - h - 3} textAnchor="middle" className={active ? 'fill-steps-blue-700 dark:fill-steps-blue-300 font-semibold' : 'fill-gray-500 dark:fill-gray-400'} fontSize={9}>{b.count}</text>
+                              )}
+                              {b.score % labelStep === 0 && (
+                                <text x={x + w / 2} y={padT + innerH + 14} textAnchor="middle" className={active ? 'fill-gray-600 dark:fill-gray-300' : 'fill-gray-400'} fontSize={9}>{b.score}</text>
+                              )}
+                              {/* full-height hit area so even short or empty bars are easy to hover */}
+                              <rect x={padL + b.score * slot} y={padT} width={slot} height={innerH} fill="transparent" className="cursor-pointer"
+                                onMouseEnter={() => setHoverScore(b.score)} onClick={() => setHoverScore(b.score)} />
+                            </g>
+                          )
+                        })}
+                        {showCurve && <polyline points={curve} pathLength={1} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" className="text-violet-500/80 tsf-draw-curve" />}
+                        <line x1={xOf(stats.mean)} y1={padT} x2={xOf(stats.mean)} y2={padT + innerH} stroke="currentColor" className="text-rose-400 animate-tsf-fade-in" strokeWidth={1} strokeDasharray="3 3" />
+                        <text x={xOf(stats.mean)} y={padT - 4} textAnchor="middle" className="fill-rose-400 animate-tsf-fade-in" fontSize={9}>mean {stats.mean.toFixed(1)}</text>
+                      </svg>
+                      {hoverScore !== null && bins[hoverScore] && (() => {
+                        const b = bins[hoverScore]
                         const h = (b.count / maxCount) * innerH
-                        const x = padL + b.score * slot + slot * 0.12
-                        const w = slot * 0.76
+                        const leftPct = (xOf(b.score) / W) * 100
+                        const topPct = ((padT + innerH - h) / H) * 100
+                        const pct = stats.n > 0 ? Math.round((b.count / stats.n) * 100) : 0
                         return (
-                          <g key={b.score}>
-                            <rect x={x} y={padT + innerH - h} width={w} height={h} rx={Math.min(2, w / 3)} className="fill-steps-blue-500/85 dark:fill-steps-blue-500/70">
-                              <title>{`Score ${b.score}: ${b.count} student${b.count === 1 ? '' : 's'}`}</title>
-                            </rect>
-                            {b.count > 0 && (
-                              <text x={x + w / 2} y={padT + innerH - h - 3} textAnchor="middle" className="fill-gray-500 dark:fill-gray-400" fontSize={9}>{b.count}</text>
-                            )}
-                            {b.score % labelStep === 0 && (
-                              <text x={x + w / 2} y={padT + innerH + 14} textAnchor="middle" className="fill-gray-400" fontSize={9}>{b.score}</text>
-                            )}
-                          </g>
+                          <div className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-[115%] whitespace-nowrap rounded-md bg-gray-900 text-white px-2 py-1 text-[11px] shadow-lg"
+                            style={{ left: `${leftPct}%`, top: `${topPct}%` }}>
+                            <span className="font-semibold">Score {b.score}</span>
+                            <span className="text-gray-300"> · {b.count} student{b.count === 1 ? '' : 's'} · {pct}%</span>
+                          </div>
                         )
-                      })}
-                      {showCurve && <polyline points={curve} fill="none" stroke="currentColor" className="text-violet-500/80" strokeWidth={2} />}
-                      <line x1={xOf(stats.mean)} y1={padT} x2={xOf(stats.mean)} y2={padT + innerH} stroke="currentColor" className="text-rose-400" strokeWidth={1} strokeDasharray="3 3" />
-                      <text x={xOf(stats.mean)} y={padT - 4} textAnchor="middle" className="fill-rose-400" fontSize={9}>mean {stats.mean.toFixed(1)}</text>
-                    </svg>
+                      })()}
+                    </div>
                   </div>
                 </div>
               )
@@ -1067,10 +1090,10 @@ export default function EventTestAdminPage() {
                               <button
                                 type="button"
                                 onClick={e => { e.stopPropagation(); void voidAttempt(a.id, who?.name) }}
-                                className="text-xs text-red-500 hover:text-red-700 font-medium"
-                                title="Void this attempt so the student can retake (tech-failure override) — kept in the database"
+                                className="text-xs text-steps-blue-600 hover:text-steps-blue-700 font-medium"
+                                title="Reset this student's test so they can take it again from scratch — their previous attempt is kept in the record"
                               >
-                                Void
+                                Reset
                               </button>
                               <button
                                 type="button"
@@ -1092,7 +1115,7 @@ export default function EventTestAdminPage() {
             )}
             {voidedAttempts.length > 0 && (
               <p className="text-xs text-gray-400 mt-3">
-                {voidedAttempts.length} voided attempt{voidedAttempts.length === 1 ? '' : 's'} hidden.{' '}
+                {voidedAttempts.length} reset attempt{voidedAttempts.length === 1 ? '' : 's'} hidden.{' '}
                 <button
                   type="button"
                   onClick={() => void deleteVoidedAttempts(voidedAttempts.map(a => a.id))}
@@ -1545,10 +1568,10 @@ export default function EventTestAdminPage() {
           <button
             type="button"
             onClick={() => bulkVoidAttempts([...selectedAttempts])}
-            className="font-medium text-amber-300 hover:text-amber-200"
-            title="Voided attempts stay in the database; students can retake"
+            className="font-medium text-sky-300 hover:text-sky-200"
+            title="Reset: students can take the test again from scratch; previous attempts kept in the record"
           >
-            Void
+            Reset
           </button>
           <button
             type="button"

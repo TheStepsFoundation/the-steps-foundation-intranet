@@ -143,6 +143,14 @@ html {
 .animate-tsf-fade-up-4 { animation: tsf-fade-up 420ms cubic-bezier(0.22, 1, 0.36, 1) backwards; animation-delay: 240ms; }
 .animate-tsf-fade-in { animation: tsf-fade-in 240ms ease-out backwards; }
 
+/* Score-distribution histogram (test dashboard): bars grow up from the
+   baseline; the fitted normal curve draws itself on. prefers-reduced-motion is
+   handled by the global near-zero animation-duration override above. */
+@keyframes tsf-grow-bar { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes tsf-draw-curve { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.tsf-grow-bar { transform-box: fill-box; transform-origin: bottom; animation: tsf-grow-bar 560ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.tsf-draw-curve { stroke-dasharray: 1; stroke-dashoffset: 1; animation: tsf-draw-curve 900ms ease-out 300ms forwards; }
+
 /* Subtle grain overlay used on dark hero surfaces (steps-dark, steps-blue-900).
    Two soft radial highlights — keeps the surface from feeling like a flat slab. */
 .bg-tsf-grain {
