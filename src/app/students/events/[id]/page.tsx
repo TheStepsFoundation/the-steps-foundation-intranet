@@ -914,6 +914,7 @@ export default function EventDetailPage() {
   // Column filters
   const [yearGroupFilter, setYearGroupFilter] = useState<string>('all')
   const [schoolTypeFilter, setSchoolTypeFilter] = useState<string>('all')
+  const [testFilter, setTestFilter] = useState<'all' | 'not_taken' | 'taken'>('all')
   const [subjectFilter, setSubjectFilter] = useState<string[]>([])
   const [subjectMode, setSubjectMode] = useState<SubjectMatchMode>('any')
 
@@ -975,6 +976,7 @@ export default function EventDetailPage() {
           statusFilter: StatusFilter
           yearGroupFilter: string
           schoolTypeFilter: string
+          testFilter: string
           minGradeScore: number
           sortKey: SortKey
           sortDir: SortDir
@@ -987,6 +989,7 @@ export default function EventDetailPage() {
         if (typeof v.statusFilter === 'string') setStatusFilter(v.statusFilter)
         if (typeof v.yearGroupFilter === 'string') setYearGroupFilter(v.yearGroupFilter)
         if (typeof v.schoolTypeFilter === 'string') setSchoolTypeFilter(v.schoolTypeFilter)
+        if (v.testFilter === 'all' || v.testFilter === 'not_taken' || v.testFilter === 'taken') setTestFilter(v.testFilter)
         if (typeof v.minGradeScore === 'number') setMinGradeScore(v.minGradeScore)
         if (typeof v.sortKey === 'string') setSortKey(v.sortKey)
         if (typeof v.sortDir === 'string') setSortDir(v.sortDir)
@@ -1008,6 +1011,7 @@ export default function EventDetailPage() {
         statusFilter,
         yearGroupFilter,
         schoolTypeFilter,
+        testFilter,
         minGradeScore,
         sortKey,
         sortDir,
@@ -1019,7 +1023,7 @@ export default function EventDetailPage() {
     } catch {
       // Storage full / disabled — view still works for this session.
     }
-  }, [viewHydrated, eventId, viewStorageKey, statusFilter, yearGroupFilter, schoolTypeFilter, minGradeScore, sortKey, sortDir, search, subjectFilter, subjectMode])
+  }, [viewHydrated, eventId, viewStorageKey, statusFilter, yearGroupFilter, schoolTypeFilter, testFilter, minGradeScore, sortKey, sortDir, search, subjectFilter, subjectMode])
 
   // Seed column config (hidden + order) from the event row when it loads.
   // Shared across admins: lives in events.dashboard_columns. We only seed once,
@@ -2018,6 +2022,13 @@ export default function EventDetailPage() {
     if (subjectFilter.length > 0) {
       list = list.filter(a => matchesSubjects(extractSubjectsLower(a.qualifications), subjectFilter, subjectMode))
     }
+    if (testFilter !== 'all') {
+      if (testFilter === 'not_taken') {
+        list = list.filter(a => a.testInvited && a.testStatus !== 'submitted' && a.testStatus !== 'expired')
+      } else if (testFilter === 'taken') {
+        list = list.filter(a => a.testStatus === 'submitted' || a.testStatus === 'expired')
+      }
+    }
     // Sort
     const dir = sortDir === 'asc' ? 1 : -1
     list = [...list].sort((a, b) => {
@@ -2057,7 +2068,7 @@ export default function EventDetailPage() {
       }
     })
     return list
-  }, [applicants, statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir])
+  }, [applicants, statusFilter, yearGroupFilter, schoolTypeFilter, testFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir])
 
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = { all: applicants.length }
@@ -2085,7 +2096,7 @@ export default function EventDetailPage() {
   const paged = useMemo(() => filtered.slice(page * pageSize, (page + 1) * pageSize), [filtered, page, pageSize])
 
   // Reset page when filters change
-  useEffect(() => { setPage(0) }, [statusFilter, yearGroupFilter, schoolTypeFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir, pageSize])
+  useEffect(() => { setPage(0) }, [statusFilter, yearGroupFilter, schoolTypeFilter, testFilter, search, minGradeScore, subjectFilter, subjectMode, sortKey, sortDir, pageSize])
 
   // Full-screen toggle for the applicants/database card. Uses the native
   // Fullscreen API on just that card element (Esc exits). Tracked in state so
@@ -4105,7 +4116,7 @@ export default function EventDetailPage() {
             <button
               onClick={() => setShowFilters(f => !f)}
               className={`px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-1.5 ${
-                showFilters || yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0
+                showFilters || yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || testFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0
                   ? 'border-steps-blue-300 bg-steps-blue-50 text-steps-blue-700 dark:border-steps-blue-600 dark:bg-steps-blue-900/20 dark:text-steps-blue-400'
                   : 'border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
@@ -4114,7 +4125,7 @@ export default function EventDetailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" />
               </svg>
               Filter & Sort
-              {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0) && (
+              {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || testFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0) && (
                 <span className="w-1.5 h-1.5 rounded-full bg-steps-blue-500" />
               )}
             </button>
@@ -4246,6 +4257,22 @@ export default function EventDetailPage() {
                   </select>
                 </div>
 
+                {/* Test status filter — only shown when this event has a test */}
+                {eventTest && (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Test Status</label>
+                    <select
+                      value={testFilter}
+                      onChange={e => setTestFilter(e.target.value as 'all' | 'not_taken' | 'taken')}
+                      className="min-w-[10rem] px-2.5 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="all">All</option>
+                      <option value="not_taken">Not taken (invited)</option>
+                      <option value="taken">Taken</option>
+                    </select>
+                  </div>
+                )}
+
                 {/* Min grade score */}
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Min Grade Score</label>
@@ -4313,9 +4340,9 @@ export default function EventDetailPage() {
                 </div>
 
                 {/* Reset */}
-                {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0 || colOrder.length > 0) && (
+                {(yearGroupFilter !== 'all' || schoolTypeFilter !== 'all' || testFilter !== 'all' || sortKey !== 'submitted_at' || minGradeScore > 0 || subjectFilter.length > 0 || hiddenCols.size > 0 || colOrder.length > 0) && (
                   <button
-                    onClick={() => { setYearGroupFilter('all'); setSchoolTypeFilter('all'); setSortKey('submitted_at'); setSortDir('desc'); setMinGradeScore(0); setSubjectFilter([]); setSubjectMode('any'); resetCols(); try { window.localStorage.removeItem(viewStorageKey) } catch {} }}
+                    onClick={() => { setYearGroupFilter('all'); setSchoolTypeFilter('all'); setTestFilter('all'); setSortKey('submitted_at'); setSortDir('desc'); setMinGradeScore(0); setSubjectFilter([]); setSubjectMode('any'); resetCols(); try { window.localStorage.removeItem(viewStorageKey) } catch {} }}
                     className="px-2.5 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline self-end"
                   >
                     Reset all
