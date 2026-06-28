@@ -174,7 +174,7 @@ export default function EventTestAdminPage() {
   const resultsScrollRef = useRef<HTMLDivElement | null>(null)
   const resultsBarRef = useRef<HTMLDivElement | null>(null)
   const [resultsBar, setResultsBar] = useState<{ left: number; width: number; scrollWidth: number } | null>(null)
-  const [resultSort, setResultSort] = useState<{ key: 'name' | 'status' | 'score' | 'answered' | 'accuracy' | 'started'; dir: 'asc' | 'desc' } | null>(null)
+  const [resultSort, setResultSort] = useState<{ key: 'name' | 'status' | 'score' | 'answered' | 'accuracy' | 'time_taken' | 'started'; dir: 'asc' | 'desc' } | null>(null)
   // Team practice runs use the same database-view conventions (sortable
   // headers, one row per run) as every other data table on the site.
   const [teamSort, setTeamSort] = useState<{ key: 'member' | 'status' | 'score' | 'answered' | 'accuracy' | 'time' | 'started'; dir: 'asc' | 'desc' }>({ key: 'score', dir: 'desc' })
@@ -556,6 +556,7 @@ export default function EventTestAdminPage() {
         case 'score': return a.status === 'in_progress' ? -1 : Number(a.score ?? 0)
         case 'answered': return a.status === 'in_progress' ? a.current_index : a.answered_count
         case 'accuracy': return a.answered_count > 0 && a.correct_count !== null ? a.correct_count / a.answered_count : -1
+        case 'time_taken': return a.submitted_at ? new Date(a.submitted_at).getTime() - new Date(a.started_at).getTime() : -1
         case 'started': return new Date(a.started_at).getTime()
       }
     }
@@ -1039,7 +1040,7 @@ export default function EventTestAdminPage() {
                       {sortableTh('score', 'Score')}
                       {sortableTh('answered', 'Answered')}
                       {sortableTh('accuracy', 'Accuracy')}
-                      <th className="py-2 pr-3 font-medium">Time used</th>
+                      {sortableTh('time_taken', 'Time used')}
                       {sortableTh('started', 'Started')}
                       <th className="py-2 pr-2 pl-2 font-medium sticky right-0 bg-white dark:bg-gray-900"></th>
                     </tr>
