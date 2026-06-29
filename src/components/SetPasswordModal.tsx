@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-provider'
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,7 @@ const PUBLIC_PREFIXES = ['/login', '/reset-password', '/my', '/apply', '/auth']
 
 export function SetPasswordModal() {
   const pathname = usePathname()
+  const router = useRouter()
   const { user, isTeamMember, needsPasswordSetup, setPassword } = useAuth()
   const [open, setOpen] = useState(false)
   const [password, setPwd] = useState('')
@@ -81,6 +82,14 @@ export function SetPasswordModal() {
       sessionStorage.setItem(DISMISS_KEY, '1')
     }
     setOpen(false)
+  }
+
+  const handleDismissToSettings = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(DISMISS_KEY, '1')
+    }
+    setOpen(false)
+    router.push('/my')
   }
 
   return (
@@ -144,6 +153,14 @@ export function SetPasswordModal() {
           )}
 
           <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleDismissToSettings}
+              disabled={saving}
+              className="px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition disabled:opacity-50"
+            >
+              Ignore, change me in settings
+            </button>
             <button
               type="button"
               onClick={handleDismiss}
