@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { useAuth } from '@/lib/auth-provider'
 
 // ---------------------------------------------------------------------------
@@ -22,12 +22,12 @@ import { useAuth } from '@/lib/auth-provider'
 // ---------------------------------------------------------------------------
 
 const DISMISS_KEY = 'tsf_setpw_dismissed_this_session'
+const PERMANENT_DISMISS_KEY = 'tsf_setpw_dismissed_permanently'
 
 const PUBLIC_PREFIXES = ['/login', '/reset-password', '/my', '/apply', '/auth']
 
 export function SetPasswordModal() {
   const pathname = usePathname()
-  const router = useRouter()
   const { user, isTeamMember, needsPasswordSetup, setPassword } = useAuth()
   const [open, setOpen] = useState(false)
   const [password, setPwd] = useState('')
@@ -45,7 +45,10 @@ export function SetPasswordModal() {
       setOpen(false)
       return
     }
-    if (typeof window !== 'undefined' && sessionStorage.getItem(DISMISS_KEY) === '1') {
+    if (typeof window !== 'undefined' && (
+      sessionStorage.getItem(DISMISS_KEY) === '1' ||
+      localStorage.getItem(PERMANENT_DISMISS_KEY) === '1'
+    )) {
       setOpen(false)
       return
     }
@@ -86,10 +89,9 @@ export function SetPasswordModal() {
 
   const handleDismissToSettings = () => {
     if (typeof window !== 'undefined') {
-      sessionStorage.setItem(DISMISS_KEY, '1')
+      localStorage.setItem(PERMANENT_DISMISS_KEY, '1')
     }
     setOpen(false)
-    router.push('/my')
   }
 
   return (
