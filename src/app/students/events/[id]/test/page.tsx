@@ -180,6 +180,8 @@ export default function EventTestAdminPage() {
   const [teamSort, setTeamSort] = useState<{ key: 'member' | 'status' | 'score' | 'answered' | 'accuracy' | 'time' | 'started'; dir: 'asc' | 'desc' }>({ key: 'score', dir: 'desc' })
   const [studentNames, setStudentNames] = useState<Record<string, { name: string; email: string | null }>>({})
   const [hoverScore, setHoverScore] = useState<number | null>(null) // score-distribution hover
+  const histogramRef = useRef<HTMLDivElement | null>(null)
+  const [histogramVisible, setHistogramVisible] = useState(false)
   const [questions, setQuestions] = useState<QuestionRow[]>([])
   const [showQuestions, setShowQuestions] = useState(false)
   const [qCategory, setQCategory] = useState('all')
@@ -563,6 +565,19 @@ export default function EventTestAdminPage() {
     return [...rows].sort((x, y) => { const a = val(x); const b = val(y); return a < b ? -mul : a > b ? mul : 0 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempts, studentNames, resultSearch, resultSort])
+
+  // Fire histogram animations only when the chart scrolls into view.
+  useEffect(() => {
+    const el = histogramRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setHistogramVisible(true); obs.disconnect() } },
+      { threshold: 0.15 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [histogramRef.current])
 
   const sortableTh = (key: NonNullable<typeof resultSort>['key'], label: string) => {
     const active = resultSort?.key === key
@@ -949,7 +964,7 @@ export default function EventTestAdminPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
+                  <div ref={histogramRef} className="rounded-xl border border-gray-200 dark:border-gray-800 p-3">
                     <div className="flex items-center justify-between mb-1">
                       <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200">Score distribution</h3>
                       <span className="text-[11px] text-gray-400">hover a bar for detail{showCurve ? ' \u00b7 curve = fitted normal' : ''}</span>
@@ -966,7 +981,7 @@ export default function EventTestAdminPage() {
                             <g key={b.score}>
                               {h > 0 && (
                                 <rect x={x} y={padT + innerH - h} width={w} height={h} rx={Math.min(2, w / 3)}
-                                  className={`tsf-grow-bar transition-[fill] duration-150 ${active ? 'fill-steps-blue-600 dark:fill-steps-blue-400' : 'fill-steps-blue-500/85 dark:fill-steps-blue-500/70'}`}
+                                  className={`${histogramVisible ? 'tsf-grow-bar' : ''} transition-[fill] duration-150 ${active ? 'fill-steps-blue-600 dark:fill-steps-blue-400' : 'fill-steps-blue-500/85 dark:fill-steps-blue-500/70'}`}
                                   style={{ animationDelay: `${i * 22}ms` }} />
                               )}
                               {b.count > 0 && (
@@ -981,9 +996,9 @@ export default function EventTestAdminPage() {
                             </g>
                           )
                         })}
-                        {showCurve && <polyline points={curve} pathLength={1} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" className="text-violet-500/80 tsf-draw-curve" />}
-                        <line x1={xOf(stats.mean)} y1={padT} x2={xOf(stats.mean)} y2={padT + innerH} stroke="currentColor" className="text-rose-400 animate-tsf-fade-in" strokeWidth={1} strokeDasharray="3 3" />
-                        <text x={xOf(stats.mean)} y={padT - 4} textAnchor="middle" className="fill-rose-400 animate-tsf-fade-in" fontSize={9}>mean {stats.mean.toFixed(1)}</text>
+                        {showCurve && <polyline points={curve} pathLength={1} fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" className={`text-violet-500/80 ${histogramVisible ? 'tsf-draw-curve' : 'opacity-0'}`} />}
+                        <line x1={xOf(stats.mean)} y1={padT} x2={xOf(stats.mean)} y2={padT + innerH} stroke="currentColor" className={`text-rose-400 ${histogramVisible ? 'animate-tsf-fade-in' : 'opacity-0'}`} strokeWidth={1} strokeDasharray="3 3" />
+                        <text x={xOf(stats.mean)} y={padT - 4} textAnchor="middle" className={`${histogramVisible ? 'fill-rose-400 animate-tsf-fade-in' : 'fill-transparent'}`} fontSize={9}>mean {stats.mean.toFixed(1)}</text>
                       </svg>
                       {hoverScore !== null && bins[hoverScore] && (() => {
                         const b = bins[hoverScore]
