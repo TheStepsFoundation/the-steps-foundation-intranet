@@ -24,7 +24,7 @@ import { useAuth } from '@/lib/auth-provider'
 const DISMISS_KEY = 'tsf_setpw_dismissed_this_session'
 const PERMANENT_DISMISS_KEY = 'tsf_setpw_dismissed_permanently'
 
-const PUBLIC_PREFIXES = ['/login', '/reset-password', '/my', '/apply', '/auth']
+const PUBLIC_PREFIXES = ['/login', '/reset-password', '/my', '/apply', '/auth', '/book']
 
 export function SetPasswordModal() {
   const pathname = usePathname()
