@@ -108,6 +108,8 @@ type Applicant = {
   testInvited: boolean
   /** AI reviewer output (admin-only annotation; suggestion is applied separately). */
   aiReview: AiReviewResult | null
+  /** Admin-only rich-text (HTML) commentary for shortlisting. Never shown to students. */
+  notes: string | null
 }
 
 // Grade scoring: A-Level, IB, BTEC on a common 0-12 scale
@@ -215,16 +217,16 @@ type SortDir = 'asc' | 'desc'
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'ai_score' | 'ai_suggestion' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'test_time' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'ai_score' | 'ai_suggestion' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'test_time' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at' | 'notes'
 // `internal_review` sits right after `status` so admins read "where are we
 // actually planning to land" next to "what the student can see".
-const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
+const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'engagement', 'past_events', 'rsvp', 'attended', 'notes']
 // Every built-in column the picker should expose. The ones not in
 // DEFAULT_BUILTIN_COLS are off by default; admins opt-in via ColumnPicker.
 const ALL_BUILTIN_COLS: BuiltInColId[] = [
   'name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'test_time', 'engagement',
   'past_events', 'rsvp', 'attended', 'submitted_at', 'school', 'email',
-  'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at',
+  'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at', 'notes',
 ]
 const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   name: 'Name',
@@ -250,6 +252,7 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   fsm: 'FSM',
   attribution: 'Source',
   reviewed_at: 'Last reviewed',
+  notes: 'Notes',
 }
 
 type StatusFilter = 'all' | string
@@ -263,6 +266,20 @@ const INTERNAL_SORT_RANK: Record<string, number> = { reject: 1, waitlist: 2, sho
 
 /** Sort value for every column without a dedicated comparator. Numbers sort
  *  numerically, everything else case-insensitively as text. */
+// Strip HTML from a rich-text note down to a single-line plain-text preview
+// (used for the table cell, header sort and CSV export).
+function notesPlainText(html: string | null): string {
+  if (!html) return ''
+  return html
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function fallbackSortValue(app: Applicant, key: string): string | number {
   switch (key) {
     case 'internal_review': return INTERNAL_SORT_RANK[app.internal_review_status ?? ''] ?? 0
@@ -276,6 +293,7 @@ function fallbackSortValue(app: Applicant, key: string): string | number {
     case 'std_additional': return (app.additionalContext ?? '').toLowerCase()
     case 'std_anything_else': return (app.anythingElse ?? '').toLowerCase()
     case 'std_attribution': return (app.attributionSource ?? app.attributionChannel ?? '').toLowerCase()
+    case 'notes': return notesPlainText(app.notes).toLowerCase()
     default: {
       if (key.startsWith('cf_')) {
         const v = app.customFields[key.slice(3)]
@@ -1169,6 +1187,10 @@ export default function EventDetailPage() {
   // clicks a name in the applicants table. Avoids losing the current event
   // editor context.
   const [studentProfileId, setStudentProfileId] = useState<string | null>(null)
+  // Admin notes modal (rich-text commentary per applicant, used for shortlisting).
+  const [notesModalAppId, setNotesModalAppId] = useState<string | null>(null)
+  const [notesDraft, setNotesDraft] = useState<string>('')
+  const [savingNotes, setSavingNotes] = useState(false)
   // Pre-flight publish state. When admin picks a non-draft status from the
   // status select while the event is currently 'draft', we don't immediately
   // mutate editDraft — we open this modal first so they can review what
@@ -1805,7 +1827,7 @@ export default function EventDetailPage() {
       const { data: batch, error } = await supabase
         .from('applications')
         .select(`
-          id, student_id, status, internal_review_status, ai_review, submitted_at, attended, reviewed_by, reviewed_at, raw_response,
+          id, student_id, status, internal_review_status, ai_review, submitted_at, attended, reviewed_by, reviewed_at, raw_response, admin_notes,
           attribution_source, channel,
           students!inner(first_name, last_name, preferred_name, personal_email, year_group, school_id,
             school_type, bursary_90plus, free_school_meals, parental_income_band,
@@ -1944,6 +1966,7 @@ export default function EventDetailPage() {
         status: row.status,
         internal_review_status: (row.internal_review_status ?? null) as InternalReviewStatusCode | null,
         aiReview: parseAiReview(row.ai_review),
+        notes: typeof row.admin_notes === 'string' ? row.admin_notes : null,
         submitted_at: row.submitted_at,
         attended: row.attended ?? false,
         reviewed_by: row.reviewed_by,
@@ -2260,6 +2283,26 @@ export default function EventDetailPage() {
     if (newInternal === 'reject') {
       await revokeTestInvites([appId])
     }
+  }
+
+  // Persist admin notes (rich HTML) for one applicant. Stores null when the
+  // note is effectively empty so the cell falls back to the "Add note" prompt.
+  const saveNotes = async (appId: string, html: string) => {
+    setSavingNotes(true)
+    const now = new Date().toISOString()
+    const cleaned = notesPlainText(html).length === 0 ? null : html
+    const { error } = await supabase
+      .from('applications')
+      .update({ admin_notes: cleaned, updated_by: teamMember?.auth_uuid ?? null, updated_at: now } as any)
+      .eq('id', appId)
+    if (error) {
+      window.alert(`Saving the note FAILED — nothing was changed.\n\n${error.message}`)
+      setSavingNotes(false)
+      return
+    }
+    setApplicants(prev => prev.map(a => a.id === appId ? { ...a, notes: cleaned } : a))
+    setSavingNotes(false)
+    setNotesModalAppId(null)
   }
 
   const bulkUpdateInternalReviewStatus = async (newInternal: InternalReviewStatusCode | null) => {
@@ -3317,6 +3360,7 @@ export default function EventDetailPage() {
         case 'fsm': return app.free_school_meals === true ? 'Yes' : app.free_school_meals === false ? 'No' : ''
         case 'attribution': return (app.attributionSource ?? app.attributionChannel ?? '').replace(/_/g, ' ')
         case 'reviewed_at': return app.reviewed_at ? `${fmtTs(app.reviewed_at)}${app.reviewer_name ? ` (${app.reviewer_name})` : ''}` : ''
+        case 'notes': return notesPlainText(app.notes)
         case 'std_first_gen': return app.firstGenerationUni === true ? 'Yes' : app.firstGenerationUni === false ? 'No' : ''
         case 'std_additional': return app.additionalContext ?? ''
         case 'std_anything_else': return app.anythingElse ?? ''
@@ -4756,6 +4800,37 @@ export default function EventDetailPage() {
                       )}
                       {/* Dynamic columns based on visibility & order */}
                       {visibleColumns.filter(c => c.id !== 'name').map((col, colIdx) => {
+                        // Built-in: notes (rich-text admin commentary — click to open editor)
+                        if (col.id === 'notes') {
+                          const preview = notesPlainText(app.notes)
+                          const hasNote = preview.length > 0
+                          return (
+                            <td key={col.id} className="p-3 whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => { setNotesDraft(app.notes ?? ''); setNotesModalAppId(app.id) }}
+                                title={hasNote ? preview : 'Add a note'}
+                                className={`inline-flex items-center gap-1 max-w-[220px] text-left text-xs transition-colors ${
+                                  hasNote
+                                    ? 'text-gray-700 dark:text-gray-300 hover:text-steps-blue-600 dark:hover:text-steps-blue-400'
+                                    : 'text-gray-400 dark:text-gray-500 hover:text-steps-blue-600 dark:hover:text-steps-blue-400'
+                                }`}
+                              >
+                                {hasNote ? (
+                                  <>
+                                    <svg className="w-3.5 h-3.5 flex-shrink-0 text-steps-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                    <span className="truncate">{preview}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                                    <span>Add note</span>
+                                  </>
+                                )}
+                              </button>
+                            </td>
+                          )
+                        }
                         // Built-in: school_type
                         if (col.id === 'school_type') return (
                           <td key={col.id} className="p-3 text-gray-500 dark:text-gray-400 capitalize whitespace-nowrap">
@@ -5487,6 +5562,45 @@ export default function EventDetailPage() {
         return isApplicantsFullscreen && applicantsCardRef.current
           ? createPortal(composeModal, applicantsCardRef.current)
           : composeModal
+      })()}
+      {/* Applicant notes modal — rich-text commentary for shortlisting. Same
+          editor as the email composer. position:fixed, so while the applicants
+          card is true-fullscreen it must be portalled INTO the fullscreen
+          element (same pattern as the compose / student-profile overlays). */}
+      {notesModalAppId && (() => {
+        const app = applicants.find(a => a.id === notesModalAppId)
+        if (!app) return null
+        const notesModal = (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Applicant notes">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-2xl max-h-[85vh] flex flex-col">
+              <div className="p-5 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">Notes — {app.first_name} {app.last_name}</h2>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Private commentary — never shown to students.</p>
+                </div>
+                <button type="button" onClick={() => setNotesModalAppId(null)} aria-label="Close" className="w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:hover:text-gray-100 dark:hover:bg-gray-800">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="p-5 overflow-y-auto flex-1">
+                <RichTextEmailEditor
+                  key={notesModalAppId}
+                  initialHtml={app.notes ?? ''}
+                  onChange={setNotesDraft}
+                  disableImages
+                  placeholder="Add commentary on this applicant — test performance, school context, standout answers, anything relevant to shortlisting…"
+                />
+              </div>
+              <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex items-center justify-end gap-2">
+                <button type="button" onClick={() => setNotesModalAppId(null)} className="px-3 py-1.5 text-sm rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+                <button type="button" disabled={savingNotes} onClick={() => saveNotes(notesModalAppId, notesDraft)} className="px-4 py-1.5 text-sm font-medium rounded-md bg-steps-blue-600 text-white hover:bg-steps-blue-700 disabled:opacity-50">{savingNotes ? 'Saving…' : 'Save note'}</button>
+              </div>
+            </div>
+          </div>
+        )
+        return isApplicantsFullscreen && applicantsCardRef.current
+          ? createPortal(notesModal, applicantsCardRef.current)
+          : notesModal
       })()}
       {editingTemplate && (
         <TemplateEditDialog
