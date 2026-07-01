@@ -102,6 +102,8 @@ type Applicant = {
   testAccuracy: number | null
   /** Questions actually answered (skips excluded); null = no attempt / in progress. */
   testAnswered: number | null
+  /** Elapsed seconds from started_at to submitted_at; null = not finished. */
+  testTimeSecs: number | null
   /** On the test invite list ("screening passed", internal). */
   testInvited: boolean
   /** AI reviewer output (admin-only annotation; suggestion is applied separately). */
@@ -213,14 +215,14 @@ type SortDir = 'asc' | 'desc'
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'ai_score' | 'ai_suggestion' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'ai_score' | 'ai_suggestion' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'test_time' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at'
 // `internal_review` sits right after `status` so admins read "where are we
 // actually planning to land" next to "what the student can see".
 const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'engagement', 'past_events', 'rsvp', 'attended']
 // Every built-in column the picker should expose. The ones not in
 // DEFAULT_BUILTIN_COLS are off by default; admins opt-in via ColumnPicker.
 const ALL_BUILTIN_COLS: BuiltInColId[] = [
-  'name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'engagement',
+  'name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'test_time', 'engagement',
   'past_events', 'rsvp', 'attended', 'submitted_at', 'school', 'email',
   'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at',
 ]
@@ -235,6 +237,7 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   test_score: 'Test score',
   test_accuracy: 'Test accuracy',
   test_answered: 'Test answered',
+  test_time: 'Time taken',
   engagement: 'Engagement',
   past_events: 'Past Events',
   rsvp: 'RSVP',
@@ -1879,7 +1882,7 @@ export default function EventDetailPage() {
 
     // Selection-test scores (if this event has a test). Admin-only RLS — for
     // wider members this comes back empty and the column just shows dashes.
-    const testMap: Record<string, { score: number | null; status: string; correct: number | null; answered: number | null }> = {}
+    const testMap: Record<string, { score: number | null; status: string; correct: number | null; answered: number | null; started_at: string | null; submitted_at: string | null }> = {}
     let testInvitedSet = new Set<string>()
     {
       const { data: testRow } = await supabase.from('tests').select('id').eq('event_id', eventId).maybeSingle()
@@ -1888,12 +1891,12 @@ export default function EventDetailPage() {
         testInvitedSet = new Set((tInv ?? []).map(r => r.student_id))
         const { data: tAtts } = await supabase
           .from('test_attempts')
-          .select('student_id, score, status, correct_count, answered_count')
+          .select('student_id, score, status, correct_count, answered_count, started_at, submitted_at')
           .eq('test_id', testRow.id)
           .eq('kind', 'student')
           .neq('status', 'voided')
         for (const a of tAtts ?? []) {
-          if (a.student_id) testMap[a.student_id] = { score: a.score, status: a.status, correct: a.correct_count, answered: a.answered_count }
+          if (a.student_id) testMap[a.student_id] = { score: a.score, status: a.status, correct: a.correct_count, answered: a.answered_count, started_at: a.started_at ?? null, submitted_at: a.submitted_at ?? null }
         }
       }
     }
@@ -1981,6 +1984,12 @@ export default function EventDetailPage() {
           if (!t || t.status === 'in_progress') return null
           return t.answered ?? null
         })(),
+        testTimeSecs: (() => {
+          const t = testMap[row.student_id]
+          if (!t || !t.started_at || !t.submitted_at || t.status === 'in_progress') return null
+          const ms = new Date(t.submitted_at).getTime() - new Date(t.started_at).getTime()
+          return ms > 0 ? Math.round(ms / 1000) : null
+        })(),
         testInvited: testInvitedSet.has(row.student_id),
       }
     })
@@ -2044,6 +2053,7 @@ export default function EventDetailPage() {
         case 'ai_score': return dir * ((a.aiReview?.score ?? -1) - (b.aiReview?.score ?? -1))
         case 'test_accuracy': return dir * ((a.testAccuracy ?? -1) - (b.testAccuracy ?? -1))
         case 'test_answered': return dir * ((a.testAnswered ?? -1) - (b.testAnswered ?? -1))
+        case 'test_time': return dir * ((a.testTimeSecs ?? -1) - (b.testTimeSecs ?? -1))
         // Past events: rank by attended count (the most meaningful engagement signal), breaking ties by accepted then submitted.
         case 'past_events': {
           const ap = (a.attendedCount ?? 0) - (a.attended ? 1 : 0)
@@ -3201,6 +3211,7 @@ export default function EventDetailPage() {
     test_score: 'test_score',
     test_accuracy: 'test_accuracy',
     test_answered: 'test_answered',
+    test_time: 'test_time',
     engagement: 'engagement',
     past_events: 'past_events',
     rsvp: 'rsvp',
@@ -3221,6 +3232,7 @@ export default function EventDetailPage() {
     test_score: 'desc',
     test_accuracy: 'desc',
     test_answered: 'desc',
+    test_time: 'asc',
     submitted_at: 'desc',
     engagement: 'desc',
     past_events: 'desc',
@@ -3277,6 +3289,12 @@ export default function EventDetailPage() {
         case 'test_score': return app.testStatus === 'in_progress' ? 'in progress' : (app.testScore ?? (app.testInvited ? 'invited' : ''))
         case 'test_accuracy': return app.testAccuracy !== null ? `${Math.round(app.testAccuracy * 100)}%` : ''
         case 'test_answered': return app.testAnswered ?? ''
+        case 'test_time': {
+          if (app.testTimeSecs === null) return ''
+          const m = Math.floor(app.testTimeSecs / 60)
+          const s = app.testTimeSecs % 60
+          return `${m}:${String(s).padStart(2, '0')}`
+        }
         case 'ai_score': return app.aiReview?.score ?? ''
         case 'ai_suggestion': {
           const r = app.aiReview
@@ -4894,6 +4912,18 @@ export default function EventDetailPage() {
                           <td key={col.id} className="p-3 whitespace-nowrap">
                             {app.testAnswered !== null ? (
                               <span className="tabular-nums text-gray-700 dark:text-gray-300">{app.testAnswered}</span>
+                            ) : (
+                              <span className="text-gray-400 dark:text-gray-600">—</span>
+                            )}
+                          </td>
+                        )
+                        // Built-in: selection-test time taken
+                        if (col.id === 'test_time') return (
+                          <td key={col.id} className="p-3 whitespace-nowrap">
+                            {app.testTimeSecs !== null ? (
+                              <span className="tabular-nums text-gray-700 dark:text-gray-300">
+                                {Math.floor(app.testTimeSecs / 60)}:{String(app.testTimeSecs % 60).padStart(2, '0')}
+                              </span>
                             ) : (
                               <span className="text-gray-400 dark:text-gray-600">—</span>
                             )}
