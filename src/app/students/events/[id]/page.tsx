@@ -1194,6 +1194,21 @@ export default function EventDetailPage() {
   const [notesModalAppId, setNotesModalAppId] = useState<string | null>(null)
   const [notesDraft, setNotesDraft] = useState<string>('')
   const [savingNotes, setSavingNotes] = useState(false)
+  // Weighted-score hover tooltip. Positioned with fixed viewport coords
+  // (measured from the badge on hover) and clamped so it can never run off any
+  // screen edge — then portalled OUT of the horizontally-scrolling table so
+  // the scroll container can't clip it. See openWeightedTip.
+  const [weightedTip, setWeightedTip] = useState<{ appId: string; x: number; y: number } | null>(null)
+  const openWeightedTip = useCallback((appId: string, r: DOMRect) => {
+    const TW = 288, TH = 250, M = 8
+    let x = r.left
+    if (x + TW > window.innerWidth - M) x = r.right - TW      // near right edge -> right-align to badge
+    x = Math.max(M, Math.min(x, window.innerWidth - TW - M))  // clamp within viewport
+    let y = r.bottom + 6
+    if (y + TH > window.innerHeight - M) y = r.top - TH - 6    // near bottom -> flip above
+    y = Math.max(M, Math.min(y, window.innerHeight - TH - M))
+    setWeightedTip({ appId, x, y })
+  }, [])
   // Pre-flight publish state. When admin picks a non-draft status from the
   // status select while the event is currently 'draft', we don't immediately
   // mutate editDraft — we open this modal first so they can review what
@@ -4926,34 +4941,13 @@ export default function EventDetailPage() {
                           return (
                             <td key={col.id} className="p-3 whitespace-nowrap">
                               {w ? (
-                                <div className="group relative inline-block">
-                                  <span className={`inline-flex items-center text-xs font-semibold rounded-full px-2.5 py-0.5 cursor-default tabular-nums ${weightedScoreBadgeClasses(w.pct)}`}>
-                                    {w.pct}%
-                                  </span>
-                                  <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 w-72 whitespace-normal">
-                                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 uppercase">Weighted score</div>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Contextual shortlisting fit (0–100; strongest candidate = 100).</p>
-                                    {([
-                                      ['Test (aptitude, contextualised)', 35, w.components.test],
-                                      ['Application quality', 30, w.components.application],
-                                      ['Need / context', 30, w.components.context],
-                                      ['Engagement', 5, w.components.engagement],
-                                    ] as [string, number, number][]).map(([lbl, wt, val]) => (
-                                      <div key={lbl} className="mb-1.5">
-                                        <div className="flex items-center justify-between text-[11px] text-gray-600 dark:text-gray-300">
-                                          <span>{lbl} <span className="text-gray-400">· {wt}%</span></span>
-                                          <span className="tabular-nums font-medium">{val}</span>
-                                        </div>
-                                        <div className="h-1 rounded bg-gray-100 dark:bg-gray-700 overflow-hidden">
-                                          <div className="h-full bg-steps-blue-500" style={{ width: `${Math.max(0, Math.min(100, val))}%` }} />
-                                        </div>
-                                      </div>
-                                    ))}
-                                    <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
-                                      Test {String(w.inputs.correct ?? '–')} correct · {String(w.inputs.accuracy ?? '–')}% acc · AI {String(w.inputs.ai_score ?? '–')}/5 · {String(w.inputs.school_type ?? '')}{w.inputs.fsm ? ' · FSM' : ''}{w.inputs.first_gen ? ' · 1st-gen' : ''}
-                                    </p>
-                                  </div>
-                                </div>
+                                <span
+                                  onMouseEnter={e => openWeightedTip(app.id, e.currentTarget.getBoundingClientRect())}
+                                  onMouseLeave={() => setWeightedTip(prev => (prev?.appId === app.id ? null : prev))}
+                                  className={`inline-flex items-center text-xs font-semibold rounded-full px-2.5 py-0.5 cursor-default tabular-nums ${weightedScoreBadgeClasses(w.pct)}`}
+                                >
+                                  {w.pct}%
+                                </span>
                               ) : (
                                 <span className="text-gray-400 dark:text-gray-600">—</span>
                               )}
@@ -5649,6 +5643,45 @@ export default function EventDetailPage() {
         return isApplicantsFullscreen && applicantsCardRef.current
           ? createPortal(notesModal, applicantsCardRef.current)
           : notesModal
+      })()}
+      {/* Weighted-score hover tooltip — fixed + viewport-clamped, portalled out
+          of the scrolling table so it can never be clipped or run off-screen.
+          Into the applicants card while fullscreen (same reason the modals are). */}
+      {weightedTip && (() => {
+        const app = applicants.find(a => a.id === weightedTip.appId)
+        const w = app?.weighted
+        if (!w) return null
+        const tip = (
+          <div
+            style={{ position: 'fixed', left: weightedTip.x, top: weightedTip.y, width: 288 }}
+            className="z-[80] pointer-events-none bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3"
+          >
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 uppercase">Weighted score</div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Contextual shortlisting fit (0–100; strongest candidate = 100).</p>
+            {([
+              ['Test (aptitude, contextualised)', 35, w.components.test],
+              ['Application quality', 30, w.components.application],
+              ['Need / context', 30, w.components.context],
+              ['Engagement', 5, w.components.engagement],
+            ] as [string, number, number][]).map(([lbl, wt, val]) => (
+              <div key={lbl} className="mb-1.5">
+                <div className="flex items-center justify-between text-[11px] text-gray-600 dark:text-gray-300">
+                  <span>{lbl} <span className="text-gray-400">· {wt}%</span></span>
+                  <span className="tabular-nums font-medium">{val}</span>
+                </div>
+                <div className="h-1 rounded bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                  <div className="h-full bg-steps-blue-500" style={{ width: `${Math.max(0, Math.min(100, val))}%` }} />
+                </div>
+              </div>
+            ))}
+            <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+              Test {String(w.inputs.correct ?? '–')} correct · {String(w.inputs.accuracy ?? '–')}% acc · AI {String(w.inputs.ai_score ?? '–')}/5 · {String(w.inputs.school_type ?? '')}{w.inputs.fsm ? ' · FSM' : ''}{w.inputs.first_gen ? ' · 1st-gen' : ''}
+            </p>
+          </div>
+        )
+        return isApplicantsFullscreen && applicantsCardRef.current
+          ? createPortal(tip, applicantsCardRef.current)
+          : createPortal(tip, document.body)
       })()}
       {editingTemplate && (
         <TemplateEditDialog
