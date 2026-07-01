@@ -9,7 +9,7 @@ import { refreshEvents } from '@/lib/events-cache'
 import { supabase } from '@/lib/supabase'
 import { ADMIN_STATUS_OPTIONS, INTERNAL_REVIEW_STATUSES, INTERNAL_REVIEW_OPTIONS, getInternalReviewMeta, internalReviewSubsumedBy, type InternalReviewStatusCode } from '@/lib/application-status'
 import { useAuth } from '@/lib/auth-provider'
-import { parseAiReview, aiScoreBadgeClasses, AI_FLAG_LABELS, type AiReviewResult } from '@/lib/ai-review'
+import { parseAiReview, aiScoreBadgeClasses, AI_FLAG_LABELS, type AiReviewResult, parseWeightedReview, weightedScoreBadgeClasses, type WeightedReview } from '@/lib/ai-review'
 import InviteStudentsModal from "@/components/InviteStudentsModal"
 import FormBuilder from "@/components/FormBuilder"
 import { fetchAllSettings, SETTINGS_KEYS, SETTINGS_DEFAULTS } from '@/lib/settings-api'
@@ -108,6 +108,8 @@ type Applicant = {
   testInvited: boolean
   /** AI reviewer output (admin-only annotation; suggestion is applied separately). */
   aiReview: AiReviewResult | null
+  /** Weighted shortlisting score (0-100, best candidate = 100) + breakdown. Admin-only. */
+  weighted: WeightedReview | null
   /** Admin-only rich-text (HTML) commentary for shortlisting. Never shown to students. */
   notes: string | null
 }
@@ -217,14 +219,14 @@ type SortDir = 'asc' | 'desc'
 // Built-in columns for the applicants table. 'name' is a special column
 // (always rendered sticky-left when visible) but is still togglable via the
 // column picker so admins can run blind / anonymised reviews.
-type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'ai_score' | 'ai_suggestion' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'test_time' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at' | 'notes'
+type BuiltInColId = 'name' | 'school_type' | 'status' | 'internal_review' | 'ai_score' | 'ai_suggestion' | 'weighted_score' | 'grades' | 'test_score' | 'test_accuracy' | 'test_answered' | 'test_time' | 'engagement' | 'past_events' | 'rsvp' | 'attended' | 'submitted_at' | 'school' | 'email' | 'year_group' | 'parental_income' | 'fsm' | 'attribution' | 'reviewed_at' | 'notes'
 // `internal_review` sits right after `status` so admins read "where are we
 // actually planning to land" next to "what the student can see".
-const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'engagement', 'past_events', 'rsvp', 'attended', 'notes']
+const DEFAULT_BUILTIN_COLS: BuiltInColId[] = ['name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'weighted_score', 'grades', 'engagement', 'past_events', 'rsvp', 'attended', 'notes']
 // Every built-in column the picker should expose. The ones not in
 // DEFAULT_BUILTIN_COLS are off by default; admins opt-in via ColumnPicker.
 const ALL_BUILTIN_COLS: BuiltInColId[] = [
-  'name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'test_time', 'engagement',
+  'name', 'school_type', 'status', 'internal_review', 'ai_score', 'ai_suggestion', 'weighted_score', 'grades', 'test_score', 'test_accuracy', 'test_answered', 'test_time', 'engagement',
   'past_events', 'rsvp', 'attended', 'submitted_at', 'school', 'email',
   'year_group', 'parental_income', 'fsm', 'attribution', 'reviewed_at', 'notes',
 ]
@@ -235,6 +237,7 @@ const BUILTIN_COL_LABELS: Record<BuiltInColId, string> = {
   internal_review: 'Internal mark',
   ai_score: 'AI score',
   ai_suggestion: 'AI suggestion',
+  weighted_score: 'Weighted score',
   grades: 'Grades (Score)',
   test_score: 'Test score',
   test_accuracy: 'Test accuracy',
@@ -1827,7 +1830,7 @@ export default function EventDetailPage() {
       const { data: batch, error } = await supabase
         .from('applications')
         .select(`
-          id, student_id, status, internal_review_status, ai_review, submitted_at, attended, reviewed_by, reviewed_at, raw_response, admin_notes,
+          id, student_id, status, internal_review_status, ai_review, submitted_at, attended, reviewed_by, reviewed_at, raw_response, admin_notes, weighted_review,
           attribution_source, channel,
           students!inner(first_name, last_name, preferred_name, personal_email, year_group, school_id,
             school_type, bursary_90plus, free_school_meals, parental_income_band,
@@ -1966,6 +1969,7 @@ export default function EventDetailPage() {
         status: row.status,
         internal_review_status: (row.internal_review_status ?? null) as InternalReviewStatusCode | null,
         aiReview: parseAiReview(row.ai_review),
+        weighted: parseWeightedReview(row.weighted_review),
         notes: typeof row.admin_notes === 'string' ? row.admin_notes : null,
         submitted_at: row.submitted_at,
         attended: row.attended ?? false,
@@ -2074,6 +2078,7 @@ export default function EventDetailPage() {
         case 'engagement': return dir * (a.engagementScore - b.engagementScore)
         case 'test_score': return dir * ((a.testScore ?? -1) - (b.testScore ?? -1))
         case 'ai_score': return dir * ((a.aiReview?.score ?? -1) - (b.aiReview?.score ?? -1))
+        case 'weighted_score': return dir * ((a.weighted?.pct ?? -1) - (b.weighted?.pct ?? -1))
         case 'test_accuracy': return dir * ((a.testAccuracy ?? -1) - (b.testAccuracy ?? -1))
         case 'test_answered': return dir * ((a.testAnswered ?? -1) - (b.testAnswered ?? -1))
         case 'test_time': return dir * ((a.testTimeSecs ?? -1) - (b.testTimeSecs ?? -1))
@@ -3251,6 +3256,7 @@ export default function EventDetailPage() {
     status: 'status',
     grades: 'gradeScore',
     ai_score: 'ai_score',
+    weighted_score: 'weighted_score',
     test_score: 'test_score',
     test_accuracy: 'test_accuracy',
     test_answered: 'test_answered',
@@ -3272,6 +3278,7 @@ export default function EventDetailPage() {
     status: 'asc',
     gradeScore: 'desc',
     ai_score: 'desc',
+    weighted_score: 'desc',
     test_score: 'desc',
     test_accuracy: 'desc',
     test_answered: 'desc',
@@ -3339,6 +3346,7 @@ export default function EventDetailPage() {
           return `${m}:${String(s).padStart(2, '0')}`
         }
         case 'ai_score': return app.aiReview?.score ?? ''
+        case 'weighted_score': return app.weighted ? `${app.weighted.pct}%` : ''
         case 'ai_suggestion': {
           const r = app.aiReview
           if (!r) return ''
@@ -4904,6 +4912,46 @@ export default function EventDetailPage() {
                                         ))}
                                       </div>
                                     )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 dark:text-gray-600">—</span>
+                              )}
+                            </td>
+                          )
+                        }
+                        // Built-in: weighted shortlisting score (0-100, best = 100) — styled like AI score
+                        if (col.id === 'weighted_score') {
+                          const w = app.weighted
+                          return (
+                            <td key={col.id} className="p-3 whitespace-nowrap">
+                              {w ? (
+                                <div className="group relative inline-block">
+                                  <span className={`inline-flex items-center text-xs font-semibold rounded-full px-2.5 py-0.5 cursor-default tabular-nums ${weightedScoreBadgeClasses(w.pct)}`}>
+                                    {w.pct}%
+                                  </span>
+                                  <div className="absolute left-0 top-full mt-1 z-30 hidden group-hover:block bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 w-72 whitespace-normal">
+                                    <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 uppercase">Weighted score</div>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Contextual shortlisting fit (0–100; strongest candidate = 100).</p>
+                                    {([
+                                      ['Test (aptitude, contextualised)', 35, w.components.test],
+                                      ['Application quality', 30, w.components.application],
+                                      ['Need / context', 30, w.components.context],
+                                      ['Engagement', 5, w.components.engagement],
+                                    ] as [string, number, number][]).map(([lbl, wt, val]) => (
+                                      <div key={lbl} className="mb-1.5">
+                                        <div className="flex items-center justify-between text-[11px] text-gray-600 dark:text-gray-300">
+                                          <span>{lbl} <span className="text-gray-400">· {wt}%</span></span>
+                                          <span className="tabular-nums font-medium">{val}</span>
+                                        </div>
+                                        <div className="h-1 rounded bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                                          <div className="h-full bg-steps-blue-500" style={{ width: `${Math.max(0, Math.min(100, val))}%` }} />
+                                        </div>
+                                      </div>
+                                    ))}
+                                    <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+                                      Test {String(w.inputs.correct ?? '–')} correct · {String(w.inputs.accuracy ?? '–')}% acc · AI {String(w.inputs.ai_score ?? '–')}/5 · {String(w.inputs.school_type ?? '')}{w.inputs.fsm ? ' · FSM' : ''}{w.inputs.first_gen ? ' · 1st-gen' : ''}
+                                    </p>
                                   </div>
                                 </div>
                               ) : (

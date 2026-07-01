@@ -78,6 +78,63 @@ export function aiScoreBadgeClasses(score: number): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Weighted shortlisting score — a separate, transparent composite written to
+// `applications.weighted_review` per selection round (see migration 0066).
+// 0-100 where the strongest candidate in the cohort = 100. Distinct from the
+// 1-5 `ai_review`: this blends the selection-test result (contextualised
+// within school type), the AI application-quality score, need/context signals
+// (FSM, first-gen, IMD, POLAR4, income, school type) and engagement. Admin-
+// only, never shown to students.
+// ---------------------------------------------------------------------------
+
+export type WeightedComponents = { test: number; application: number; context: number; engagement: number }
+
+export type WeightedReview = {
+  /** 0-100, best candidate in the cohort = 100. */
+  pct: number
+  components: WeightedComponents
+  weights: WeightedComponents
+  inputs: Record<string, unknown>
+  model: string
+}
+
+function num(v: unknown, fallback = 0): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback
+}
+
+/** Defensive parse of the weighted_review jsonb payload. */
+export function parseWeightedReview(raw: unknown): WeightedReview | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const pct = typeof o.pct === 'number' ? Math.round(o.pct) : NaN
+  if (!(pct >= 0 && pct <= 100)) return null
+  const comp = (o.components ?? {}) as Record<string, unknown>
+  const wts = (o.weights ?? {}) as Record<string, unknown>
+  return {
+    pct,
+    components: {
+      test: num(comp.test), application: num(comp.application),
+      context: num(comp.context), engagement: num(comp.engagement),
+    },
+    weights: {
+      test: num(wts.test, 0.35), application: num(wts.application, 0.30),
+      context: num(wts.context, 0.30), engagement: num(wts.engagement, 0.05),
+    },
+    inputs: (o.inputs && typeof o.inputs === 'object') ? (o.inputs as Record<string, unknown>) : {},
+    model: typeof o.model === 'string' ? o.model : '',
+  }
+}
+
+/** Pale badge classes per weighted-score band — same visual family as the AI score. */
+export function weightedScoreBadgeClasses(pct: number): string {
+  if (pct >= 85) return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/40'
+  if (pct >= 70) return 'bg-teal-50 text-teal-700 ring-1 ring-teal-200 dark:bg-teal-950/30 dark:text-teal-300 dark:ring-teal-900/40'
+  if (pct >= 55) return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/40'
+  if (pct >= 40) return 'bg-orange-50 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-950/30 dark:text-orange-300 dark:ring-orange-900/40'
+  return 'bg-red-50 text-red-600 ring-1 ring-red-200 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/40'
+}
+
 export const DEFAULT_REVIEW_RUBRIC = `Score each applicant on fit for this Steps Foundation event. Prioritise, in order:
 1. Genuine, specific motivation — answers that engage with what THIS event offers (not generic "good opportunity" boilerplate).
 2. Evidence of initiative or resilience despite limited opportunity (school context, family circumstances, things they have built or pushed for themselves).
